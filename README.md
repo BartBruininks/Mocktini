@@ -8,7 +8,7 @@
 
 ## What Does It Do?
 
-Mocktini lets you set up a box of particles, define how they interact, and watch them evolve over time according to Newton's laws of motion. You can tune temperature, particle types, chain-like molecules (polymers), and more — all in real time through an interactive control panel.
+Mocktini lets you set up a box of particles, define how they interact, and watch them evolve over time according to Newton's laws of motion. You can tune temperature, particle types, (chain-like) molecules, and more — all in real time through an interactive control panel.
 
 It is useful for:
 - Visualising how particle interactions give rise to structure (liquid, gas, crystal)
