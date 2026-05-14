@@ -1,5 +1,7 @@
 <img width="700" height="158" alt="mocktini_logo" src="https://github.com/user-attachments/assets/59ec3578-f464-4d24-a44f-cad07d862217" />
 
+# Mocktini
+
 **Mocktini** is a 2D molecular dynamics (MD) simulator that runs entirely in your web browser — no installation required. It is designed to be approachable for students and researchers alike, while remaining grounded in the physics used in real simulation software.
 
 > 💡 New to molecular dynamics? Check the [Wiki](../../wiki) for background on concepts like the Mie potential, thermostats, and periodic boundary conditions.
