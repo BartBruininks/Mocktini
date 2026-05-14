@@ -20,10 +20,10 @@ It is useful for:
 
 ## Getting Started
 
-Download `mocktini_v1_0_2.html` and open it in a modern browser (Chrome or Edge recommended for GPU acceleration). No server, no dependencies.
+Download `mocktini.html` and open it in a modern browser (Chrome or Edge recommended for GPU acceleration). No server, no dependencies.
 
 1. Set the number of particles (**N**) and box size (**L**) in the control panel
-2. Choose your particle species ratios and interaction parameters
+2. Choose your interaction parameters by setting the interaction table (default ε=1.0 for all)
 3. Click **Fill** to populate the box with particles on a grid, then **Run** to start the simulation
 4. Use **Clear** to remove all particles and start fresh at any time
 
@@ -43,7 +43,7 @@ The two key parameters are:
 - **ε (epsilon)** — interaction strength (how strongly two particle types attract each other)
 - **σ (sigma)** — particle size (controls the effective diameter)
 
-The exponents 4 and 2 make this potential *softer* than the classic Lennard-Jones 12-6, which means particles can overlap slightly more before being strongly repelled. This is sometimes a better model for coarse-grained or colloidal systems.
+The exponents 4 and 2 make this potential *softer* than the classic Lennard-Jones 12-6, which means particles can overlap slightly more before being strongly repelled. This is sometimes a better model for coarse-grained or colloidal systems. Especially in 2D this is a much nicer potential, for it broadens the liquid regime of the particles, making everything a lot less crystalline compared to 12-6 LJ. 
 
 The potential is **shifted** so that it smoothly reaches zero at the cutoff distance *r*c, avoiding energy discontinuities.
 
@@ -51,15 +51,15 @@ The potential is **shifted** so that it smoothly reaches zero at the cutoff dist
 
 ### Particle Types and the Epsilon Matrix
 
-Mocktini supports up to **4 monomer types** (labelled 0–3), each with its own size σ. Interactions *between* types are controlled by a 4×4 **epsilon matrix** — you can make some pairs strongly attractive and others nearly non-interacting, which is a simple way to model selective affinity or segregation.
+Mocktini supports up to **4 monomer types** (labelled 0–3), each with its own size σ. Interactions *between* types are controlled by a 4×4 **epsilon matrix** — you can make some pairs strongly attractive and others nearly non-interacting, which is a simple way to model selective affinity or segregation. All particles use the same cutoff whichc an be set (default *r*c=2.5), it is best to use a cutoff which is at least 2-3 times the largest sigma.
 
 ### Bonds, Angles, and Molecules
-
 Particles can be connected using two kinds of bonded interactions:
 - **Harmonic bonds**: U = k/2 · (r − r₀)², a spring between two bonded particles
-- **Harmonic angles**: U = k/2 · (θ − θ₀)², a bending stiffness defined over three connected particles
+- **Signed-angle quadratic**: U = k/2 · (θ − θ₀)², a bending stiffness over three connected particles, where θ = atan2(d₁ × d₂, d₁ · d₂) ∈ (−π, π] is the **signed** 2D angle between the two bond vectors. Unlike a conventional harmonic angle, this formulation is chirality-sensitive: clockwise and counterclockwise bends are distinguished, and θ₀ can span the full range −180° < θ₀ ≤ 180°.
 
 An important detail: **every bonded pair automatically gets a non-bonded exclusion**. This means the Mie 2-4 potential is *not* computed between particles that are directly bonded or share an angle, on both the CPU and GPU engines. This is the standard practice in MD — without exclusions, bonded neighbours would be double-counted and the simulation would be unphysical.
+
 
 Mocktini supports three ways to build molecules:
 
@@ -118,9 +118,9 @@ The GPU path uses the same force expressions as the CPU path — results are phy
 ## The Control Panel
 
 ### Simulation Settings
-- **Fill** — populate the box with particles on a regular grid at the current N, L, and species ratios
-- **Clear** — remove all particles from the box
-- **Reset to Last** — undo the last Run by reverting particle positions and velocities to what they were before you hit Run, while keeping any topology changes (bonds, angles, added or deleted particles) you made in the meantime; useful for restarting from a clean configuration without losing your setup
+- **Fill** — populate the box with particles on a regular grid at the current N and species ratios (no retries)
+- **Clear** — remove all particles from the box and set the box size
+- **Reset to Last** — undo the last Run by reverting particle positions and velocities to what they were before you hit Run, or made any topology/position changes; useful for restarting when the system explodes
 - **Steps per frame** — how many MD steps to compute before redrawing
 - **Integrator** — choose Velocity Verlet or Stochastic Dynamics
 - **T (target temperature)** — the temperature the thermostat aims for
@@ -131,7 +131,7 @@ The GPU path uses the same force expressions as the CPU path — results are phy
 ### Particle and Molecule Setup
 - **N** — number of particles
 - **L** — simulation box side length
-- **Spacing** — initial grid spacing
+- **Spacing** — initial grid spacing used for the filling grid
 - **Species ratios** — relative amounts of each monomer type and polymer
 - **Mass per type** — particle masses (affects dynamics but not equilibrium structure)
 - **Molecule files** — import molecule definitions from JSON, or export any built or assembled molecule for sharing
@@ -153,13 +153,13 @@ Mocktini has several mouse interaction modes, switchable via keyboard shortcuts 
 | Mode | What it does |
 |------|-------------|
 | **Camera** | Pan (drag) and zoom (scroll) the view |
-| **Select** | Rubber-band select particles; supports copy, paste, delete, and drag |
+| **Select** | Rubber-band select molecules |
 | **Place** | Click to place individual particles or whole molecules |
 | **Bond Edit** | Click two particles to create or inspect a bond |
 | **Angle Edit** | Click three particles to define an angle constraint |
-| **Particle** | Click a particle to inspect or delete it |
+| **Particle** | Rubber-band select particles |
 
-Selected bonds and angles display their current length or angle in real time, and you can snap the rest value to the current geometry with the **⌖ snap** button.
+Selected bonds and angles display their current length or angle in real time, and you can snap the value to the current geometry with the **⌖ snap** button.
 
 ---
 
@@ -222,11 +222,11 @@ Current version: **v1.0.2**
 ## Limitations and Known Caveats
 
 - The simulation is strictly **2D** — this changes some thermodynamic quantities compared to 3D (e.g. the equipartition theorem gives 2 rather than 3 degrees of freedom per particle)
-- The GPU engine requires a browser with **WebGPU** support (Chrome 113+ or Edge 113+; Firefox support is in progress)
-- Very large systems (N > ~5000) may slow down even on the GPU path depending on hardware
+- The GPU engine requires a browser with **WebGPU** support (Safari, Chrome or Edge; Firefox support is in progress)
+- Very large systems (N > ~100,000) may slow down even on the GPU path depending on hardware
 
 ---
 
 ## Acknowledgements
 
-Mocktini was built as a single-file, self-contained educational tool for exploring 2D soft matter physics interactively in the browser.
+Mocktini was built by Dr. Bart MH Bruininks as a passion project whilst working at the Univeristy of Groningen (2026). It is a single-file, self-contained educational tool for exploring 2D soft matter physics interactively in the browser available under the MIT License.
