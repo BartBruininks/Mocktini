@@ -53,7 +53,7 @@ The potential is **shifted** so that it smoothly reaches zero at the cutoff dist
 
 ### Particle Types and the Epsilon Matrix
 
-Mocktini supports up to **4 monomer types** (labelled 0–3), each with its own size σ. Interactions *between* types are controlled by a 4×4 **epsilon matrix** — you can make some pairs strongly attractive and others nearly non-interacting, which is a simple way to model selective affinity or segregation. All particles use the same cutoff whichc an be set (default *r*c=2.5), it is best to use a cutoff which is at least 2-3 times the largest sigma.
+Mocktini supports up to **4 bead types** (labelled 0–3), each with its own size σ. Interactions *between* types are controlled by a 4×4 **epsilon matrix** — you can make some pairs strongly attractive and others nearly non-interacting, which is a simple way to model selective affinity or segregation. All particles use the same cutoff which can be set manually (default *r*c=2.5), it is best to use a cutoff which is at least 2-3 times the largest sigma.
 
 ### Bonds, Angles, and Molecules
 Particles can be connected using two kinds of bonded interactions:
@@ -96,7 +96,7 @@ Each simulation step advances the equations of motion using one of two integrato
 
 ### Thermostat
 
-When using Velocity Verlet, temperature is controlled by the **Bussi–Donadio–Parrinello** (stochastic velocity rescaling) thermostat. It periodically rescales particle velocities toward the target temperature *T*, while preserving the correct equilibrium fluctuations — unlike simple rescaling, it samples the correct canonical (NVT) ensemble.
+When using Velocity Verlet, temperature is controlled by the **Bussi–Donadio–Parrinello** (stochastic velocity rescaling) thermostat. It periodically rescales particle velocities toward the target temperature *T*, while preserving the correct equilibrium fluctuations, it samples the canonical (NVT) ensemble.
 
 The coupling strength is set by the time constant **τ_T**: larger values mean softer, slower coupling to the target temperature.
 
@@ -106,14 +106,16 @@ The coupling strength is set by the time constant **τ_T**: larger values mean s
 
 ## Simulation Engines
 
-Mocktini runs the same physics on two different backends that can be swapped while paused:
+Mocktini runs the same physics on two different backends:
 
 | Engine | How it works | Best for |
 |--------|-------------|----------|
-| **CPU** | Pure JavaScript, runs on any device | Debugging, small systems, browsers without WebGPU |
-| **GPU** | WebGPU compute shaders (WGSL) | Large systems (N > ~500), real-time performance |
+| **CPU** | Pure JavaScript, runs on any device | Debugging, small systems (N < ~2,000), real-time performance, browsers without WebGPU |
+| **GPU** | WebGPU compute shaders (WGSL) | Large systems (N < ~200,000), real-time performance |
 
-The GPU path uses the same force expressions as the CPU path — results are physically identical. Force computation uses a **cell list** neighbour scheme on both paths for O(N) scaling.
+The GPU path uses the same force expressions as the CPU path — results are physically identical (but not of equal precision). Force computation uses a **cell list** neighbour scheme on both paths for O(N) scaling.
+
+> 📖 [Wiki: Neighbor Scheme - maintaining scalability](../../wiki/Neighbor-Scheme)
 
 ---
 
@@ -195,7 +197,7 @@ Any molecule you build — whether through the Polymer Editor or by assembling p
 - **Share** it with collaborators, who load it in their own copy of Mocktini
 - **Combine** multiple imported molecules with built-in polymers and monomers in any ratio
 
-Molecule files are the right format when you want to share a *building block*, not a whole experiment.
+Molecule files are the right format when you want to share a *building block*, not a whole experiment. They are a discription of the bonded terms and do not contain information for the non-bonded interactions besides from specifying the bead types. 
 
 ### Complete State Files
 
@@ -231,4 +233,4 @@ Current version: **v1.0.2**
 
 ## Acknowledgements
 
-Mocktini was built by Dr. Bart MH Bruininks as a passion project whilst working at the Univeristy of Groningen (2026). It is a single-file, self-contained educational tool for exploring 2D soft matter physics interactively in the browser available under the MIT License.
+Mocktini was built by Dr. Bart MH Bruininks as a passion project during his appointment at the Univeristy of Groningen (2026). It is a single-file, self-contained educational tool for exploring 2D soft matter physics interactively in the browser available under the MIT License.
