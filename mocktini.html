@@ -8080,6 +8080,23 @@ engineSelect.addEventListener('change', async (e) => {
     }
     updateStats(sim);
 })();
+
+// ── Auto-load state from ?autoload=<path> URL param ──────────────────────
+// Usage: mocktini.html?autoload=systems/mocktini.md2d.json
+// index.html uses this to pre-load a default simulation state on first visit.
+(async () => {
+    const autoload = new URLSearchParams(location.search).get('autoload');
+    if (!autoload) return;
+    try {
+        const resp = await fetch(autoload);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const json = await resp.json();
+        if (json.format === 'md2d-state') await loadSimState(json);
+        else console.warn('Mocktini autoload: not a valid md2d-state file:', autoload);
+    } catch (err) {
+        console.warn('Mocktini autoload failed:', err);
+    }
+})();
 </script>
 </body>
 </html>
