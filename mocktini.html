@@ -942,12 +942,12 @@ button.btn-snap:hover { background: #3a9455; }
     </div>
 </div>
 
-<footer id="footer">Mocktini v1.0.3 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license</footer>
+<footer id="footer">Mocktini v1.0.4 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license</footer>
 
 <script>
 'use strict';
 // ════════════════════════════════════════════════════════════════════════════
-//  2D Mie 2-4 Molecular Dynamics  —  v1.0.3
+//  2D Mie 2-4 Molecular Dynamics  —  v1.0.4
 // ════════════════════════════════════════════════════════════════════════════
 //
 //  OVERVIEW
@@ -7299,60 +7299,107 @@ function resetTopologyState(sim) {
 }
 
 // ── clearSimulation — wipe all particles, reset to empty canvas ─────────────
-function clearSimulation() {
+async function clearSimulation() {
 
-    // -----------------------------
-    // Clear particles
-    // -----------------------------
+    stopLoop();
+    _invalidateDragAdj();
+
+    _selection   = null;
+    _ptSelection = null;
+
+    octx.clearRect(0, 0, 1000, 1000);
+
+    _preRunSnapshot = null;
+
+    if (btnResetLast) {
+        btnResetLast.disabled = true;
+        btnResetLast.style.background = '#888';
+    }
+
+    const newL = parseFloat(document.getElementById('L-n').value) || 50;
+
+    cpuSim.L = newL;
+    gpuSim.L = newL;
+
+    // ------------------------------------------------
+    // IMPORTANT:
+    // Let initialize() rebuild ALL hidden state
+    // ------------------------------------------------
     cpuSim.N = 0;
+    cpuSim.initialize();
 
-    cpuSim.x = new Float32Array(0);
-    cpuSim.y = new Float32Array(0);
-
-    cpuSim.vx = new Float32Array(0);
-    cpuSim.vy = new Float32Array(0);
-
-    cpuSim.fx = new Float32Array(0);
-    cpuSim.fy = new Float32Array(0);
-
-    cpuSim.types = new Uint32Array(0);
-    cpuSim.q = new Float32Array(0);
-
-    // -----------------------------
-    // CRITICAL FIX
-    // -----------------------------
+    // ------------------------------------------------
+    // THEN forcibly wipe topology state
+    // ------------------------------------------------
     resetTopologyState(cpuSim);
 
-    // -----------------------------
-    // Rebuild exclusions using NEW N
-    // -----------------------------
+    // ------------------------------------------------
+    // Rebuild exclusions from empty topology
+    // ------------------------------------------------
     if (cpuSim._rebuildExcl) {
         cpuSim._rebuildExcl();
     }
 
-    // -----------------------------
-    // Rebuild cells
-    // -----------------------------
     if (cpuSim._setupCells) {
         cpuSim._setupCells();
     }
 
-    // -----------------------------
-    // Upload CLEAN state
-    // -----------------------------
-    if (gpuSim && gpuSim.uploadFromCPU) {
+    // ------------------------------------------------
+    // HARD RESET GPU MIRRORS
+    // ------------------------------------------------
+    if (gpuSim.ready) {
+
+        gpuSim.N = 0;
+
+        gpuSim.nBonds = 0;
+        gpuSim.nAngles = 0;
+
+        gpuSim.bondI = new Int32Array(0);
+        gpuSim.bondJ = new Int32Array(0);
+        gpuSim.bondParamId = new Uint32Array(0);
+
+        gpuSim.angleI = new Int32Array(0);
+        gpuSim.angleJ = new Int32Array(0);
+        gpuSim.angleKarr = new Int32Array(0);
+        gpuSim.angleParamId = new Uint32Array(0);
+
+        gpuSim.exclOffsets = new Uint32Array(1);
+        gpuSim.exclList = new Uint32Array(0);
+
+        // FORCE buffer recreation
+        gpuSim.topologyBuffer = null;
+        gpuSim.bondBuffer = null;
+        gpuSim.angleBuffer = null;
+        gpuSim.exclusionBuffer = null;
+
+        // Upload empty authoritative CPU state
         gpuSim.uploadFromCPU(cpuSim);
+
+        gpuSim.x    = cpuSim.x;
+        gpuSim.y    = cpuSim.y;
+        gpuSim.vx   = cpuSim.vx;
+        gpuSim.vy   = cpuSim.vy;
+        gpuSim.type = cpuSim.type;
+
+        if (typeof _syncSelectionToGPU === 'function') {
+            _syncSelectionToGPU();
+        }
+
+        if (typeof gpuSim.renderGPU === 'function') {
+            gpuSim.renderGPU(
+                getColorMode(),
+                parseFloat(document.getElementById('pr-n').value) || 0.45
+            );
+        }
     }
 
     resetCamera();
 
-    // Always show CPU canvas for empty state
     if (gpuCanvas.style.display !== 'none') {
         gpuCanvas.style.display = 'none';
         canvas.style.display    = 'block';
     }
 
-    // CPU becomes authoritative after clear
     sim = cpuSim;
 
     draw(
@@ -7362,7 +7409,6 @@ function clearSimulation() {
     );
 
     updateStats(cpuSim);
-
 }
 
 if (btnClear) btnClear.addEventListener('click', clearSimulation);
