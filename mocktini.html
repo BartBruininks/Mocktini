@@ -583,8 +583,6 @@ button.btn-snap:hover { background: #3a9455; }
             </div>
             <!-- Particle type inspect -->
             <div id="ib-particle" style="display:none">
-                <span class="stat-key">PARTICLES</span>
-                <span class="stat-val" id="ip-count">—</span>
                 <span class="stat-key">Type</span>
                 <span class="ib-type-swatch" id="ip-swatch"></span>
                 <input type="number" class="inspect-input" id="ip-type" step="1" min="0" max="3" style="width:44px">
@@ -944,12 +942,12 @@ button.btn-snap:hover { background: #3a9455; }
     </div>
 </div>
 
-<footer id="footer">Mocktini v1.0.2 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license</footer>
+<footer id="footer">Mocktini v1.0.3 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license</footer>
 
 <script>
 'use strict';
 // ════════════════════════════════════════════════════════════════════════════
-//  2D Mie 2-4 Molecular Dynamics  —  v1.0.2
+//  2D Mie 2-4 Molecular Dynamics  —  v1.0.3
 // ════════════════════════════════════════════════════════════════════════════
 //
 //  OVERVIEW
@@ -4018,9 +4016,10 @@ function setMode(mode) {
     if ((_selectionMode === 'select'   && mode === 'particle') ||
         (_selectionMode === 'particle' && mode === 'select')) {
         _clearSelection();   // safe: _clearSelection no longer calls setMode
-        _updateInspectBar();
     }
     _updateCursor();
+    // Ensure the inspect bar and s-mode stat are always in sync with the new mode.
+    _updateInspectBar();
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -4805,6 +4804,7 @@ function _clearSelection() {
     }
     _updateCursor();
     _refreshSaveMolBtn();
+    _updateInspectBar();
 }
 
 
@@ -6036,14 +6036,24 @@ function _updateInspectBar() {
         }
     }
     if (hasParticle) {
-        const cnt = _selection.size;
-        document.getElementById('ip-count').textContent = cnt;
         const firstIdx = _selection.values().next().value;
         const curType  = (sim.type ? sim.type[firstIdx] & 3 : 0);
         const inp = document.getElementById('ip-type');
         if (inp && (inp !== document.activeElement)) inp.value = curType;
         const sw = document.getElementById('ip-swatch');
         if (sw) sw.style.background = _TYPE_COLORS[curType] || '#ccc';
+    }
+    // Keep the mode stat label in sync for selection modes — shows "SEL N" when a
+    // selection is live, bare mode name when empty.  Covers both the initial rubber-band
+    // result and re-entry into the mode while a selection is still held.
+    if (interactionMode === 'particle' || interactionMode === 'select') {
+        const el = document.getElementById('s-mode');
+        if (el) {
+            const cnt  = _selection ? _selection.size : 0;
+            const base = interactionMode === 'particle' ? 'PARTICLE' : 'SELECT';
+            el.textContent = cnt > 0 ? `SEL ${cnt}` : base;
+            el.style.color = '';
+        }
     }
 }
 
@@ -7207,65 +7217,131 @@ const btnClear = document.getElementById('btn-clear');
 const btnResetLast = document.getElementById('btn-reset-last');
 const engineSelect = document.getElementById('engine-select');
 
+// Helper to completely reset all CPU/GPU topology data
+function resetTopologyState(sim) {
+    // -----------------------------
+    // Bond state
+    // -----------------------------
+    sim.nBonds = 0;
+
+    sim.bondI = new Int32Array(0);
+    sim.bondJ = new Int32Array(0);
+    sim.bondParamId = new Uint32Array(0);
+
+    // Optional legacy arrays
+    sim.bondK = new Float32Array(0);
+    sim.bondR0 = new Float32Array(0);
+
+    // -----------------------------
+    // Angle state
+    // -----------------------------
+    sim.nAngles = 0;
+
+    sim.angleI = new Int32Array(0);
+    sim.angleJ = new Int32Array(0);
+    sim.angleKarr = new Int32Array(0);
+    sim.angleParamId = new Uint32Array(0);
+
+    // Optional legacy arrays
+    sim.angleK = new Float32Array(0);
+    sim.angleTheta0 = new Float32Array(0);
+
+    // -----------------------------
+    // Exclusions
+    // -----------------------------
+    sim.bondExclude = new Set();
+
+    // CSR exclusion storage
+    sim.exclOffsets = new Uint32Array(sim.N + 1);
+    sim.exclList = new Uint32Array(0);
+
+    // -----------------------------
+    // Molecule bookkeeping
+    // -----------------------------
+    sim.molecules = [];
+    sim.moleculeRanges = [];
+
+    // -----------------------------
+    // Neighbor / topology caches
+    // -----------------------------
+    sim.topologyDirty = true;
+
+    // If these exist in your engine
+    sim.bondAdjacency = null;
+    sim.angleAdjacency = null;
+    sim.cachedBondGraph = null;
+
+    // -----------------------------
+    // GPU-side mirrors (VERY IMPORTANT)
+    // -----------------------------
+    if (sim.gpuSim) {
+        sim.gpuSim.nBonds = 0;
+        sim.gpuSim.nAngles = 0;
+
+        sim.gpuSim.bondI = new Int32Array(0);
+        sim.gpuSim.bondJ = new Int32Array(0);
+        sim.gpuSim.bondParamId = new Uint32Array(0);
+
+        sim.gpuSim.angleI = new Int32Array(0);
+        sim.gpuSim.angleJ = new Int32Array(0);
+        sim.gpuSim.angleKarr = new Int32Array(0);
+        sim.gpuSim.angleParamId = new Uint32Array(0);
+
+        sim.gpuSim.exclOffsets = new Uint32Array(1);
+        sim.gpuSim.exclList = new Uint32Array(0);
+
+        // Force GPU buffer recreation
+        sim.gpuSim.topologyBuffer = null;
+        sim.gpuSim.bondBuffer = null;
+        sim.gpuSim.angleBuffer = null;
+        sim.gpuSim.exclusionBuffer = null;
+    }
+}
+
 // ── clearSimulation — wipe all particles, reset to empty canvas ─────────────
-async function clearSimulation() {
-    stopLoop();
-    _invalidateDragAdj();
+function clearSimulation() {
 
-    _selection   = null;
-    _ptSelection = null;
+    // -----------------------------
+    // Clear particles
+    // -----------------------------
+    cpuSim.N = 0;
 
-    octx.clearRect(0, 0, 1000, 1000);
+    cpuSim.x = new Float32Array(0);
+    cpuSim.y = new Float32Array(0);
 
-    _preRunSnapshot = null;
+    cpuSim.vx = new Float32Array(0);
+    cpuSim.vy = new Float32Array(0);
 
-    if (btnResetLast) {
-        btnResetLast.disabled = true;
-        btnResetLast.style.background = '#888';
+    cpuSim.fx = new Float32Array(0);
+    cpuSim.fy = new Float32Array(0);
+
+    cpuSim.types = new Uint32Array(0);
+    cpuSim.q = new Float32Array(0);
+
+    // -----------------------------
+    // CRITICAL FIX
+    // -----------------------------
+    resetTopologyState(cpuSim);
+
+    // -----------------------------
+    // Rebuild exclusions using NEW N
+    // -----------------------------
+    if (cpuSim._rebuildExcl) {
+        cpuSim._rebuildExcl();
     }
 
-    // Apply the current Box L slider value immediately
-    const newL = parseFloat(document.getElementById('L-n').value) || 50;
+    // -----------------------------
+    // Rebuild cells
+    // -----------------------------
+    if (cpuSim._setupCells) {
+        cpuSim._setupCells();
+    }
 
-    cpuSim.L = newL;
-    gpuSim.L = newL;
-
-    // -------------------------------------------------------------------------
-    // CPU authoritative reset
-    // -------------------------------------------------------------------------
-    cpuSim.N = 0;
-    cpuSim.initialize();   // rebuilds empty CPU-side arrays
-
-    // -------------------------------------------------------------------------
-    // IMPORTANT:
-    // Rebuild / overwrite GPU buffers from the now-empty CPU state.
-    // This is what prevents "particle resurrection".
-    // -------------------------------------------------------------------------
-    if (gpuSim.ready) {
-
-        // Upload the empty state into GPU buffers/textures
+    // -----------------------------
+    // Upload CLEAN state
+    // -----------------------------
+    if (gpuSim && gpuSim.uploadFromCPU) {
         gpuSim.uploadFromCPU(cpuSim);
-
-        // Keep mirrored references consistent
-        gpuSim.N    = 0;
-        gpuSim.x    = cpuSim.x;
-        gpuSim.y    = cpuSim.y;
-        gpuSim.vx   = cpuSim.vx;
-        gpuSim.vy   = cpuSim.vy;
-        gpuSim.type = cpuSim.type;
-
-        // Clear any GPU-side selection/highlight state
-        if (typeof _syncSelectionToGPU === 'function') {
-            _syncSelectionToGPU();
-        }
-
-        // Force a blank GPU render once so stale framebuffer contents vanish
-        if (typeof gpuSim.renderGPU === 'function') {
-            gpuSim.renderGPU(
-                getColorMode(),
-                parseFloat(document.getElementById('pr-n').value) || 0.45
-            );
-        }
     }
 
     resetCamera();
@@ -7286,6 +7362,7 @@ async function clearSimulation() {
     );
 
     updateStats(cpuSim);
+
 }
 
 if (btnClear) btnClear.addEventListener('click', clearSimulation);
