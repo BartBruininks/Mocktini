@@ -1116,8 +1116,9 @@ const customMolDefs = [];   // all custom molecule definitions (imports + assemb
 
 // ── Placement mode state ──────────────────────────────────────────────────────
 // Active only while interactionMode === 'place'.
-let _placementMol   = null;   // current entry from customMolDefs (mol definition being placed)
-let _ghostMolId     = null;   // molId of the live ghost particles in sim (null when none)
+let _placementMol   = null;  // current entry from customMolDefs (mol definition being placed)
+let _ghostBaseIndex = null;  // index of first ghost particle in cpuSim arrays (null = no ghost)
+let _ghostCount     = 0;     // number of ghost particles; live range is [_ghostBaseIndex, _ghostBaseIndex + _ghostCount)
 
 // Returns the CSS colour for a mol ID, or null if it's a free monomer.
 // Callers should fall back to the bead type colour when null is returned.
@@ -4353,7 +4354,10 @@ async function _addGhostParticles(cx, cy, rotation) {
     const L    = cpuSim.L;
     const cos  = Math.cos(rotation), sin = Math.sin(rotation);
 
-    _ghostMolId = _nextMolId++;
+    // Record the exact index range so we can find/remove the ghost without
+    // relying on a special molId — the canonical assembly molId is used directly.
+    _ghostBaseIndex = base;
+    _ghostCount     = n;
 
     cpuSim.x    = _growArr(Float32Array, cpuSim.x,    newN);
     cpuSim.y    = _growArr(Float32Array, cpuSim.y,    newN);
@@ -4376,7 +4380,8 @@ async function _addGhostParticles(cx, cy, rotation) {
         cpuSim.y[gi]  = ((cy + ry) % L + L) % L;
         cpuSim.vx[gi] = 0; cpuSim.vy[gi] = 0;
         cpuSim.type[gi] = cm.molDef.beadTypes[li] ?? 0;
-        if (cpuSim.molIdPerParticle) cpuSim.molIdPerParticle[gi] = _ghostMolId;
+        // Use the canonical assembly/import molId directly — no temp ID needed.
+        if (cpuSim.molIdPerParticle) cpuSim.molIdPerParticle[gi] = cm.molId;
     }
 
     const bonds = cm.molDef.bonds || [];
@@ -4424,24 +4429,28 @@ async function _addGhostParticles(cx, cy, rotation) {
 
 // Remove the live ghost particles from the sim (called on Escape or mode exit).
 async function _removeGhostParticles() {
-    if (_ghostMolId === null) return;
-    const id = _ghostMolId;
-    _ghostMolId     = null;
+    if (_ghostBaseIndex === null) return;
+    const base  = _ghostBaseIndex;
+    const count = _ghostCount;
+    _ghostBaseIndex = null;
+    _ghostCount     = 0;
     _placementMol   = null;
     _selection      = null;
     _selectionFrame = null;
     _syncSelectionToGPU();
-    await _deleteByMolId(id);
+    await _deleteByIndexRange(base, count);
 }
 
 // Confirm current ghost placement: ghost becomes permanent, a fresh ghost is
 // added at the same position so the user can drop multiple copies.
 async function _confirmPlacement(simX, simY) {
-    if (!_placementMol || _ghostMolId === null || !_selectionFrame) return;
+    if (!_placementMol || _ghostBaseIndex === null || !_selectionFrame) return;
     // Capture rotation before resetting state.
     const rotation = _selectionFrame.rotation;
-    // The ghost is already positioned correctly — just strip its ghost status.
-    _ghostMolId = null;
+    // The ghost particles already carry the canonical molId — nothing to rewrite.
+    // Just clear the ghost tracking so they are considered permanent.
+    _ghostBaseIndex = null;
+    _ghostCount     = 0;
     _selection  = null; _selectionFrame = null;
     _syncSelectionToGPU();
     // Add a fresh ghost at the confirmed click position, keeping the rotation.
@@ -4535,6 +4544,66 @@ async function _deleteByMolId(targetMolId) {
     _finalizeEdit();
 }
 
+
+// Delete a contiguous range of particles [base, base+count) by index.
+// Used by _removeGhostParticles; faster and more explicit than scanning by molId.
+async function _deleteByIndexRange(base, count) {
+    if (count <= 0) return;
+    await _prepareForEdit();
+    const end = base + count;
+    const remap = new Int32Array(cpuSim.N).fill(-1);
+    let newIdx = 0;
+    for (let i = 0; i < cpuSim.N; i++) {
+        if (i >= base && i < end) continue;
+        remap[i] = newIdx++;
+    }
+    const newN = newIdx;
+    const nx  = new Float32Array(newN), ny  = new Float32Array(newN);
+    const nvx = new Float32Array(newN), nvy = new Float32Array(newN);
+    const nfx = new Float32Array(newN), nfy = new Float32Array(newN);
+    const nt  = new Int8Array(newN);
+    const nm  = cpuSim.molIdPerParticle ? new Uint32Array(newN).fill(0xFFFFFFFF) : null;
+    for (let i = 0; i < cpuSim.N; i++) {
+        if (i >= base && i < end) continue;
+        const ni = remap[i];
+        nx[ni] = cpuSim.x[i]; ny[ni] = cpuSim.y[i];
+        nvx[ni]= cpuSim.vx[i]; nvy[ni]= cpuSim.vy[i];
+        nt[ni] = cpuSim.type ? cpuSim.type[i] : 0;
+        if (nm && cpuSim.molIdPerParticle) nm[ni] = cpuSim.molIdPerParticle[i];
+    }
+    cpuSim.N = newN; cpuSim.x = nx; cpuSim.y = ny; cpuSim.vx = nvx; cpuSim.vy = nvy;
+    cpuSim.fx = nfx; cpuSim.fy = nfy; cpuSim.next = new Int32Array(newN);
+    cpuSim.type = nt; if (nm) cpuSim.molIdPerParticle = nm;
+    const newBonds = [], newBPids = [];
+    for (let b = 0; b < (cpuSim.nBonds || 0); b++) {
+        const bi = remap[cpuSim.bondI[b]], bj = remap[cpuSim.bondJ[b]];
+        if (bi >= 0 && bj >= 0) { newBonds.push([bi, bj]); newBPids.push(cpuSim.bondParamId ? cpuSim.bondParamId[b] : 0); }
+    }
+    cpuSim.nBonds = newBonds.length;
+    cpuSim.bondI  = new Int32Array(Math.max(1, cpuSim.nBonds));
+    cpuSim.bondJ  = new Int32Array(Math.max(1, cpuSim.nBonds));
+    cpuSim.bondParamId = new Uint32Array(Math.max(1, cpuSim.nBonds));
+    for (let b = 0; b < newBonds.length; b++) {
+        cpuSim.bondI[b] = newBonds[b][0]; cpuSim.bondJ[b] = newBonds[b][1]; cpuSim.bondParamId[b] = newBPids[b];
+    }
+    const newAngles = [], newAPids = [];
+    for (let a = 0; a < (cpuSim.nAngles || 0); a++) {
+        const ai = remap[cpuSim.angleI[a]], aj = remap[cpuSim.angleJ[a]], ak = remap[cpuSim.angleKarr[a]];
+        if (ai >= 0 && aj >= 0 && ak >= 0) { newAngles.push([ai, aj, ak]); newAPids.push(cpuSim.angleParamId ? cpuSim.angleParamId[a] : 0); }
+    }
+    cpuSim.nAngles = newAngles.length;
+    cpuSim.angleI  = new Int32Array(Math.max(1, cpuSim.nAngles));
+    cpuSim.angleJ  = new Int32Array(Math.max(1, cpuSim.nAngles));
+    cpuSim.angleKarr    = new Int32Array(Math.max(1, cpuSim.nAngles));
+    cpuSim.angleParamId = new Uint32Array(Math.max(1, cpuSim.nAngles));
+    for (let a = 0; a < newAngles.length; a++) {
+        cpuSim.angleI[a] = newAngles[a][0]; cpuSim.angleJ[a] = newAngles[a][1];
+        cpuSim.angleKarr[a] = newAngles[a][2]; cpuSim.angleParamId[a] = newAPids[a];
+    }
+    _rebuildExcl(cpuSim);
+    _selection = null; _selectionMode = null;
+    _finalizeEdit();
+}
 
 // ── Overlay canvas (rubber-band rect + grey-out, always on top) ───────────────
 const overlayCanvas = document.createElement('canvas');
