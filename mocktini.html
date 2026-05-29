@@ -942,12 +942,12 @@ button.btn-snap:hover { background: #3a9455; }
     </div>
 </div>
 
-<footer id="footer">Mocktini v1.0.4 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license</footer>
+<footer id="footer">Mocktini v1.0.5 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license</footer>
 
 <script>
 'use strict';
 // ════════════════════════════════════════════════════════════════════════════
-//  2D Mie 2-4 Molecular Dynamics  —  v1.0.4
+//  Mocktini - 2D Mie 2-4 Molecular Dynamics  —  v1.0.5
 // ════════════════════════════════════════════════════════════════════════════
 //
 //  OVERVIEW
@@ -958,7 +958,7 @@ button.btn-snap:hover { background: #3a9455; }
 //
 //  ARCHITECTURE
 //  ------------
-//  UI / HTML          lines   1 –  568   CSS + control panel HTML
+//  UI / HTML          lines    1 –  568   CSS + control panel HTML
 //  UI Utilities       lines ~570 –  880   wire(), URL persistence, colour helpers
 //  CPU Engine         lines ~880 – 1500   MD2D_CPU class  (VV + BAOAB integrators)
 //  GPU Shaders        lines~1500 – 1760   WGSL render + bond-render strings
@@ -1116,9 +1116,8 @@ const customMolDefs = [];   // all custom molecule definitions (imports + assemb
 
 // ── Placement mode state ──────────────────────────────────────────────────────
 // Active only while interactionMode === 'place'.
-let _placementMol   = null;   // current entry from customMolDefs
-let _placementPos   = null;   // sim-space {x,y} under mouse for preview
-let _placementAngle = 0;      // current rotation of the ghost (radians)
+let _placementMol   = null;   // current entry from customMolDefs (mol definition being placed)
+let _ghostMolId     = null;   // molId of the live ghost particles in sim (null when none)
 
 // Returns the CSS colour for a mol ID, or null if it's a free monomer.
 // Callers should fall back to the bead type colour when null is returned.
@@ -3930,22 +3929,7 @@ function renderFrame() {
             sim.renderGPU(colorMode, radius);
     };
 
-    // During placement, grey all existing particles so the ghost stands out clearly.
-    // We temporarily swap in an empty (non-null) selection — desat logic: sel && !sel.has(i).
-    if (interactionMode === 'place' && _placementMol) {
-        const savedSel = _selection;
-        _selection = new Set();
-        _syncSelectionToGPU();
-        _render();
-        _selection = savedSel;
-        _syncSelectionToGPU();
-    } else if (interactionMode === 'particle') {
-        // Particle mode: _selection holds the bead-level selection.
-        // Desaturation is handled identically to select mode — no swap needed.
-        _render();
-    } else {
-        _render();
-    }
+    _render();
     _drawSelectionOverlay();
     if (interactionMode === 'bond')  _drawEditOverlay();
     if (interactionMode === 'angle') _drawAngleOverlay();
@@ -4002,11 +3986,10 @@ function setMode(mode) {
     const tabBtn  = document.querySelector(`.sc-tab[data-tab="${tabKey}"]`);
     if (tabBtn && !tabBtn.classList.contains('active')) tabBtn.click();
 
-    // Leaving place mode: kill the ghost, restore proper (un-greyed) render.
+    // Leaving place mode: remove ghost particles (they become permanent on confirm,
+    // but if we exit another way they must be deleted).
     if (prevMode === 'place' && mode !== 'place') {
-        _placementMol = null; _placementPos = null; _placementAngle = 0;
-        octx.clearRect(0, 0, 1000, 1000);
-        _syncSelectionToGPU();   // restore real selection so particles un-grey
+        _removeGhostParticles();   // async fire-and-forget; clears _placementMol too
         if (!running) renderFrame();
     }
     // Wipe selection only when switching between incompatible selection types.
@@ -4034,54 +4017,31 @@ function _refreshSaveMolBtn() {
 // Export the active selection to a .mol2d.json download.
 async function exportSelectionAsMolecule() {
     if (!_selection || _selection.size === 0) return;
-    // Ensure we have fresh positions for GPU path.
     if (currentEngine === 'gpu' && gpuSim.ready) await gpuSim._fullReadback();
 
-    const inds   = [..._selection];
-    const idxMap = new Map();
-    inds.forEach((gi, li) => idxMap.set(gi, li));
-
-    let cx = 0, cy = 0;
-    for (const i of inds) { cx += sim.x[i]; cy += sim.y[i]; }
-    cx /= inds.length; cy /= inds.length;
-
-    const positions = inds.map(i => ({
-        x: +((sim.x[i] - cx).toFixed(6)),
-        y: +((sim.y[i] - cy).toFixed(6)),
-    }));
-    const beadTypes = inds.map(i => (sim.type ? sim.type[i] & 3 : 0));
-
-    const bonds = [];
-    for (let b = 0; b < (sim.nBonds || 0); b++) {
-        if (!idxMap.has(sim.bondI[b]) || !idxMap.has(sim.bondJ[b])) continue;
-        const pid = sim.bondParamId ? sim.bondParamId[b] : 0;
-        const p   = sim.bondParamTable?.[pid];
-        bonds.push({ i: idxMap.get(sim.bondI[b]), j: idxMap.get(sim.bondJ[b]),
-                     k: p?.k ?? 100, r0: p?.r0 ?? null });
-    }
-
-    const angles = [];
-    for (let a = 0; a < (sim.nAngles || 0); a++) {
-        if (!idxMap.has(sim.angleI[a]) || !idxMap.has(sim.angleJ[a]) || !idxMap.has(sim.angleKarr[a])) continue;
-        const pid = sim.angleParamId ? sim.angleParamId[a] : 0;
-        const p   = sim.angleParamTable?.[pid];
-        angles.push({ i: idxMap.get(sim.angleI[a]), j: idxMap.get(sim.angleJ[a]),
-                      k: idxMap.get(sim.angleKarr[a]),
-                      kAngle: p?.k ?? 10,
-                      theta0Deg: +((p?.theta0 ?? Math.PI) * 180 / Math.PI).toFixed(4) });
-    }
+    const inds    = [..._selection];
+    const anchorX = _selectionFrame ? _selectionFrame.corX + _selectionFrame.tx : undefined;
+    const anchorY = _selectionFrame ? _selectionFrame.corY + _selectionFrame.ty : undefined;
+    const { positions, beadTypes, bonds, angles } = _selectionToMolData(inds, anchorX, anchorY);
 
     // Derive exclusions from bonds + angle endpoints.
+    const idxMap = new Map();
+    inds.forEach((gi, li) => idxMap.set(gi, li));
     const exclSet = new Set();
     for (const b of bonds)  exclSet.add(`${Math.min(b.i,b.j)},${Math.max(b.i,b.j)}`);
     for (const a of angles) exclSet.add(`${Math.min(a.i,a.k)},${Math.max(a.i,a.k)}`);
     const exclusions = [...exclSet].map(s => { const [i,j]=s.split(',').map(Number); return {i,j}; });
 
+    // Convert theta0 radians → degrees for the file format.
+    const anglesOut = angles.map(a => ({ ...a,
+        theta0Deg: +((a.theta0) * 180 / Math.PI).toFixed(4),
+        theta0: undefined }));
+
     const rawName = (document.getElementById('mol-name-input')?.value.trim() || `molecule_${Date.now()}`).replace(/\s+/g, '_');
     const mol = {
         format: 'md2d-molecule', version: '1',
         name:   rawName,
-        nBeads: inds.length, beadTypes, bonds, angles, exclusions, positions,
+        nBeads: inds.length, beadTypes, bonds, angles: anglesOut, exclusions, positions,
     };
 
     const blob = new Blob([JSON.stringify(mol, null, 2)], { type: 'application/json' });
@@ -4370,18 +4330,123 @@ async function importMoleculeFile(file) {
     if (!running) enterPlacementMode(entry);
 }
 
-// Enter placement mode: the molecule ghost follows the mouse until clicked.
-function enterPlacementMode(molEntry) {
-    _placementMol   = molEntry;
-    _placementPos   = { x: camera.x, y: camera.y };
-    _placementAngle = 0;   // fresh rotation for each molecule session
-    // Clear any active selection — highlights and greying don't belong in placement mode.
-    _selection = null;
-    _syncSelectionToGPU();
+// Enter placement mode.  Adds a live ghost selection to the sim so all
+// movement and rotation reuses the existing _selectionFrame path (GPU, fast).
+async function enterPlacementMode(molEntry) {
+    await _removeGhostParticles();        // clean up any previous ghost
+    _placementMol = molEntry;
+    await _addGhostParticles(camera.x, camera.y, 0);
     setMode('place');
-    // Re-render now so the old selection highlight is gone before the ghost appears.
-    if (!running) renderFrame();
-    _drawSelectionOverlay();
+    renderFrame();
+}
+
+// Add ghost particles for the current _placementMol centred at (cx, cy) with
+// the given initial rotation (radians).  Sets up _selection and _selectionFrame
+// so the ghost moves and rotates through the standard selection frame path.
+async function _addGhostParticles(cx, cy, rotation) {
+    if (!_placementMol) return;
+    await _prepareForEdit();
+
+    const cm   = _placementMol;
+    const n    = cm.positions.length;
+    const base = cpuSim.N, newN = base + n;
+    const L    = cpuSim.L;
+    const cos  = Math.cos(rotation), sin = Math.sin(rotation);
+
+    _ghostMolId = _nextMolId++;
+
+    cpuSim.x    = _growArr(Float32Array, cpuSim.x,    newN);
+    cpuSim.y    = _growArr(Float32Array, cpuSim.y,    newN);
+    cpuSim.vx   = _growArr(Float32Array, cpuSim.vx,   newN);
+    cpuSim.vy   = _growArr(Float32Array, cpuSim.vy,   newN);
+    cpuSim.fx   = _growArr(Float32Array, cpuSim.fx,   newN);
+    cpuSim.fy   = _growArr(Float32Array, cpuSim.fy,   newN);
+    cpuSim.next = _growArr(Int32Array,   cpuSim.next, newN);
+    cpuSim.type = _growArr(Int8Array,    cpuSim.type, newN);
+    if (cpuSim.molIdPerParticle)
+        cpuSim.molIdPerParticle = _growArr(Uint32Array, cpuSim.molIdPerParticle, newN);
+    cpuSim.N = newN;
+
+    for (let li = 0; li < n; li++) {
+        const gi = base + li;
+        const p  = cm.positions[li];
+        const rx = p.x * cos - p.y * sin;
+        const ry = p.x * sin + p.y * cos;
+        cpuSim.x[gi]  = ((cx + rx) % L + L) % L;
+        cpuSim.y[gi]  = ((cy + ry) % L + L) % L;
+        cpuSim.vx[gi] = 0; cpuSim.vy[gi] = 0;
+        cpuSim.type[gi] = cm.molDef.beadTypes[li] ?? 0;
+        if (cpuSim.molIdPerParticle) cpuSim.molIdPerParticle[gi] = _ghostMolId;
+    }
+
+    const bonds = cm.molDef.bonds || [];
+    const nbOld = cpuSim.nBonds || 0, nbNew = nbOld + bonds.length;
+    const nBI   = _growArr(Int32Array,  cpuSim.bondI,       nbNew);
+    const nBJ   = _growArr(Int32Array,  cpuSim.bondJ,       nbNew);
+    const nBPid = _growArr(Uint32Array, cpuSim.bondParamId, nbNew);
+    const bParamBase = cpuSim.bondParamTable.length;
+    for (const b of bonds) cpuSim.bondParamTable.push({ k: b.k, r0: b.r0 ?? 1.0 });
+    for (let b = 0; b < bonds.length; b++) {
+        nBI [nbOld + b] = base + bonds[b].i;
+        nBJ [nbOld + b] = base + bonds[b].j;
+        nBPid[nbOld + b] = bParamBase + b;
+    }
+    cpuSim.bondI = nBI; cpuSim.bondJ = nBJ; cpuSim.bondParamId = nBPid;
+    cpuSim.nBonds = nbNew;
+
+    const angles = cm.molDef.angles || [];
+    const naOld  = cpuSim.nAngles || 0, naNew = naOld + angles.length;
+    if (naNew > 0) {
+        const nAI   = _growArr(Int32Array,  cpuSim.angleI,       naNew);
+        const nAJ   = _growArr(Int32Array,  cpuSim.angleJ,       naNew);
+        const nAK   = _growArr(Int32Array,  cpuSim.angleKarr,    naNew);
+        const nAPid = _growArr(Uint32Array, cpuSim.angleParamId, naNew);
+        const aParamBase = cpuSim.angleParamTable.length;
+        for (const a of angles) cpuSim.angleParamTable.push({ k: a.kAngle, theta0: a.theta0 });
+        for (let a = 0; a < angles.length; a++) {
+            nAI [naOld + a] = base + angles[a].i;
+            nAJ [naOld + a] = base + angles[a].j;
+            nAK [naOld + a] = base + angles[a].k;
+            nAPid[naOld + a] = aParamBase + a;
+        }
+        cpuSim.angleI = nAI; cpuSim.angleJ = nAJ;
+        cpuSim.angleKarr = nAK; cpuSim.angleParamId = nAPid;
+    }
+    cpuSim.nAngles = naNew;
+    _rebuildExcl(cpuSim);
+    _finalizeEdit();
+
+    _selection = new Set();
+    for (let li = 0; li < n; li++) _selection.add(base + li);
+    _selectionFrame = buildSelectionFrame([..._selection], cx, cy);
+    _syncSelectionToGPU();
+}
+
+// Remove the live ghost particles from the sim (called on Escape or mode exit).
+async function _removeGhostParticles() {
+    if (_ghostMolId === null) return;
+    const id = _ghostMolId;
+    _ghostMolId     = null;
+    _placementMol   = null;
+    _selection      = null;
+    _selectionFrame = null;
+    _syncSelectionToGPU();
+    await _deleteByMolId(id);
+}
+
+// Confirm current ghost placement: ghost becomes permanent, a fresh ghost is
+// added at the same position so the user can drop multiple copies.
+async function _confirmPlacement(simX, simY) {
+    if (!_placementMol || _ghostMolId === null || !_selectionFrame) return;
+    // Capture rotation before resetting state.
+    const rotation = _selectionFrame.rotation;
+    // The ghost is already positioned correctly — just strip its ghost status.
+    _ghostMolId = null;
+    _selection  = null; _selectionFrame = null;
+    _syncSelectionToGPU();
+    // Add a fresh ghost at the confirmed click position, keeping the rotation.
+    await _addGhostParticles(simX, simY, rotation);
+    renderFrame();
 }
 
 // Save the current selection as a named assembly entry for re-placement.
@@ -4389,47 +4454,10 @@ async function _saveSelectionAsAssembly() {
     if (!_selection || _selection.size === 0 ) return;
     if (currentEngine === 'gpu' && gpuSim.ready) await gpuSim._fullReadback();
 
-    const inds   = [..._selection];
-    const idxMap = new Map();
-    inds.forEach((gi, li) => idxMap.set(gi, li));
-
-    // PBC-aware centroid
-    const L = sim.L, half = L / 2;
-    const ax = sim.x[inds[0]], ay = sim.y[inds[0]];
-    let sx = 0, sy = 0;
-    for (const i of inds) {
-        let dx = sim.x[i] - ax; if (dx >  half) dx -= L; if (dx < -half) dx += L;
-        let dy = sim.y[i] - ay; if (dy >  half) dy -= L; if (dy < -half) dy += L;
-        sx += dx; sy += dy;
-    }
-    const cx = ((ax + sx / inds.length) % L + L) % L;
-    const cy = ((ay + sy / inds.length) % L + L) % L;
-
-    const positions = inds.map(i => {
-        let dx = sim.x[i] - cx; if (dx >  half) dx -= L; if (dx < -half) dx += L;
-        let dy = sim.y[i] - cy; if (dy >  half) dy -= L; if (dy < -half) dy += L;
-        return { x: +dx.toFixed(6), y: +dy.toFixed(6) };
-    });
-    const beadTypes = inds.map(i => (sim.type ? sim.type[i] & 3 : 0));
-
-    const bonds = [];
-    for (let b = 0; b < (sim.nBonds || 0); b++) {
-        if (!idxMap.has(sim.bondI[b]) || !idxMap.has(sim.bondJ[b])) continue;
-        const pid = sim.bondParamId ? sim.bondParamId[b] : 0;
-        const p   = sim.bondParamTable?.[pid];
-        bonds.push({ i: idxMap.get(sim.bondI[b]), j: idxMap.get(sim.bondJ[b]),
-                     k: p?.k ?? 100, r0: p?.r0 ?? null });
-    }
-
-    const angles = [];
-    for (let a = 0; a < (sim.nAngles || 0); a++) {
-        const ai = sim.angleI[a], aj = sim.angleJ[a], ak = sim.angleKarr[a];
-        if (!idxMap.has(ai) || !idxMap.has(aj) || !idxMap.has(ak)) continue;
-        const pid = sim.angleParamId ? sim.angleParamId[a] : 0;
-        const p   = sim.angleParamTable?.[pid];
-        angles.push({ i: idxMap.get(ai), j: idxMap.get(aj), k: idxMap.get(ak),
-                      kAngle: p?.k ?? 10, theta0: p?.theta0 ?? Math.PI });
-    }
+    const inds    = [..._selection];
+    const anchorX = _selectionFrame ? _selectionFrame.corX + _selectionFrame.tx : undefined;
+    const anchorY = _selectionFrame ? _selectionFrame.corY + _selectionFrame.ty : undefined;
+    const { positions, beadTypes, bonds, angles } = _selectionToMolData(inds, anchorX, anchorY);
 
     const molId  = _nextMolId++;
     const color  = molPaletteCSS[Math.min(molId, 255)];
@@ -4442,7 +4470,6 @@ async function _saveSelectionAsAssembly() {
         positions,
     };
     customMolDefs.push(entry);
-    // ratio = target molecule count (molar ratio); bead cost shown read-only in the UI.
     speciesTable.push({ name, kind: 'custom', source: 'assembly',
                         customIdx: customMolDefs.length - 1, ratio: 1, color });
     buildSpeciesTableUI();
@@ -4508,94 +4535,6 @@ async function _deleteByMolId(targetMolId) {
     _finalizeEdit();
 }
 
-// Returns the placement molecule's positions rotated by _placementAngle.
-// Always returns a fresh array so the stored positions are never mutated.
-function _getPlacementPositions() {
-    if (!_placementMol) return [];
-    if (_placementAngle === 0) return _placementMol.positions;
-    const cos = Math.cos(_placementAngle), sin = Math.sin(_placementAngle);
-    return _placementMol.positions.map(p => ({
-        x: p.x * cos - p.y * sin,
-        y: p.x * sin + p.y * cos,
-    }));
-}
-
-// Drop the current placement molecule at sim-space position (simX, simY).
-async function _placeMoleculeAt(simX, simY) {
-    if (!_placementMol) return;
-    await _prepareForEdit();
-
-    const cm = _placementMol, n = cm.positions.length;
-    const positions = _getPlacementPositions();   // rotated by _placementAngle
-    const base = cpuSim.N, newN = base + n;
-    const L    = cpuSim.L;
-
-    cpuSim.x    = _growArr(Float32Array, cpuSim.x,    newN);
-    cpuSim.y    = _growArr(Float32Array, cpuSim.y,    newN);
-    cpuSim.vx   = _growArr(Float32Array, cpuSim.vx,   newN);
-    cpuSim.vy   = _growArr(Float32Array, cpuSim.vy,   newN);
-    cpuSim.fx   = _growArr(Float32Array, cpuSim.fx,   newN);
-    cpuSim.fy   = _growArr(Float32Array, cpuSim.fy,   newN);
-    cpuSim.next = _growArr(Int32Array,   cpuSim.next, newN);
-    cpuSim.type = _growArr(Int8Array,    cpuSim.type, newN);
-    if (cpuSim.molIdPerParticle)
-        cpuSim.molIdPerParticle = _growArr(Uint32Array, cpuSim.molIdPerParticle, newN);
-    cpuSim.N = newN;
-
-    for (let li = 0; li < n; li++) {
-        const gi = base + li;
-        cpuSim.x[gi]   = ((simX + positions[li].x) % L + L) % L;
-        cpuSim.y[gi]   = ((simY + positions[li].y) % L + L) % L;
-        cpuSim.vx[gi]  = 0; cpuSim.vy[gi] = 0;
-        cpuSim.type[gi] = cm.molDef.beadTypes[li] ?? 0;
-        if (cpuSim.molIdPerParticle) cpuSim.molIdPerParticle[gi] = cm.molId;
-    }
-
-    const bonds = cm.molDef.bonds || [];
-    const nbOld = cpuSim.nBonds || 0, nbNew = nbOld + bonds.length;
-    const nBI   = _growArr(Int32Array,  cpuSim.bondI,       nbNew);
-    const nBJ   = _growArr(Int32Array,  cpuSim.bondJ,       nbNew);
-    const nBPid = _growArr(Uint32Array, cpuSim.bondParamId, nbNew);
-    // Add bond params for this custom molecule (appended to param table).
-    const bParamBase = cpuSim.bondParamTable.length;
-    for (const b of bonds) cpuSim.bondParamTable.push({ k: b.k, r0: b.r0 ?? 1.0 });
-    for (let b = 0; b < bonds.length; b++) {
-        nBI [nbOld + b] = base + bonds[b].i;
-        nBJ [nbOld + b] = base + bonds[b].j;
-        nBPid[nbOld + b] = bParamBase + b;
-    }
-    cpuSim.bondI = nBI; cpuSim.bondJ = nBJ; cpuSim.bondParamId = nBPid; cpuSim.nBonds = nbNew;
-
-    const angles = cm.molDef.angles || [];
-    const naOld  = cpuSim.nAngles || 0, naNew = naOld + angles.length;
-    if (naNew > 0) {
-        const nAI   = _growArr(Int32Array,  cpuSim.angleI,       naNew);
-        const nAJ   = _growArr(Int32Array,  cpuSim.angleJ,       naNew);
-        const nAK   = _growArr(Int32Array,  cpuSim.angleKarr,    naNew);
-        const nAPid = _growArr(Uint32Array, cpuSim.angleParamId, naNew);
-        const aParamBase = cpuSim.angleParamTable.length;
-        for (const a of angles) cpuSim.angleParamTable.push({ k: a.kAngle, theta0: a.theta0 });
-        for (let a = 0; a < angles.length; a++) {
-            nAI [naOld + a] = base + angles[a].i;
-            nAJ [naOld + a] = base + angles[a].j;
-            nAK [naOld + a] = base + angles[a].k;
-            nAPid[naOld + a] = aParamBase + a;
-        }
-        cpuSim.angleI = nAI; cpuSim.angleJ = nAJ;
-        cpuSim.angleKarr = nAK; cpuSim.angleParamId = nAPid;
-    }
-    cpuSim.nAngles = naNew;
-
-    _rebuildExcl(cpuSim);
-    _finalizeEdit();
-
-    // Deselect after placing — the molecule is now part of the scene.
-    // The ghost follows the cursor for the next placement; greying applies to everything.
-    _selection = null;
-    _syncSelectionToGPU();
-    renderFrame();
-    _drawSelectionOverlay();
-}
 
 // ── Overlay canvas (rubber-band rect + grey-out, always on top) ───────────────
 const overlayCanvas = document.createElement('canvas');
@@ -4604,6 +4543,188 @@ overlayCanvas.width  = 1000; overlayCanvas.height = 1000;
 overlayCanvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;';
 canvasWrapper.appendChild(overlayCanvas);
 const octx = overlayCanvas.getContext('2d');
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PBC Geometry Utilities
+//  Single source of truth for all periodic-boundary geometry.
+//  Used by: selection frame, copy, paste, export, assembly save.
+// ════════════════════════════════════════════════════════════════════════════
+
+// Build an adjacency map restricted to the given index set.
+// Returns Map<index → index[]> covering only bonds whose both endpoints are in inds.
+function _buildBondAdj(inds, simObj) {
+    const inSet = new Set(inds);
+    const adj   = new Map();
+    for (const i of inds) adj.set(i, []);
+    for (let b = 0; b < (simObj.nBonds || 0); b++) {
+        const bi = simObj.bondI[b], bj = simObj.bondJ[b];
+        if (inSet.has(bi) && inSet.has(bj)) {
+            adj.get(bi).push(bj);
+            adj.get(bj).push(bi);
+        }
+    }
+    return adj;
+}
+
+// BFS-unwrap a set of particle indices into a contiguous coordinate frame.
+// Bonds that exist within the index set are used for connectivity; disconnected
+// components keep their raw (wrapped) coordinates as roots.
+// Returns Map<index → {x, y}> where positions may lie outside [0, L].
+function pbcUnwrapBFS(inds, simObj) {
+    const L   = simObj.L, half = L / 2;
+    const adj = _buildBondAdj(inds, simObj);
+    const unwrapped = new Map();
+    const visited   = new Set();
+    for (const root of inds) {
+        if (visited.has(root)) continue;
+        unwrapped.set(root, { x: simObj.x[root], y: simObj.y[root] });
+        visited.add(root);
+        const queue = [root];
+        while (queue.length) {
+            const u = queue.shift();
+            for (const v of (adj.get(u) || [])) {
+                if (visited.has(v)) continue;
+                visited.add(v);
+                let dx = simObj.x[v] - unwrapped.get(u).x;
+                let dy = simObj.y[v] - unwrapped.get(u).y;
+                if (dx >  half) dx -= L; if (dx < -half) dx += L;
+                if (dy >  half) dy -= L; if (dy < -half) dy += L;
+                unwrapped.set(v, { x: unwrapped.get(u).x + dx, y: unwrapped.get(u).y + dy });
+                queue.push(v);
+            }
+        }
+    }
+    return unwrapped;
+}
+
+// Arithmetic centroid of a pbcUnwrapBFS result map.
+function pbcCentroid(unwrappedMap) {
+    let cx = 0, cy = 0;
+    for (const { x, y } of unwrappedMap.values()) { cx += x; cy += y; }
+    const n = unwrappedMap.size;
+    return { x: cx / n, y: cy / n };
+}
+
+// Build a frozen selection frame from an index array.
+// Captures unwrapped positions, COR, and zeroed transform accumulators.
+// Must be called once when the selection is finalized; never rebuilt mid-manipulation.
+//
+// anchorX / anchorY (optional) — the rubber-band centre in sim-space.
+// When provided, each connected component (molecule) is shifted as a UNIT so
+// that its centroid lies in the periodic image nearest to the anchor.
+// Re-imaging at component level — not per-particle — is essential: per-particle
+// re-imaging would apply different integer-L shifts to atoms within the same
+// molecule and pull it apart.  Shifting the whole component uniformly preserves
+// all bond geometries while placing every molecule in the correct tile relative
+// to where the user drew the rubber band.
+// Shift each connected component in an unwrapped map as a unit so its centroid
+// lies in the periodic image nearest to (anchorX, anchorY).
+// Mutates `unwrapped` in-place.  No-op when anchorX is undefined.
+// This is the core of the cross-PBC COR fix: called by both buildSelectionFrame
+// (for selection rotation) and _selectionToMolData (for ghost/export/assembly).
+function _pbcReimageComponents(unwrapped, inds, anchorX, anchorY) {
+    if (anchorX === undefined) return;
+    const L       = sim.L;
+    const adj     = _buildBondAdj(inds, sim);
+    const visited = new Set();
+    for (const root of inds) {
+        if (visited.has(root)) continue;
+        const comp  = [], queue = [root];
+        visited.add(root);
+        while (queue.length) {
+            const u = queue.shift();
+            comp.push(u);
+            for (const v of (adj.get(u) || [])) {
+                if (!visited.has(v)) { visited.add(v); queue.push(v); }
+            }
+        }
+        let cx = 0, cy = 0;
+        for (const i of comp) { cx += unwrapped.get(i).x; cy += unwrapped.get(i).y; }
+        cx /= comp.length; cy /= comp.length;
+        const sx = -Math.round((cx - anchorX) / L) * L;
+        const sy = -Math.round((cy - anchorY) / L) * L;
+        if (sx !== 0 || sy !== 0) {
+            for (const i of comp) { unwrapped.get(i).x += sx; unwrapped.get(i).y += sy; }
+        }
+    }
+}
+
+function buildSelectionFrame(inds, anchorX, anchorY) {
+    const unwrapped = pbcUnwrapBFS(inds, sim);
+    _pbcReimageComponents(unwrapped, inds, anchorX, anchorY);
+    const { x: corX, y: corY } = pbcCentroid(unwrapped);
+    const n    = inds.length;
+    const refX = new Float32Array(n);
+    const refY = new Float32Array(n);
+    for (let k = 0; k < n; k++) {
+        const u = unwrapped.get(inds[k]);
+        refX[k] = u.x - corX;
+        refY[k] = u.y - corY;
+    }
+    return { indices: inds, refX, refY, corX, corY, rotation: 0, tx: 0, ty: 0 };
+}
+
+// Apply a frozen selection frame to sim.x / sim.y.
+// All arithmetic is done in the unwrapped reference frame; only the final
+// write is wrapped — so COR and image relationships never change mid-session.
+function applySelectionFrame(frame) {
+    const cos  = Math.cos(frame.rotation);
+    const sin  = Math.sin(frame.rotation);
+    const L    = sim.L;
+    const grav = sim.gravityOn;
+    for (let k = 0; k < frame.indices.length; k++) {
+        const i  = frame.indices[k];
+        const rx = frame.refX[k], ry = frame.refY[k];
+        const x2 = cos * rx - sin * ry;
+        const y2 = sin * rx + cos * ry;
+        sim.x[i] = ((frame.corX + x2 + frame.tx) % L + L) % L;
+        const rawY = frame.corY + y2 + frame.ty;
+        sim.y[i]   = grav ? Math.max(0, Math.min(L, rawY)) : ((rawY % L + L) % L);
+    }
+}
+
+// Snapshot the current selection as centred molecule data.
+// Returns { positions, beadTypes, bonds, angles } with angles in radians (theta0).
+// Shared by exportSelectionAsMolecule and _saveSelectionAsAssembly.
+// anchorX/Y (optional) — same semantics as buildSelectionFrame: the known
+// unambiguous reference point used to pick the correct periodic image of each
+// component's centroid before computing the overall centre.  Pass the selection
+// frame's effective COR (corX + tx, corY + ty) when a frame is available.
+function _selectionToMolData(inds, anchorX, anchorY) {
+    const idxMap = new Map();
+    inds.forEach((gi, li) => idxMap.set(gi, li));
+
+    const unwrapped = pbcUnwrapBFS(inds, sim);
+    _pbcReimageComponents(unwrapped, inds, anchorX, anchorY);
+    const { x: cx, y: cy } = pbcCentroid(unwrapped);
+
+    const positions = inds.map(i => {
+        const u = unwrapped.get(i);
+        return { x: +(u.x - cx).toFixed(6), y: +(u.y - cy).toFixed(6) };
+    });
+    const beadTypes = inds.map(i => (sim.type ? sim.type[i] & 3 : 0));
+
+    const bonds = [];
+    for (let b = 0; b < (sim.nBonds || 0); b++) {
+        if (!idxMap.has(sim.bondI[b]) || !idxMap.has(sim.bondJ[b])) continue;
+        const pid = sim.bondParamId ? sim.bondParamId[b] : 0;
+        const p   = sim.bondParamTable?.[pid];
+        bonds.push({ i: idxMap.get(sim.bondI[b]), j: idxMap.get(sim.bondJ[b]),
+                     k: p?.k ?? 100, r0: p?.r0 ?? null });
+    }
+
+    const angles = [];
+    for (let a = 0; a < (sim.nAngles || 0); a++) {
+        const ai = sim.angleI[a], aj = sim.angleJ[a], ak = sim.angleKarr[a];
+        if (!idxMap.has(ai) || !idxMap.has(aj) || !idxMap.has(ak)) continue;
+        const pid = sim.angleParamId ? sim.angleParamId[a] : 0;
+        const p   = sim.angleParamTable?.[pid];
+        angles.push({ i: idxMap.get(ai), j: idxMap.get(aj), k: idxMap.get(ak),
+                      kAngle: p?.k ?? 10, theta0: p?.theta0 ?? Math.PI });
+    }
+
+    return { positions, beadTypes, bonds, angles };
+}
 
 // ── Selection state ───────────────────────────────────────────────────────────
 // dragState (DRAG enum above) covers SEL_RUBBER and SEL_GROUP sub-states.
@@ -4615,6 +4736,7 @@ let _clipboard     = null;    // copy buffer
 let _ptSelection   = null;    // kept for compatibility — merged into _selection for particle mode
 let _wheelAccum    = 0;       // sub-notch scroll accumulator for 5° snapping
 let _selectionMode = null;    // 'select' | 'particle' | null — which mode owns _selection
+let _selectionFrame = null;   // frozen PBC-unwrapped transform frame; rebuilt on selection change
 
 // ── Overlay rendering ─────────────────────────────────────────────────────────
 // Bond state (selected bond, anchor dot) is composited on top of every branch
@@ -4633,67 +4755,9 @@ function _drawSelectionOverlay() {
     const offY  = W / 2 - camera.y * scale;
 
     // ── Placement ghost ───────────────────────────────────────────────────────
-    if (interactionMode === 'place' && _placementMol && _placementPos) {
-        const cm      = _placementMol;
-        const rotated = _getPlacementPositions();
-        const pr_ghost = parseFloat(document.getElementById('pr-n').value) || 0.45;
-        const baseR    = 1000 / sim.L * camera.zoom * pr_ghost;
-        const spt      = sim.sigmaPerType || [1, 1, 1, 1];
-        const colorMode = getColorMode();
-        const molId    = cm.molId ?? 0xFFFFFFFF;
-        const tileSpan = sim.L * scale;   // overlay canvas px per box copy
-        const { x0, x1, y0, y1 } = _visTiles(sim.L);
-        // Pad by ±1: a ghost bead that spills past the tile boundary will still
-        // appear in the neighbouring tile even when that tile is off-viewport
-        // (the bead canvas coords can still fall within [0,1000]).
-        const gx0 = x0 - 1, gx1 = x1 + 1, gy0 = y0 - 1, gy1 = y1 + 1;
-
-        const ghostColor = (li) => {
-            const ti = (cm.molDef.beadTypes[li] ?? 0) & 3;
-            if (colorMode === 'mol') {
-                const c = getMolColorCSS(molId);
-                return c ?? _TYPE_COLORS[ti];
-            }
-            return _TYPE_COLORS[ti];
-        };
-
-        for (let ix = gx0; ix <= gx1; ix++) {
-            for (let iy = gy0; iy <= gy1; iy++) {
-                const tileOffX = offX + ix * tileSpan;
-                const tileOffY = offY + iy * tileSpan;
-                const cx = _placementPos.x * scale + tileOffX;
-                const cy = _placementPos.y * scale + tileOffY;
-
-                // Bonds first
-                octx.lineWidth = Math.max(1, 2 * pr_ghost * (1000 / sim.L) * camera.zoom);
-                for (const b of (cm.molDef.bonds || [])) {
-                    const ti = (cm.molDef.beadTypes[b.i] ?? 0) & 3;
-                    const tj = (cm.molDef.beadTypes[b.j] ?? 0) & 3;
-                    const sigAvg = ((spt[ti]||1) + (spt[tj]||1)) * 0.5;
-                    octx.lineWidth = Math.max(1, 2 * pr_ghost * (1000 / sim.L) * camera.zoom * sigAvg);
-                    const xi = cx + rotated[b.i].x * scale, yi = cy + rotated[b.i].y * scale;
-                    const xj = cx + rotated[b.j].x * scale, yj = cy + rotated[b.j].y * scale;
-                    const colI = ghostColor(b.i), colJ = ghostColor(b.j);
-                    if (colI === colJ) {
-                        octx.strokeStyle = colI;
-                    } else {
-                        const grad = octx.createLinearGradient(xi, yi, xj, yj);
-                        grad.addColorStop(0, colI); grad.addColorStop(1, colJ);
-                        octx.strokeStyle = grad;
-                    }
-                    octx.beginPath(); octx.moveTo(xi, yi); octx.lineTo(xj, yj); octx.stroke();
-                }
-                // Beads
-                for (let i = 0; i < rotated.length; i++) {
-                    const ti = (cm.molDef.beadTypes[i] ?? 0) & 3;
-                    const r  = baseR * (spt[ti] || 1);
-                    octx.fillStyle = ghostColor(i);
-                    octx.beginPath();
-                    octx.arc(cx + rotated[i].x * scale, cy + rotated[i].y * scale, r, 0, 6.2832);
-                    octx.fill();
-                }
-            }
-        }
+    // Ghost particles are real sim particles (the active selection) rendered by
+    // the GPU.  Nothing to draw here; just composite any persistent bond state.
+    if (interactionMode === 'place' && _placementMol) {
         _drawEditOverlay(true);
         return;
     }
@@ -4788,8 +4852,9 @@ function _syncSelectionToGPU() {
 }
 
 function _clearSelection() {
-    _selection     = null;
-    _selectionMode = null;
+    _selection      = null;
+    _selectionMode  = null;
+    _selectionFrame = null;
     if (dragState === DRAG.SEL_GROUP || dragState === DRAG.SEL_RUBBER) dragState = DRAG.NONE;
     _selGroupPrev = null;
     octx.clearRect(0, 0, 1000, 1000);
@@ -5639,47 +5704,10 @@ function _copySelection() {
     const inds   = [..._selection];
     const idxMap = new Map();
     inds.forEach((gi, li) => idxMap.set(gi, li));
-    const L = sim.L, half = L / 2;
 
-    // Build within-selection bond adjacency for BFS unwrapping.
-    const adj = new Map();
-    for (const i of inds) adj.set(i, []);
-    for (let b = 0; b < (sim.nBonds || 0); b++) {
-        const bi = sim.bondI[b], bj = sim.bondJ[b];
-        if (idxMap.has(bi) && idxMap.has(bj)) {
-            adj.get(bi).push(bj);
-            adj.get(bj).push(bi);
-        }
-    }
-
-    // BFS-unwrap each connected component so no intra-selection bond crosses a PBC
-    // boundary in the clipboard. Disconnected beads keep their raw coordinates.
-    const unwrapped = new Map();
-    const visited   = new Set();
-    for (const root of inds) {
-        if (visited.has(root)) continue;
-        unwrapped.set(root, { x: sim.x[root], y: sim.y[root] });
-        visited.add(root);
-        const queue = [root];
-        while (queue.length) {
-            const u = queue.shift();
-            for (const v of (adj.get(u) || [])) {
-                if (visited.has(v)) continue;
-                visited.add(v);
-                let dx = sim.x[v] - unwrapped.get(u).x;
-                let dy = sim.y[v] - unwrapped.get(u).y;
-                if (dx >  half) dx -= L; if (dx < -half) dx += L;
-                if (dy >  half) dy -= L; if (dy < -half) dy += L;
-                unwrapped.set(v, { x: unwrapped.get(u).x + dx, y: unwrapped.get(u).y + dy });
-                queue.push(v);
-            }
-        }
-    }
-
-    // Centroid from unwrapped positions.
-    let cx = 0, cy = 0;
-    for (const { x, y } of unwrapped.values()) { cx += x; cy += y; }
-    cx /= inds.length; cy /= inds.length;
+    // BFS-unwrap so no intra-selection bond crosses a PBC boundary in the clipboard.
+    const unwrapped = pbcUnwrapBFS(inds, sim);
+    const { x: cx, y: cy } = pbcCentroid(unwrapped);
 
     _clipboard = {
         xs: inds.map(i => unwrapped.get(i).x - cx),
@@ -5899,7 +5927,8 @@ async function _pasteClipboard() {
     // Select the freshly pasted group, enter select mode, and update the label.
     _selection = new Set();
     for (let li = 0; li < n; li++) _selection.add(base + li);
-    _selectionMode = 'select';
+    _selectionMode  = 'select';
+    _selectionFrame = buildSelectionFrame([..._selection]);
     _syncSelectionToGPU();
     setMode('select');   // ensures mode label and cursor update even if already in select
     const modeEl = document.getElementById('s-mode');
@@ -5967,7 +5996,7 @@ async function _deleteSelection() {
     }
 
     _rebuildExcl(cpuSim);
-    _selection = null; _selectionMode = null;
+    _selection = null; _selectionMode = null; _selectionFrame = null;
     _finalizeEdit();
     // Refresh the mode stat label — it may still say "SEL N" from before the delete.
     setMode(interactionMode);
@@ -6188,10 +6217,9 @@ document.addEventListener('keydown', async e => {
         await _saveSelectionAsAssembly();
     }
     else if (e.key === 'Escape' && interactionMode === 'place') {
-        _placementMol = null; _placementPos = null; _placementAngle = 0;
-        octx.clearRect(0, 0, 1000, 1000);
-        _clearSelection();
+        await _removeGhostParticles();
         setMode('camera');
+        renderFrame();
     }
 });
 
@@ -6238,18 +6266,8 @@ function _molMembersFrom(simObj, start, adj) {
 
 // PBC-safe centroid of a set of particle indices
 function _molCentroid(inds) {
-    const L = sim.L, half = L / 2;
-    const ax = sim.x[inds[0]], ay = sim.y[inds[0]];
-    let sx = 0, sy = 0;
-    for (const i of inds) {
-        let dx = sim.x[i] - ax; if (dx >  half) dx -= L; if (dx < -half) dx += L;
-        let dy = sim.y[i] - ay; if (dy >  half) dy -= L; if (dy < -half) dy += L;
-        sx += dx; sy += dy;
-    }
-    return {
-        x: ((ax + sx / inds.length) % L + L) % L,
-        y: ((ay + sy / inds.length) % L + L) % L,
-    };
+    const { x, y } = pbcCentroid(pbcUnwrapBFS(inds, sim));
+    return { x, y };
 }
 
 // Rotate all particles in inds around (cx,cy) by dtheta radians
@@ -6414,7 +6432,7 @@ canvasWrapper.addEventListener('mousedown', async (e) => {
         e.preventDefault();
         const rect = canvasWrapper.getBoundingClientRect();
         const sp   = _screenToSim(e.clientX - rect.left, e.clientY - rect.top);
-        await _placeMoleculeAt(sp.x, sp.y);
+        await _confirmPlacement(sp.x, sp.y);
         // Stay in place mode — user can drop multiple copies; Esc or C to exit.
         return;
     }
@@ -6497,13 +6515,10 @@ window.addEventListener('mousemove', (e) => {
         const rect = canvasWrapper.getBoundingClientRect();
         const sp   = _screenToSim(e.clientX - rect.left, e.clientY - rect.top);
         const ddx  = sp.x - _selGroupPrev.x, ddy = sp.y - _selGroupPrev.y;
-        const L    = sim.L;
-        for (const i of _selection) {
-            sim.x[i] = ((sim.x[i] + ddx) % L + L) % L;
-            sim.y[i] = sim.gravityOn
-                ? Math.max(0, Math.min(L, sim.y[i] + ddy))
-                : ((sim.y[i] + ddy) % L + L) % L;
-        }
+        if (!_selectionFrame) _selectionFrame = buildSelectionFrame([..._selection]);
+        _selectionFrame.tx += ddx;
+        _selectionFrame.ty += ddy;
+        applySelectionFrame(_selectionFrame);
         if (currentEngine === 'gpu') _gpuWriteXY([..._selection]);
         _selGroupPrev = sp;
         renderFrame();
@@ -6512,10 +6527,14 @@ window.addEventListener('mousemove', (e) => {
     }
 
     // ── Placement ghost tracking ──────────────────────────────────────────────
-    if (interactionMode === 'place' && _placementMol) {
+    if (interactionMode === 'place' && _placementMol && _selectionFrame) {
         const rect3 = canvasWrapper.getBoundingClientRect();
-        _placementPos = _screenToSim(e.clientX - rect3.left, e.clientY - rect3.top);
-        _drawSelectionOverlay();
+        const sp    = _screenToSim(e.clientX - rect3.left, e.clientY - rect3.top);
+        _selectionFrame.tx = sp.x - _selectionFrame.corX;
+        _selectionFrame.ty = sp.y - _selectionFrame.corY;
+        applySelectionFrame(_selectionFrame);
+        if (currentEngine === 'gpu') _gpuWriteXY(_selectionFrame.indices);
+        renderFrame();
         return;
     }
 
@@ -6558,6 +6577,13 @@ window.addEventListener('mouseup', () => {
                 // Bead-level selection — no molecule expansion
                 _selection     = seeds.length > 0 ? new Set(seeds) : null;
                 _selectionMode = _selection ? 'particle' : null;
+                if (_selection) {
+                    const rectCx = (_selDragStart.x + _selDragCur.x) / 2;
+                    const rectCy = (_selDragStart.y + _selDragCur.y) / 2;
+                    _selectionFrame = buildSelectionFrame([..._selection], rectCx, rectCy);
+                } else {
+                    _selectionFrame = null;
+                }
                 _syncSelectionToGPU();
                 _updateInspectBar();
                 if (!running) renderFrame();   // re-render with desaturation
@@ -6565,6 +6591,13 @@ window.addEventListener('mouseup', () => {
                 // Select mode — expand to full molecules
                 _selection     = seeds.length > 0 ? _expandSelToMols(seeds) : null;
                 _selectionMode = _selection ? 'select' : null;
+                if (_selection) {
+                    const rectCx = (_selDragStart.x + _selDragCur.x) / 2;
+                    const rectCy = (_selDragStart.y + _selDragCur.y) / 2;
+                    _selectionFrame = buildSelectionFrame([..._selection], rectCx, rectCy);
+                } else {
+                    _selectionFrame = null;
+                }
                 _syncSelectionToGPU();
                 if (!running) renderFrame();
                 _refreshSaveMolBtn();
@@ -6662,9 +6695,7 @@ canvasWrapper.addEventListener('contextmenu', e => {
         _clearSelection();
         if (!running) renderFrame();
     } else if (interactionMode === 'place') {
-        _placementMol = null; _placementPos = null; _placementAngle = 0;
-        octx.clearRect(0, 0, 1000, 1000);
-        _clearSelection();
+        _removeGhostParticles();
         setMode('camera');
     } else if (interactionMode === 'select') {
         // Clear selection, stay in select mode so user can draw a new one.
@@ -6683,10 +6714,12 @@ canvasWrapper.addEventListener('wheel', e => {
     if (notches !== 0) _wheelAccum -= notches;
 
     // Place mode: rotate the ghost pre-placement.
-    if (interactionMode === 'place' && _placementMol && !running) {
+    if (interactionMode === 'place' && _placementMol && !running && _selectionFrame) {
         if (notches !== 0) {
-            _placementAngle += notches * STEP;
-            _drawSelectionOverlay();
+            _selectionFrame.rotation += notches * STEP;
+            applySelectionFrame(_selectionFrame);
+            if (currentEngine === 'gpu') _gpuWriteXY(_selectionFrame.indices);
+            renderFrame();
         }
         return;
     }
@@ -6695,9 +6728,10 @@ canvasWrapper.addEventListener('wheel', e => {
     if ((interactionMode === 'select' || interactionMode === 'particle') &&
         _selection && _selection.size > 0) {
         if (notches !== 0) {
-            const inds          = [..._selection];
-            const { x: cx, y: cy } = _molCentroid(inds);   // PBC-safe centroid
-            _rotateMol(inds, cx, cy, notches * STEP);
+            const inds = [..._selection];
+            if (!_selectionFrame) _selectionFrame = buildSelectionFrame(inds);
+            _selectionFrame.rotation += notches * STEP;
+            applySelectionFrame(_selectionFrame);
             if (currentEngine === 'gpu') _gpuWriteXY(inds);
             renderFrame();
             _drawSelectionOverlay();
