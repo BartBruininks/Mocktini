@@ -6,7 +6,7 @@
 
 Run it in your WEBGPU supporting browser by visiting: https://bartbruininks.github.io/Mocktini
 
-> 💡 New to molecular dynamics? Check the [Wiki](../../wiki) for background on concepts like the Mie potential, thermostats, and periodic boundary conditions.
+> 💡 New to molecular dynamics? Check the [Wiki](wiki/Home.md) for background on concepts like the Mie potential, thermostats, and periodic boundary conditions.
 
 ---
 
@@ -51,7 +51,7 @@ The exponents 4 and 2 make this potential *softer* than the classic Lennard-Jone
 
 The potential is **shifted** so that it smoothly reaches zero at the cutoff distance *r*c, avoiding energy discontinuities.
 
-> 📖 [Wiki: The Mie potential and why we use it](../../wiki/Mie-Potential)
+> 📖 [Wiki: The Mie potential and why we use it](wiki/Mie-Potential.md)
 
 ### Particle Types, Properties, and the Epsilon Matrix
 
@@ -80,7 +80,7 @@ Like the Mie potential, the DSF form is **shifted** so that both the energy *and
 
 > ⚠️ DSF — like all cutoff electrostatics — assumes the simulation box is **net-neutral**. A non-zero total charge Σ*q* introduces a spurious self-interaction, so the live stats bar reports Σ*q* to let you check.
 
-> 📖 [Wiki: DSF electrostatics](../../wiki/DSF-Electrostatics)
+> 📖 [Wiki: DSF electrostatics](wiki/DSF-Electrostatics.md)
 
 ### Bonds, Angles, and Molecules
 Particles can be connected using two kinds of bonded interactions:
@@ -98,13 +98,13 @@ Mocktini supports three ways to build molecules:
 
 **Import from file** — load a molecule definition from a JSON file. Imported molecules appear in the species list and can be placed, mixed with other species, edited, and copied.
 
-> 📖 [Wiki: Bonded interactions and polymer models](../../wiki/Bonded-Interactions)
+> 📖 [Wiki: Bonded interactions and polymer models](wiki/Bonded-Interactions.md)
 
 ### Boundary Conditions
 
 The simulation box uses **periodic boundary conditions (PBC)** — particles that exit one side re-enter from the opposite side, mimicking an infinite bulk system. When **gravity** is enabled, the vertical boundaries switch to reflective walls instead, so particles pile up under gravity rather than looping.
 
-> 📖 [Wiki: Periodic boundary conditions](../../wiki/Periodic-Boundary-Conditions)
+> 📖 [Wiki: Periodic boundary conditions](wiki/Periodic-Boundary-Conditions.md)
 
 ---
 
@@ -119,7 +119,7 @@ Each simulation step advances the equations of motion using one of two integrato
 | **Velocity Verlet (VV)** | The standard MD integrator — time-reversible, energy-conserving in the absence of a thermostat |
 | **Stochastic Dynamics (SD / BAOAB)** | A Langevin integrator that couples each particle to a heat bath via random kicks and friction. Implicitly controls temperature without a separate thermostat step |
 
-> 📖 [Wiki: Integrators in molecular dynamics](../../wiki/Integrators)
+> 📖 [Wiki: Integrators in molecular dynamics](wiki/Integrators.md)
 
 ### Thermostat
 
@@ -127,7 +127,7 @@ When using Velocity Verlet, temperature is controlled by the **Bussi–Donadio�
 
 The coupling strength is set by the time constant **τ_T**: larger values mean softer, slower coupling to the target temperature.
 
-> 📖 [Wiki: Thermostats — what they are and why you need one](../../wiki/Thermostats)
+> 📖 [Wiki: Thermostats — what they are and why you need one](wiki/Thermostats.md)
 
 ---
 
@@ -142,7 +142,7 @@ Mocktini runs the same physics on two different backends:
 
 The GPU path uses the same force expressions as the CPU path — results are physically identical (but not of equal precision). Force computation uses a **cell list** neighbour scheme on both paths for O(N) scaling.
 
-> 📖 [Wiki: Neighbor Scheme - maintaining scalability](../../wiki/Neighbor-Scheme)
+> 📖 [Wiki: Neighbor Scheme - maintaining scalability](wiki/Neighbor-Scheme.md)
 
 ---
 
