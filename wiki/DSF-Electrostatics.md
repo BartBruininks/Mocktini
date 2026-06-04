@@ -52,7 +52,7 @@ a2.set_ylim(-0.1, 2.1); a2.set_xlabel("r"); a2.set_ylabel("F / (K_e q_i q_j)"); 
 plt.tight_layout(); plt.show()
 ```
 
-![Bare Coulomb vs DSF, energy and force](img/dsf_shift.png)
+![Bare Coulomb vs DSF, energy and force](../img/dsf_shift.png)
 
 *The orange curves are what plain truncation leaves behind — a step in both energy (left) and force (right) at $r_c$. DSF (blue) carries both smoothly to zero.*
 
@@ -77,7 +77,7 @@ a2.set_xlabel("r"); a2.set_ylabel("φ (arb. units)"); a2.legend()
 plt.tight_layout(); plt.show()
 ```
 
-![Alpha screening family and the 2D-vs-3D potential](img/dsf_alpha_dim.png)
+![Alpha screening family and the 2D-vs-3D potential](../img/dsf_alpha_dim.png)
 
 The "physically correct" electrostatic potential of a point charge **in two dimensions** is not $1/r$ at all — solving the 2D Poisson equation gives a **logarithmic** potential, $\varphi \propto -\ln r$, with a force that falls off only as $1/r$. That is *even more long-ranged* than the 3D Coulomb interaction: the log potential never levels off — it keeps growing without bound as particles separate (orange, above), and its force decays more slowly than the 3D $1/r^2$.
 
