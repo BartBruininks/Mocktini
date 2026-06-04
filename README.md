@@ -6,7 +6,7 @@
 
 Run it in your WEBGPU supporting browser by visiting: https://bartbruininks.github.io/Mocktini
 
-> 💡 New to molecular dynamics? Check the [Wiki](../../wiki) for background on concepts like the Mie potential, thermostats, and periodic boundary conditions.
+> 💡 New to molecular dynamics? Check the [Wiki](wiki/Home.md) for background on concepts like the Mie potential, thermostats, and periodic boundary conditions.
 
 ---
 
