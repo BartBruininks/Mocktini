@@ -224,7 +224,7 @@ Sharing and saving work is a core feature of Mocktini. There are two levels of w
 
 ### Molecule Files
 
-Any molecule you build — whether through the Polymer Editor or by assembling particles interactively — can be exported as a compact **JSON molecule file**. This file encodes the molecule's bead types, per-bead charges, bond topology, angle topology, and all parameters. You can then:
+Any selection (one or multiple molecules) you build — whether through the Polymer Editor or by assembling particles interactively — can be exported as a compact **JSON molecule file**. This file encodes the molecule's bead types, per-bead charges, bond topology, angle topology, and all parameters. You can then:
 - **Import** it back into Mocktini at any time (it appears in the species list and can be placed freely)
 - **Share** it with collaborators, who load it in their own copy of Mocktini
 - **Combine** multiple imported molecules with built-in polymers and monomers in any ratio
