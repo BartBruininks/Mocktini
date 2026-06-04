@@ -66,7 +66,7 @@ Interactions *between* types are controlled by a 4×4 **epsilon matrix** — you
 
 ### Electrostatics — The Damped Shifted Force (DSF) Potential
 
-Beyond the Mie potential, particles carrying a non-zero **charge** *q* also interact through a **Damped Shifted Force (DSF)** electrostatic potential — a cutoff-friendly form of the 1/*r* Coulomb interaction. When all charges are at their default of 0, the term is skipped entirely, so electrostatics is fully opt-in. Electrostatics are treated as a 2D slice in a 3D world, for 2D electrostatics are even more long ranged. This gives visually pleasing electrostatics, but this is by no means accurate for a true abstract 2D system -- we cheat!
+Beyond the Mie potential, particles carrying a non-zero **charge** *q* also interact through a **Damped Shifted Force (DSF)** electrostatic potential — a cutoff-friendly form of the 1/*r* Coulomb interaction. When all charges are at their default of 0, the term is skipped entirely, so electrostatics is fully opt-in. Electrostatics are treated as a 2D slice in a 3D world, for 2D electrostatics are even more long ranged. This gives visually pleasing electrostatics, but this is by no means accurate for a true abstract 2D system — we cheat!
 
 The pair energy (for *r* < *r*c) is:
 
