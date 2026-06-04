@@ -53,25 +53,50 @@ The potential is **shifted** so that it smoothly reaches zero at the cutoff dist
 
 > 📖 [Wiki: The Mie potential and why we use it](../../wiki/Mie-Potential)
 
-### Particle Types and the Epsilon Matrix
+### Particle Types, Properties, and the Epsilon Matrix
 
-Mocktini supports up to **4 bead types** (labelled 0–3), each with its own size σ. Interactions *between* types are controlled by a 4×4 **epsilon matrix** — you can make some pairs strongly attractive and others nearly non-interacting, which is a simple way to model selective affinity or segregation. All particles use the same cutoff which can be set manually (default *r*c=2.5), it is best to use a cutoff which is at least 2-3 times the largest sigma.
+Mocktini supports up to **4 bead types** (labelled 0–3). Each particle carries a small set of properties — some defined *per type*, others *per individual particle*:
+
+- **type** (0–3) — *per particle*; selects which row/column of the interaction tables applies
+- **σ (size)** — *per type*; the effective diameter in the Mie potential (mixed for unlike pairs)
+- **mass** — *per type*; affects the dynamics (how quickly particles respond to forces) but not the equilibrium structure
+- **charge** *q* — *per individual particle* (default 0); drives the optional DSF electrostatics described below
+
+Interactions *between* types are controlled by a 4×4 **epsilon matrix** — you can make some pairs strongly attractive and others nearly non-interacting, which is a simple way to model selective affinity or segregation. All particles use the same cutoff which can be set manually (default *r*c=2.5), it is best to use a cutoff which is at least 2-3 times the largest sigma.
+
+### Electrostatics — The Damped Shifted Force (DSF) Potential
+
+Beyond the Mie potential, particles carrying a non-zero **charge** *q* also interact through a **Damped Shifted Force (DSF)** electrostatic potential — a cutoff-friendly form of the 1/*r* Coulomb interaction. When all charges are at their default of 0, the term is skipped entirely, so electrostatics is fully opt-in. Electrostatics are treated as a 2D slice in a 3D world, for 2D electrostatics are even more long ranged. This gives visually pleasing electrostatics, but this is by no means accurate for a true abstract 2D system -- we cheat!
+
+The pair energy (for *r* < *r*c) is:
+
+$$U(r) = K_e\, q_i q_j \left[ \frac{\mathrm{erfc}(\alpha r)}{r} - \frac{\mathrm{erfc}(\alpha r_c)}{r_c} + F_\text{shift}\,(r - r_c) \right]$$
+
+Two parameters control it:
+- **K_e** — the linear Coulomb strength. Scales all electrostatic forces and energies uniformly.
+- **α (alpha)** — the DSF damping (inverse screening length). This one is *non-linear*: small α approaches a bare 1/*r* Coulomb interaction (long-range), while large α screens it heavily (short-range). It changes the *shape* of the interaction, not just its scale.
+
+Like the Mie potential, the DSF form is **shifted** so that both the energy *and* the force go smoothly to zero at the cutoff *r*c — there is no impulsive kick as pairs cross the cutoff, which matters for energy conservation. The same erfc approximation is used on the CPU and GPU paths, so the two engines agree to within floating-point precision.
+
+> ⚠️ DSF — like all cutoff electrostatics — assumes the simulation box is **net-neutral**. A non-zero total charge Σ*q* introduces a spurious self-interaction, so the live stats bar reports Σ*q* to let you check.
+
+> 📖 [Wiki: DSF electrostatics](../../wiki/DSF-Electrostatics)
 
 ### Bonds, Angles, and Molecules
 Particles can be connected using two kinds of bonded interactions:
 - **Harmonic bonds**: U = k/2 · (r − r₀)², a spring between two bonded particles
 - **Signed-angle quadratic**: U = k/2 · (θ − θ₀)², a bending stiffness over three connected particles, where θ = atan2(d₁ × d₂, d₁ · d₂) ∈ (−π, π] is the **signed** 2D angle between the two bond vectors. Unlike a conventional harmonic angle, this formulation is chirality-sensitive: clockwise and counterclockwise bends are distinguished, and θ₀ can span the full range −180° < θ₀ ≤ 180°.
 
-An important detail: **every bonded pair automatically gets a non-bonded exclusion**. This means the Mie 2-4 potential is *not* computed between particles that are directly bonded or share an angle, on both the CPU and GPU engines. This is the standard practice in MD — without exclusions, bonded neighbours would be double-counted and the simulation would be unphysical.
+An important detail: **every bonded pair automatically gets a non-bonded exclusion**. This means the **non-bonded interactions — both the Mie 2-4 potential and the DSF electrostatics —** are *not* computed between particles that are directly bonded or share an angle, on both the CPU and GPU engines.
 
 
 Mocktini supports three ways to build molecules:
 
-**Built-in Polymer Editor** — configure linear polymer chains with controls for chain length, per-bead types, bond stiffness *k*, rest length *r*₀, bending stiffness, and equilibrium angle *θ*₀ (which can vary per bead for non-uniform chains).
+**Built-in Polymer Editor** — configure linear polymer chains with controls for chain length, per-bead types, per-bead charge, bond stiffness *k*, rest length *r*₀, bending stiffness, and equilibrium angle *θ*₀ (which can vary per bead for non-uniform chains).
 
 **Interactive Assembly** — use Bond Edit and Angle Edit modes to connect individual particles already in the simulation into custom structures by clicking, then export the result as a molecule file.
 
-**Import from file** — load a molecule definition from a JSON file. Imported molecules appear in the species list and can be placed, mixed with other species, and copied.
+**Import from file** — load a molecule definition from a JSON file. Imported molecules appear in the species list and can be placed, mixed with other species, edited, and copied.
 
 > 📖 [Wiki: Bonded interactions and polymer models](../../wiki/Bonded-Interactions)
 
@@ -146,15 +171,18 @@ The GPU path uses the same force expressions as the CPU path — results are phy
 - **ε matrix** — attraction/repulsion strength between each pair of types
 - **σ per type** — effective particle diameter per type
 - **r*c* (cutoff)** — distance beyond which interactions are ignored
+- **K_e (electrostatic strength)** — overall scale of the DSF electrostatic interaction
+- **α (electrostatic damping)** — DSF screening parameter (inverse screening length); higher values screen charges more strongly
 
 ### Rendering
+- **Colour mode** — how particles are coloured: **Type** (by bead type), **Molecule** (each molecule its own colour), **Velocity** (mapped to speed), or **Charge** (diverging blue → grey → red by the sign and magnitude of *q*)
 - **Particle radius** — visual size on screen (does not affect physics)
 
 ---
 
 ## Interactive Modes
 
-Mocktini has several mouse interaction modes, switchable via keyboard shortcuts or the mode bar:
+Mocktini has several mouse interaction modes, switchable via the mode bar or with single-key shortcuts: **C** (Camera), **S** (Select), **P** (Particle), **B** (Bond Edit), and **A** (Angle Edit). Pressing **Esc** cancels an in-progress placement.
 
 | Mode | What it does |
 |------|-------------|
@@ -163,9 +191,9 @@ Mocktini has several mouse interaction modes, switchable via keyboard shortcuts 
 | **Place** | Click to place individual particles or whole molecules |
 | **Bond Edit** | Click two particles to create or inspect a bond |
 | **Angle Edit** | Click three particles to define an angle constraint |
-| **Particle** | Rubber-band select particles |
+| **Particle** | Rubber-band select individual beads; set their **type** or **charge** via the inspect bar (or quick-set type with keys 0–3) |
 
-Selected bonds and angles display their current length or angle in real time, and you can snap the value to the current geometry with the **⌖ snap** button.
+Selected bonds and angles display their current length or angle in real time, and you can snap the value to the current geometry with the **⌖ snap** button. In Particle mode the inspect bar shows the selected beads' type and charge, which you can edit directly with the **Apply** and **Set** buttons.
 
 ---
 
@@ -183,8 +211,10 @@ The live stats bar at the top of the canvas displays:
 | **PE / N** | Potential energy per particle |
 | **E tot / N** | Total energy per particle |
 | **N** | Current number of particles |
+| **Σq** | Net charge of the box; should be ~0 for physically meaningful DSF electrostatics |
 | **ms / frame** | Wall-clock time per rendered frame |
 | **dt** | Current timestep (ramps up gradually on initialisation) |
+| **Mode** | The active mouse interaction mode |
 
 ---
 
@@ -194,23 +224,23 @@ Sharing and saving work is a core feature of Mocktini. There are two levels of w
 
 ### Molecule Files
 
-Any molecule you build — whether through the Polymer Editor or by assembling particles interactively — can be exported as a compact **JSON molecule file**. This file encodes the molecule's bead types, bond topology, angle topology, and all parameters. You can then:
+Any molecule you build — whether through the Polymer Editor or by assembling particles interactively — can be exported as a compact **JSON molecule file**. This file encodes the molecule's bead types, per-bead charges, bond topology, angle topology, and all parameters. You can then:
 - **Import** it back into Mocktini at any time (it appears in the species list and can be placed freely)
 - **Share** it with collaborators, who load it in their own copy of Mocktini
 - **Combine** multiple imported molecules with built-in polymers and monomers in any ratio
 
-Molecule files are the right format when you want to share a *building block*, not a whole experiment. They are a discription of the bonded terms and do not contain information for the non-bonded interactions besides from specifying the bead types. 
+Molecule files are the right format when you want to share a *building block*, not a whole experiment. They describe the molecule itself — its connectivity (bonds and angles), its bead types, and any per-bead charges. They do *not* carry the global non-bonded settings such as the ε matrix, σ per type, the cutoff, or the electrostatic K_e/α; those belong to the simulation as a whole rather than to any one molecule.
 
 ### Complete State Files
 
-A **state file** captures everything: all particle positions and velocities, all bonds and angles, all simulation parameters, and the current step count. It is a full snapshot of the simulation at a moment in time. You can:
+A **state file** captures everything: all particle positions, velocities, and charges, all bonds and angles, all simulation parameters, and the current step count. It is a full snapshot of the simulation at a moment in time. You can:
 - Save a state, continue running, and reload the snapshot later to branch the simulation
 - Share a state file so someone else can continue from exactly where you left off, or reproduce a specific configuration
 - Use it as a reproducible starting point for a classroom exercise or publication figure
 
 ### URL State
 
-All control panel parameters (box size, interaction strengths, polymer settings, etc.) are also encoded live in the browser URL. Copying the URL from the address bar captures your current setup and can be bookmarked or shared directly — though it does not include live particle positions the way a state file does.
+All control panel parameters (box size, interaction strengths, electrostatics, polymer settings, etc.) are also encoded live in the browser URL. Copying the URL from the address bar captures your current setup and can be bookmarked or shared directly — though it does not include live particle positions the way a state file does.
 
 ---
 
@@ -221,7 +251,7 @@ Mocktini uses semantic versioning (`MAJOR.MINOR.PATCH`):
 - **MINOR** — new user-visible feature
 - **PATCH** — bug fix, performance improvement, or annotation
 
-Current version: **v1.0.5**
+Current version: **v1.1.0**
 
 ---
 

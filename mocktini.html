@@ -494,6 +494,12 @@ button.btn-snap:hover { background: #3a9455; }
     border-radius: 4px;
     font-family: monospace;
 }
+
+footer a {
+    color: inherit;              /* match the grey footer text */
+    text-decoration: underline;  /* keep it readable as a link */
+}
+footer a:hover { color: var(--blue); }  /* brand blue on hover */
 </style>
 </head>
 <body>
@@ -966,7 +972,7 @@ button.btn-snap:hover { background: #3a9455; }
     </div>
 </div>
 
-<footer id="footer">Mocktini v1.1.0 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license</footer>
+<footer id="footer">Mocktini v1.1.0 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · <a href="https://github.com/BartBruininks/Mocktini">GitHub</a> · MIT license</footer>
 
 <script>
 'use strict';
