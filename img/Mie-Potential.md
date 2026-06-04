@@ -87,7 +87,7 @@ $$|F(r_c = 2.5\,\sigma)| \approx 0.35\,\varepsilon/\sigma,$$
 
 about **9× larger** than Lennard-Jones 12-6 at the same cutoff ($\approx 0.039$). The 2.5σ cutoff is an LJ habit; the longer-ranged 2-4 simply isn't finished decaying there.
 
-So shouldn't we *force*-shift it as well, the way [DSF electrostatics](DSF-Electrostatics) does? Tempting — but here it backfires. A force shift adds a linear ramp $\propto (r - r_c)\,F(r_c)$, and when $F(r_c)$ is large that ramp distorts the potential badly: at $r_c = 2.5\,\sigma$ it shrinks the well from $-0.46\,\varepsilon$ to $-0.10\,\varepsilon$ (left panel) and pushes the minimum outward. The cure is worse than the disease, precisely *because* the well is soft. DSF gets away with the same trick only because Coulomb is monotonic — there is no well to wreck.
+So shouldn't we *force*-shift it as well, the way [DSF electrostatics](DSF-Electrostatics) does? Tempting — but here it backfires. A force shift adds a linear ramp $\propto (r - r_c)\,F(r_c)$, and when $F(r_c)$ is large that ramp distorts the potential badly: at $r_c = 2.5\,\sigma$ it shrinks the well from $-0.46\,\varepsilon$ to $-0.10\,\varepsilon$ (left panel) and pushes the minimum outward. The cure is worse than the disease, precisely *because* the well is soft. DSF gets away with the same trick only because Coulomb is monotonic — there is no well to wreck. We are looking into implementing some form of switch function used in other engines like Gromacs, but this will require further research.
 
 The real lever is the cutoff itself (right panel): $|F(r_c)|$ for the 2-4 does not fall to LJ-at-2.5 levels until $r_c \approx 5.5$–$6\,\sigma$. In practice:
 
