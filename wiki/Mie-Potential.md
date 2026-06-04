@@ -49,7 +49,7 @@ a2.axvline(rc, color=GREY, ls=":"); a2.set_xlabel("r / σ"); a2.set_ylabel("U / 
 plt.tight_layout(); plt.show()
 ```
 
-![Mie 2-4 vs Lennard-Jones, and the energy shift](img/mie_potential.png)
+![Mie 2-4 vs Lennard-Jones, and the energy shift](../img/mie_potential.png)
 
 *Left: the Mie 2-4 well is broader and softer than LJ 12-6. Right: subtracting $U(r_c)$ lifts the curve so the energy passes through zero exactly at the cutoff.*
 
@@ -128,7 +128,7 @@ a2.set_ylabel("|F(r_c)| / (ε/σ)"); a2.legend()
 plt.tight_layout(); plt.show()
 ```
 
-![Force-shift distortion, and the force at the cutoff vs cutoff distance](img/mie_cutoff.png)
+![Force-shift distortion, and the force at the cutoff vs cutoff distance](../img/mie_cutoff.png)
 
 *Left: force-shifting at 2.5σ guts the soft well. Right: the 2-4 force at the cutoff stays an order of magnitude above LJ until $r_c \approx 6\,\sigma$.*
 
