@@ -540,6 +540,10 @@ button.btn-snap:hover { background: #3a9455; }
                 <span class="stat-key">N</span>
                 <span class="stat-val" id="s-N">—</span>
             </div>
+            <div class="stat-item" title="Net charge Σq of the box. DSF (like all cutoff electrostatics) assumes neutrality; non-zero means a spurious self-interaction is present.">
+                <span class="stat-key">Σq</span>
+                <span class="stat-val" id="s-Q">0</span>
+            </div>
             <div class="stat-item">
                 <span class="stat-key">ms / frame</span>
                 <span class="stat-val" id="s-ms">—</span>
@@ -587,6 +591,9 @@ button.btn-snap:hover { background: #3a9455; }
                 <span class="ib-type-swatch" id="ip-swatch"></span>
                 <input type="number" class="inspect-input" id="ip-type" step="1" min="0" max="3" style="width:44px">
                 <button id="ip-apply">Apply</button>
+                <span class="stat-key">Q</span>
+                <input type="number" class="inspect-input" id="ip-charge" step="0.1" title="Per-bead charge. Blank/NaN shown when the selection is non-uniform — set a value to make it uniform.">
+                <button id="ip-charge-set">Set</button>
                 <button id="ip-del" class="btn-danger">Delete</button>
             </div>
         </div>
@@ -697,7 +704,24 @@ button.btn-snap:hover { background: #3a9455; }
                 <button id="btn-load-state" title="Load a saved simulation state file">Load state</button>
             </div>
             <input type="file" id="state-file-input" accept=".json" style="display:none">
-            
+
+            <div class="sub-header">Molecule Files</div>
+            <div class="control-row" style="margin-bottom:4px">
+                <label>Name</label>
+                <input type="text" id="mol-name-input" class="param-input"
+                    style="flex:1 1 auto;width:auto;text-align:left"
+                    placeholder="molecule name" value="my_molecule">
+            </div>
+            <button id="btn-save-mol" disabled
+                title="Save the active selection as a molecule file (requires a selection and paused simulation)">
+                Save selection as molecule
+            </button>
+            <div id="mol-dropzone" title="Drop a .mol2d.json molecule file or a .md2d.json simulation state here">
+                Load molecule / state<br>
+                <small>click or drag .json here</small>
+            </div>
+            <input type="file" id="mol-file-input" accept=".json" style="display:none">
+
             <div class="control-row" style="margin-top: 10px;">
                 <label>Compute Engine</label>
                 <select id="engine-select" class="param-input">
@@ -758,6 +782,13 @@ button.btn-snap:hover { background: #3a9455; }
 
             <button id="btn-set-vel" style="display:none"></button>
 
+            <div class="sub-header">Cutoff</div>
+            <div class="control-row">
+                <label>r<sub>cut</sub></label>
+                <input type="range" id="rc-s" min="1.0" max="8.0" step="0.1" value="2.5">
+                <input type="number" class="param-input" id="rc-n" value="2.5">
+            </div>
+
             <div class="sub-header">Gravity</div>
             <div class="control-row checkbox-row">
                 <label>Enable gravity</label>
@@ -768,10 +799,62 @@ button.btn-snap:hover { background: #3a9455; }
                 <input type="range" id="gravity-s" min="0" max="50" step="0.5" value="9.8">
                 <input type="number" class="param-input" id="gravity-n" value="9.8" step="0.5" min="0">
             </div>
+
+            <div class="sub-header" title="Damped Shifted Force electrostatics (1/r). Charges are set per-bead in Particle mode.">Electrostatics (DSF)</div>
+            <div class="control-row" title="K_e — linear Coulomb strength. Scales all electrostatic forces/energies uniformly.">
+                <label>K_e (strength)</label>
+                <input type="range" id="coulombK-s" min="0" max="20" step="0.1" value="5">
+                <input type="number" class="param-input" id="coulombK-n" value="5" step="0.1" min="0">
+            </div>
+            <div class="control-row" title="α — DSF damping (inverse screening length). Small α ≈ bare 1/r Coulomb (long-range); large α ≈ heavily screened (short-range). Non-linear: changes the interaction shape, not just its scale.">
+                <label>α (damping)</label>
+                <input type="range" id="coulombAlpha-s" min="0" max="5" step="0.05" value="1">
+                <input type="number" class="param-input" id="coulombAlpha-n" value="1" step="0.05" min="0">
+            </div>
+        </div>
+
+        <!-- ── Initial Grid (separate group, below electrostatics) ─────────── -->
+        <div class="control-group">
+            <h3>Initial Grid</h3>
+            <div class="control-row"
+                title="Grid spacing for initial placement (× rₘᵢₙ). Keep ≤ cutoff rc so the distance check covers exactly 1 cell radius — sparser grids may leave gaps the check cannot catch.">
+                <label>Spacing × rₘᵢₙ</label>
+                <input type="range" id="spacing-s" min="1" max="3" step="0.1" value="1">
+                <input type="number" class="param-input" id="spacing-n" value="1" step="0.1">
+            </div>
+            <div class="control-row">
+                <label>N particles</label>
+                <input type="range" id="N-s" min="0" max="10000" step="50" value="1000">
+                <input type="number" class="param-input" id="N-n" value="1000">
+            </div>
+            <div class="control-row">
+                <label>Box L</label>
+                <input type="range" id="L-s" min="10" max="250" step="1" value="50">
+                <input type="number" class="param-input" id="L-n" value="50">
+            </div>
+        </div>
+
+        <!-- ── Rendering (moved above Particles & Polymers) ────────────────── -->
+        <div class="control-group">
+            <h3>Rendering</h3>
+            <div class="control-row">
+                <label>Colour mode</label>
+                <select id="colormode-select" class="param-input" style="flex:0 0 100px;width:100px">
+                    <option value="type"     selected>Type</option>
+                    <option value="mol"             >Molecule</option>
+                    <option value="vel"             >Velocity</option>
+                    <option value="charge"          >Charge</option>
+                </select>
+            </div>
+            <div class="control-row">
+                <label>Particle radius</label>
+                <input type="range" id="pr-s" min="0.05" max="1.5" step="0.05" value="0.45">
+                <input type="number" class="param-input" id="pr-n" value="0.45">
+            </div>
         </div>
 
         <div class="control-group">
-            <h3>Particles &amp; Box</h3>
+            <h3>Particles &amp; Polymers</h3>
             <div class="sub-header">Species &amp; Composition</div>
             <div id="species-table-container">
                 <!-- built dynamically by buildSpeciesTableUI() -->
@@ -814,64 +897,9 @@ button.btn-snap:hover { background: #3a9455; }
 				<input type="range" id="r0scale-s" min="0.5" max="2" step="0.05" value="0.9">
 				<input type="number" class="param-input" id="r0scale-n" value="0.9" step="0.05" min="0.1">
 			</div>
-			<div class="sub-header">Initial Grid</div>
 
-			<div class="control-row"
-				title="Grid spacing for initial placement (× rₘᵢₙ). Keep ≤ cutoff rc so the distance check covers exactly 1 cell radius — sparser grids may leave gaps the check cannot catch.">
-				<label>Spacing × rₘᵢₙ</label>
-				<input type="range" id="spacing-s" min="1" max="3" step="0.1" value="1">
-				<input type="number" class="param-input" id="spacing-n" value="1" step="0.1">
-			</div>
-            <div class="control-row">
-                <label>N particles</label>
-                <input type="range" id="N-s" min="0" max="10000" step="50" value="1000">
-                <input type="number" class="param-input" id="N-n" value="1000">
-            </div>
-            <div class="control-row">
-                <label>Box L</label>
-                <input type="range" id="L-s" min="10" max="250" step="1" value="50">
-                <input type="number" class="param-input" id="L-n" value="50">
-            </div>
-            <div class="sub-header">m per particle type</div>
-            <div class="control-row">
-                <label>m₀</label>
-                <input type="number" class="param-input" id="mass0" value="1" step="0.1" min="0.01">
-            </div>
-            <div class="control-row">
-                <label>m₁</label>
-                <input type="number" class="param-input" id="mass1" value="1" step="0.1" min="0.01">
-            </div>
-            <div class="control-row">
-                <label>m₂</label>
-                <input type="number" class="param-input" id="mass2" value="1" step="0.1" min="0.01">
-            </div>
-            <div class="control-row">
-                <label>m₃</label>
-                <input type="number" class="param-input" id="mass3" value="1" step="0.1" min="0.01">
-            </div>
-
-            <div class="sub-header">Molecule Files</div>
-            <div class="control-row" style="margin-bottom:4px">
-                <label>Name</label>
-                <input type="text" id="mol-name-input" class="param-input"
-                    style="flex:1 1 auto;width:auto;text-align:left"
-                    placeholder="molecule name" value="my_molecule">
-            </div>
-            <button id="btn-save-mol" disabled
-                title="Save the active selection as a molecule file (requires a selection and paused simulation)">
-                Save selection as molecule
-            </button>
-            <div id="mol-dropzone" title="Drop a .mol2d.json molecule file or a .md2d.json simulation state here">
-                Load molecule / state<br>
-                <small>click or drag .json here</small>
-            </div>
-            <input type="file" id="mol-file-input" accept=".json" style="display:none">
-        </div>
-
-        <div class="control-group">
-            <h3>Mie 2-4 Potential</h3>
-			<div class="sub-header">ε matrix</div>
-
+            <div class="sub-header">Particle properties</div>
+			<div class="sub-header" style="border:none;margin:6px 0 4px;color:#aaa;font-size:0.64rem;">ε matrix</div>
 			<div class="eps-matrix">
 				<!-- Row 0 -->
 				<input type="number" id="eps00" value="1" step="0.1">
@@ -897,8 +925,8 @@ button.btn-snap:hover { background: #3a9455; }
 				<input type="number" id="eps32" value="1" step="0.1">
 				<input type="number" id="eps33" value="1" step="0.1">
 			</div>
-			
-			<div class="sub-header">σ per particle type</div>
+
+			<div class="sub-header" style="border:none;margin:10px 0 4px;color:#aaa;font-size:0.64rem;">σ per particle type</div>
             <div class="control-row">
                 <label>σ₀</label>
                 <input type="number" class="param-input" id="sigma0" value="1" step="0.05" min="0.1">
@@ -915,39 +943,35 @@ button.btn-snap:hover { background: #3a9455; }
                 <label>σ₃</label>
                 <input type="number" class="param-input" id="sigma3" value="1" step="0.05" min="0.1">
             </div>
-            <div class="control-row">
-                <label>r<sub>cut</sub></label>
-                <input type="range" id="rc-s" min="1.0" max="8.0" step="0.1" value="2.5">
-                <input type="number" class="param-input" id="rc-n" value="2.5">
-            </div>
-        </div>
 
-        <div class="control-group">
-            <h3>Rendering</h3>
+            <div class="sub-header" style="border:none;margin:10px 0 4px;color:#aaa;font-size:0.64rem;">m per particle type</div>
             <div class="control-row">
-                <label>Colour mode</label>
-                <select id="colormode-select" class="param-input" style="flex:0 0 100px;width:100px">
-                    <option value="type"     selected>Type</option>
-                    <option value="mol"             >Molecule</option>
-                    <option value="vel"             >Velocity</option>
-                </select>
+                <label>m₀</label>
+                <input type="number" class="param-input" id="mass0" value="1" step="0.1" min="0.01">
             </div>
             <div class="control-row">
-                <label>Particle radius</label>
-                <input type="range" id="pr-s" min="0.05" max="1.5" step="0.05" value="0.45">
-                <input type="number" class="param-input" id="pr-n" value="0.45">
+                <label>m₁</label>
+                <input type="number" class="param-input" id="mass1" value="1" step="0.1" min="0.01">
+            </div>
+            <div class="control-row">
+                <label>m₂</label>
+                <input type="number" class="param-input" id="mass2" value="1" step="0.1" min="0.01">
+            </div>
+            <div class="control-row">
+                <label>m₃</label>
+                <input type="number" class="param-input" id="mass3" value="1" step="0.1" min="0.01">
             </div>
         </div>
 
     </div>
 </div>
 
-<footer id="footer">Mocktini v1.0.5 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license</footer>
+<footer id="footer">Mocktini v1.1.0 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license</footer>
 
 <script>
 'use strict';
 // ════════════════════════════════════════════════════════════════════════════
-//  Mocktini - 2D Mie 2-4 Molecular Dynamics  —  v1.0.5
+//  Mocktini - 2D Mie 2-4 Molecular Dynamics  —  v1.1.0
 // ════════════════════════════════════════════════════════════════════════════
 //
 //  OVERVIEW
@@ -992,6 +1016,14 @@ button.btn-snap:hover { background: #3a9455; }
 //  • The selection system (GPU path) relies on selectionBuffer staying in
 //    sync with _selection.  Always call _syncSelectionToGPU() after mutating
 //    _selection.
+//  • charge is a per-bead instance property (Float32Array, parallel to type),
+//    NOT a per-type property.  It must be carried through every site that
+//    reindexes/grows the particle arrays (the 3 compaction blocks, ghost place,
+//    paste, appendNewParticles) exactly like type.  On the GPU it lives in a
+//    separate chargeBuffer (compute binding 12, render/bond binding 7) — it is
+//    NOT packed into the 8-float Particle struct, so readback offsets are
+//    unaffected.  coulombK/coulombAlpha ride in the Params uniform (floats
+//    53/54) and flow live via updateParamsLive().
 // ════════════════════════════════════════════════════════════════════════════
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1012,6 +1044,8 @@ const URL_PARAMS = [
     ...[0,1,2,3].flatMap(r=>[0,1,2,3].map(c=>({id:`eps${r}${c}`,type:'number'}))),
     {id:'thermo-cb',type:'checkbox'},{id:'gravity-cb',type:'checkbox'},
     {id:'gravity-n',type:'number'},
+    {id:'coulombK-n',type:'number'},
+    {id:'coulombAlpha-n',type:'number'},
     {id:'colormode-select',type:'string'},
     {id:'integrator-select', type:'string'},
     {id:'tauT-n', type:'number'}
@@ -1021,6 +1055,7 @@ const polymerData = Array.from({length: 4}, () => ({
     ratio:       0,
     chainLength: 2,
     chainTypes:  new Array(200).fill(0),
+    chainCharges: new Array(200).fill(0),    // per-bead charge
     chainAngles: new Array(200).fill(180),   // per-bead angle in degrees (bead b is middle vertex)
     bondK:       100,
     angleK:      10,
@@ -1376,10 +1411,11 @@ function updateSpeciesTablePcts() {
 
 class MolDef {
     constructor({ name = '', nBeads = 1, beadTypes = [],
-                  bonds = [], angles = [], exclusions = [] } = {}) {
+                  bonds = [], angles = [], exclusions = [], beadCharges = [] } = {}) {
         this.name       = name;
         this.nBeads     = nBeads;
         this.beadTypes  = beadTypes;
+        this.beadCharges = beadCharges;   // per-bead charge, parallel to beadTypes (default [] → 0)
         this.bonds      = bonds;
         this.angles     = angles;
         this.exclusions = exclusions;
@@ -1390,6 +1426,9 @@ class MolDef {
             name:      this.name,
             nBeads:    this.nBeads,
             beadTypes: Array.from(this.beadTypes),
+            // Omit when all-zero to keep files small; loader defaults missing → 0.
+            beadCharges: (this.beadCharges && this.beadCharges.some(q => q !== 0))
+                         ? Array.from(this.beadCharges) : undefined,
             bonds: this.bonds.map(b => ({
                 i: b.i, j: b.j, k: b.k, r0: b.r0 ?? null,
             })),
@@ -1407,6 +1446,7 @@ class MolDef {
             name:      obj.name   ?? '',
             nBeads:    obj.nBeads ?? 1,
             beadTypes: obj.beadTypes ? [...obj.beadTypes] : [],
+            beadCharges: obj.beadCharges ? [...obj.beadCharges] : [],
         });
         def.bonds = (obj.bonds || []).map(b => ({
             i: b.i, j: b.j, k: b.k ?? 100, r0: b.r0 ?? null,
@@ -1433,6 +1473,7 @@ function syncPolymerToMolDef(pi) {
     def.name      = `Polymer ${pi}`;
     def.nBeads    = cl;
     def.beadTypes = pd.chainTypes.slice(0, cl);
+    def.beadCharges = pd.chainCharges.slice(0, cl);
 
     def.bonds = [];
     for (let b = 0; b < cl - 1; b++)
@@ -1513,6 +1554,8 @@ function syncVisibleToPolymerData() {
     for (let b = 0; b < cl; b++) {
         const el = document.getElementById(`chaintype-${b}`);
         if (el) pd.chainTypes[b] = parseInt(el.value) || 0;
+        const qel = document.getElementById(`chaincharge-${b}`);
+        if (qel) { const q = parseFloat(qel.value); pd.chainCharges[b] = isFinite(q) ? q : 0; }
     }
     pd.bondK  = parseFloat(document.getElementById('bond-k-n').value)     || 100;
     pd.angleK = parseFloat(document.getElementById('angle-k-n').value)    || 10;
@@ -1573,6 +1616,8 @@ function loadFromURL() {
         if (!isNaN(clen)) polymerData[pi].chainLength = Math.max(1, Math.min(200, clen));
         const ctypes = p.get(`p${pi}ctypes`);
         if (ctypes) ctypes.split(',').forEach((v, i) => { polymerData[pi].chainTypes[i] = parseInt(v) || 0; });
+        const ccharges = p.get(`p${pi}ccharges`);
+        if (ccharges) ccharges.split(',').forEach((v, i) => { const q = parseFloat(v); if (isFinite(q)) polymerData[pi].chainCharges[i] = q; });
         const bondK = parseFloat(p.get(`p${pi}bondK`));
         if (!isNaN(bondK)) polymerData[pi].bondK = Math.max(0, bondK);
         const angleK = parseFloat(p.get(`p${pi}angleK`));
@@ -1609,6 +1654,7 @@ function saveToURL() {
             p.set(`s${4+pi}r`,   speciesTable[4+pi].ratio);
             p.set(`p${pi}clen`,   polymerData[pi].chainLength);
             p.set(`p${pi}ctypes`, polymerData[pi].chainTypes.slice(0, polymerData[pi].chainLength).join(','));
+            p.set(`p${pi}ccharges`, polymerData[pi].chainCharges.slice(0, polymerData[pi].chainLength).map(v => +v.toFixed(3)).join(','));
             p.set(`p${pi}bondK`,  polymerData[pi].bondK);
             p.set(`p${pi}angleK`, polymerData[pi].angleK);
             p.set(`p${pi}theta0`, +(polymerData[pi].theta0 * 180 / Math.PI).toFixed(4));
@@ -1657,7 +1703,7 @@ function advanceEaseDt() {
 function getColorMode() {
     return document.getElementById('colormode-select').value;
 }
-const COLOR_MODE_GPU = { type: 0.0, mol: 1.0, vel: 2.0 };
+const COLOR_MODE_GPU = { type: 0.0, mol: 1.0, vel: 2.0, charge: 3.0 };
 
 function speedColor(t) {
     t = Math.max(0, Math.min(1, t));
@@ -1671,6 +1717,51 @@ function speedColor(t) {
     }
     return `rgb(${r},${g},${b})`;
 }
+
+// Diverging charge colour map (CPU draw): blue (−) → yellow (0) → red (+).
+// Saturation is pushed outward so low charges read clearly: |q|=1,2,3 land where
+// |q|=2,3,4 used to (frac = (|q|+1)/3, clamped), with q==0 held exactly yellow.
+// Yellow at zero (not grey) keeps neutral beads distinct from the desaturated
+// selection grey.  Matches the WGSL chargeColor() so CPU and GPU renders agree.
+function chargeColorCss(q) {
+    const aq = Math.abs(q || 0);
+    const frac = aq <= 1e-9 ? 0 : Math.max(0, Math.min(1, (aq + 1) / 3));
+    const mid = [245, 217, 56], blue = [77, 115, 242], red = [242, 77, 77];
+    const lerp = (a, b, s) => Math.round(a + (b - a) * s);
+    const end = (q || 0) >= 0 ? red : blue;
+    return `rgb(${lerp(mid[0],end[0],frac)},${lerp(mid[1],end[1],frac)},${lerp(mid[2],end[2],frac)})`;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Electrostatics — DSF (Damped Shifted Force), 1/r potential
+//  ----------------------------------------------------------------------------
+//  Pair energy (within rc):
+//    U = K_e q_i q_j [ erfc(αr)/r − erfc(αr_c)/r_c + F_shift·(r − r_c) ]
+//  Pair force magnitude along r̂ (the scalar multiplying the unit vector):
+//    F = K_e q_i q_j [ erfc(αr)/r² + (2α/√π)e^(−α²r²)/r − F_shift ]
+//  with the shift constant evaluated once at the cutoff:
+//    F_shift = erfc(αr_c)/r_c² + (2α/√π)e^(−α²r_c²)/r_c
+//  Both U and F → 0 at r = r_c (energy- AND force-continuous), so no impulsive
+//  kick as pairs cross the cutoff — important for NVE energy conservation.
+//  α→0 recovers bare shifted-force Coulomb; larger α screens more aggressively.
+//
+//  K_e (coulombK)     — linear strength scalar (rescales all electrostatics).
+//  α   (coulombAlpha) — non-linear screening (changes the shape, not the scale).
+//
+//  erfc: Abramowitz & Stegun 7.1.26 rational approximation (|error| ≤ 1.5e-7).
+//  The identical polynomial is mirrored in WGSL (erfc_approx) so both engines
+//  agree to within f32 precision.
+// ════════════════════════════════════════════════════════════════════════════
+const TWO_OVER_SQRT_PI = 1.1283791670955126;   // 2/√π
+
+function _erfc(x) {
+    // A&S 7.1.26 — valid for x ≥ 0; our argument αr is always ≥ 0.
+    const t = 1.0 / (1.0 + 0.3275911 * x);
+    const y = t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 +
+              t * (-1.453152027 + t * 1.061405429))));
+    return y * Math.exp(-x * x);
+}
+
 
 // ════════════════════════════════════════════════════════════════════════════
 //  CPU Engine
@@ -1702,6 +1793,7 @@ class MD2D_CPU {
     this.polymerRatios  = [0, 0, 0, 0];
     this.chainLengths   = [2, 2, 2, 2];
     this.chainTypesAll  = Array.from({length: 4}, () => new Array(200).fill(0));
+    this.chainChargesAll = Array.from({length: 4}, () => new Array(200).fill(0));
 
     this.nBonds        = 0;
     this.bondI         = null;
@@ -1719,6 +1811,17 @@ class MD2D_CPU {
     this.angleJ        = null;
     this.angleKarr     = null;
     this.angleParamId  = null;
+
+    // ── Electrostatics (DSF — Damped Shifted Force, 1/r) ─────────────────
+    // charge: per-bead instance property (NOT a per-type property), default 0.
+    //   Stored parallel to this.type — allocated in _alloc(), carried through
+    //   every append/delete/paste reindex site exactly like type.
+    // coulombK : K_e, the linear Coulomb prefactor (overall strength).
+    // coulombAlpha : α, the DSF damping (inverse screening length, non-linear).
+    //   Both default 1.0.  When all charges are 0 the NB loop skips the term.
+    this.charge       = null;
+    this.coulombK     = 5.0;
+    this.coulombAlpha = 1.0;
 	}
 	
     get rc() { return this.rcCut; }
@@ -1740,6 +1843,7 @@ class MD2D_CPU {
 		this.fx = new Float32Array(N); this.fy = new Float32Array(N);
 		this.next = new Int32Array(N);
 		this.type = new Int8Array(N);
+		this.charge = new Float32Array(N);   // per-bead charge, default 0
 	}
 
     _setupCells() {
@@ -1789,6 +1893,7 @@ class MD2D_CPU {
         const polymerRatios = this.polymerRatios  || [0, 0, 0, 0];
         const chainLengths  = this.chainLengths   || [2, 2, 2, 2];
         const chainTypesAll = this.chainTypesAll  || Array.from({length: 4}, () => []);
+        const chainChargesAll = this.chainChargesAll || Array.from({length: 4}, () => []);
 
         const nChainsByPoly  = polymerRatios.map((r, pi) =>
             r > 0 ? Math.floor(baseN * r / Math.max(1, chainLengths[pi])) : 0);
@@ -1817,6 +1922,7 @@ class MD2D_CPU {
             const nChains    = nChainsByPoly[pi];
             if (nChains === 0) continue;
             const chainTypes = chainTypesAll[pi];
+            const chainCharges = chainChargesAll[pi] || [];
 
             const validStarts = [];
             for (let iy = 0; iy < ny; iy++)
@@ -1841,6 +1947,7 @@ class MD2D_CPU {
                     this.x[pIdx]    = (gx   + 0.5) * spacing;
                     this.y[pIdx]    = (s.iy + 0.5) * spacing;
                     this.type[pIdx] = chainTypes[b] ?? 0;
+                    if (this.charge) this.charge[pIdx] = chainCharges[b] ?? 0;
                     occupied.add(`${gx},${s.iy}`);
                     pIdx++;
                 }
@@ -1851,6 +1958,7 @@ class MD2D_CPU {
                     this.x[pIdx]    = Math.random() * this.L;
                     this.y[pIdx]    = Math.random() * this.L;
                     this.type[pIdx] = chainTypes[b] ?? 0;
+                    if (this.charge) this.charge[pIdx] = chainCharges[b] ?? 0;
                     pIdx++;
                 }
             }
@@ -2074,6 +2182,23 @@ class MD2D_CPU {
         const smat = this.sigmaSqMix;
         const rc2  = this.rcCut * this.rcCut;  // single cutoff for all pairs
 
+        // ── DSF electrostatics: cutoff-constant precompute (once per call) ───
+        // Skipped entirely when no charges are set (qScale stays 0 → no erfc).
+        const q       = this.charge;
+        const Ke      = this.coulombK ?? 1.0;
+        const alpha   = this.coulombAlpha ?? 1.0;
+        const rc      = this.rcCut;
+        const useCoul = (Ke !== 0) && !!q;   // per-pair q_i*q_j==0 still skips below
+        let   erfcRc = 0, fShift = 0, eShift = 0;
+        if (useCoul) {
+            erfcRc = _erfc(alpha * rc);
+            const expRc = Math.exp(-alpha * alpha * rc * rc);
+            // F_shift = erfc(αrc)/rc² + (2α/√π)e^(−α²rc²)/rc
+            fShift = erfcRc / (rc * rc) + TWO_OVER_SQRT_PI * alpha * expRc / rc;
+            // energy shift term erfc(αrc)/rc (the constant subtracted inside U)
+            eShift = erfcRc / rc;
+        }
+
         for (let cx = 0; cx < this.nx; cx++) {
             for (let cy = 0; cy < this.ny; cy++) {
                 const c = cx + cy * this.nx;
@@ -2114,6 +2239,30 @@ class MD2D_CPU {
                                 const sr4c = sr2c * sr2c;
                                 const Ucut = 4.0 * eps * (sr4c - sr2c);
                                 pot += 4.0 * eps * (inv_r4 - inv_r2) - Ucut;
+
+                                // ── DSF electrostatics (1/r, damped shifted force) ──
+                                // Reuses dx,dy,r2 and the same bondExclude skip above.
+                                if (useCoul) {
+                                    const qq = q[i] * q[j];
+                                    if (qq !== 0) {
+                                        const r    = Math.sqrt(r2);
+                                        const ar   = alpha * r;
+                                        const erfcR = _erfc(ar);
+                                        const expR  = Math.exp(-ar * ar);
+                                        // force magnitude / r  → multiplier for (dx,dy)
+                                        const fc = Ke * qq * (
+                                            erfcR / r2 +
+                                            TWO_OVER_SQRT_PI * alpha * expR / r -
+                                            fShift
+                                        ) / r;
+                                        this.fx[i] += fc * dx; this.fy[i] += fc * dy;
+                                        this.fx[j] -= fc * dx; this.fy[j] -= fc * dy;
+                                        virial += fc * r2;
+                                        // U = Ke qq [ erfc(αr)/r − erfc(αrc)/rc + Fshift(r−rc) ]
+                                        pot += Ke * qq * (erfcR / r - eShift + fShift * (r - rc));
+                                    }
+                                }
+
                             }
                         }
                     }
@@ -2321,6 +2470,16 @@ class MD2D_CPU {
     }
     temperature() { return 2 * this.kineticEnergy() / Math.max(1, 2 * this.N - 2); }
 
+    // Net charge of the box.  DSF (like all cutoff electrostatics) assumes a
+    // neutral cell; a non-zero sum means a spurious self-interaction is present.
+    // Surfaced in the stats bar (green ≈ 0, red otherwise) as an honesty signal.
+    totalCharge() {
+        if (!this.charge) return 0;
+        let q = 0;
+        for (let i = 0; i < this.N; i++) q += this.charge[i];
+        return q;
+    }
+
     computeMaxSpeed() {
         let maxSq = 1e-24;
         for (let i = 0; i < this.N; i++) {
@@ -2345,7 +2504,7 @@ struct Params {
     r0Scale: f32, gravity: f32, gravityOn: u32, _pad: f32,
     epsMatrix:  array<vec4<f32>, 4>,
     sigmaSqMix: array<vec4<f32>, 4>,
-    rcSq: f32, _p1: f32, _p2: f32, _p3: f32,
+    rcSq: f32, coulombK: f32, coulombAlpha: f32, _p3: f32,
 }
 `;
 
@@ -2365,6 +2524,20 @@ struct Particle {
 @group(0) @binding(4) var<storage, read> molIds:       array<u32>;
 @group(0) @binding(5) var<storage, read> selBuf:       array<f32>; // 1.0=selected/none, 0.0=dimmed
 @group(0) @binding(6) var<storage, read> molPalette:   array<vec4<f32>>; // 256 entries; indexed by molId
+@group(0) @binding(7) var<storage, read> charges:      array<f32>; // per-bead charge (charge colour mode)
+
+// Diverging charge colour map: blue (−) → grey (0) → red (+), clamped at ±3.
+fn chargeColor(q: f32) -> vec4<f32> {
+    let MID  = vec3<f32>(0.96, 0.85, 0.22);   // yellow at q=0 (distinct from desaturated grey)
+    let BLUE = vec3<f32>(0.30, 0.45, 0.95);
+    let RED  = vec3<f32>(0.95, 0.30, 0.30);
+    // Push nonzero saturation outward: |q|=1,2,3 land where 2,3,4 used to.
+    let aq   = abs(q);
+    var frac = 0.0;
+    if (aq > 1e-9) { frac = clamp((aq + 1.0) / 3.0, 0.0, 1.0); }
+    if (q >= 0.0) { return vec4<f32>(mix(MID, RED,  frac), 1.0); }
+    else          { return vec4<f32>(mix(MID, BLUE, frac), 1.0); }
+}
 
 fn typeColor(pType: u32) -> vec4<f32> {
     let c = array<vec4<f32>, 4>(
@@ -2406,6 +2579,7 @@ fn vs_main(@builtin(vertex_index) idx: u32, @builtin(instance_index) instance: u
             finalColor = typeColor(pType);
         }
     } else if (mode == 2u) { finalColor = velColor(length(p.vel), max_speed);
+    } else if (mode == 3u) { finalColor = chargeColor(charges[instance]);
     } else                 { finalColor = typeColor(pType); }
 
     // Desaturate non-selected particles (selBuf < 0.5 means dimmed)
@@ -2475,6 +2649,19 @@ struct Particle {
 @group(0) @binding(4) var<storage, read> molIds:     array<u32>;
 @group(0) @binding(5) var<storage, read> selBuf:     array<f32>;
 @group(0) @binding(6) var<storage, read> molPalette: array<vec4<f32>>; // 256 entries; indexed by molId
+@group(0) @binding(7) var<storage, read> charges:    array<f32>;
+
+fn chargeColor(q: f32) -> vec4<f32> {
+    let MID  = vec3<f32>(0.96, 0.85, 0.22);   // yellow at q=0 (distinct from desaturated grey)
+    let BLUE = vec3<f32>(0.30, 0.45, 0.95);
+    let RED  = vec3<f32>(0.95, 0.30, 0.30);
+    // Push nonzero saturation outward: |q|=1,2,3 land where 2,3,4 used to.
+    let aq   = abs(q);
+    var frac = 0.0;
+    if (aq > 1e-9) { frac = clamp((aq + 1.0) / 3.0, 0.0, 1.0); }
+    if (q >= 0.0) { return vec4<f32>(mix(MID, RED,  frac), 1.0); }
+    else          { return vec4<f32>(mix(MID, BLUE, frac), 1.0); }
+}
 
 fn typeColor(pType: u32) -> vec4<f32> {
     let c = array<vec4<f32>, 4>(
@@ -2501,6 +2688,7 @@ fn particleColor(idx: u32) -> vec4<f32> {
             col = typeColor(u32(p.pType));
         }
     } else if (bondRP.mode == 2u) { col = velColor(length(p.vel), bondRP.maxSpeed);
+    } else if (bondRP.mode == 3u) { col = chargeColor(charges[idx]);
     } else                        { col = typeColor(u32(p.pType)); }
     if (selBuf[idx] < 0.5) {
         let lum = dot(col.rgb, vec3<f32>(0.299, 0.587, 0.114));
@@ -2606,6 +2794,10 @@ struct BondParam  { k: f32, r0: f32, _p0: f32, _p1: f32, }
 struct AngleParam { k: f32, theta0: f32, _p0: f32, _p1: f32, }
 @group(0) @binding(11) var<storage, read> angleParams: array<AngleParam>;
 
+// Per-bead charge (parallel array, indexed by particle index).  Read-only in
+// compute; default 0 means the DSF term is skipped per-pair (q_i*q_j == 0).
+@group(0) @binding(12) var<storage, read> charges: array<f32>;
+
 struct IntegratorParams {
     integratorType : u32,
     stepSeed       : u32,
@@ -2630,6 +2822,15 @@ fn excl_contains(i: u32, j: u32) -> bool {
         if (topoBuffer[bondedParams.offExclCSR + e] == j) { return true; }
     }
     return false;
+}
+
+// erfc — Abramowitz & Stegun 7.1.26 (|error| ≤ 1.5e-7), valid for x ≥ 0.
+// Mirrors the JS _erfc() so CPU and GPU electrostatics agree to f32 precision.
+fn erfc_approx(x: f32) -> f32 {
+    let t = 1.0 / (1.0 + 0.3275911 * x);
+    let y = t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 +
+            t * (-1.453152027 + t * 1.061405429))));
+    return y * exp(-x * x);
 }
 
 fn pcg_hash(v: u32) -> u32 {
@@ -2750,6 +2951,18 @@ fn computeForces(@builtin(global_invocation_id) id: vec3<u32>) {
     var force    = vec2<f32>(0.0);
     var pe_share = 0.0;
 
+    // ── DSF electrostatics: cutoff constants (computed once per thread) ──
+    let q_i      = charges[i];
+    let Ke       = params.coulombK;
+    let alpha    = params.coulombAlpha;
+    let rc       = sqrt(params.rcSq);
+    let TWO_OVR_SQRTPI = 1.1283791670955126;
+    let erfcRc   = erfc_approx(alpha * rc);
+    let expRc    = exp(-alpha * alpha * rc * rc);
+    let fShift   = erfcRc / (rc * rc) + TWO_OVR_SQRTPI * alpha * expRc / rc;
+    let eShift   = erfcRc / rc;
+    let useCoul  = (Ke != 0.0) && (q_i != 0.0);   // per-pair q_j==0 still skips below
+
     var cx = u32(p_i.pos.x / params.cellSize);
     var cy = u32(p_i.pos.y / params.cellSize);
     if (cx >= params.nx) { cx = params.nx - 1u; }
@@ -2791,6 +3004,26 @@ fn computeForces(@builtin(global_invocation_id) id: vec3<u32>) {
                     let sr4c = sr2c * sr2c;
                     let Ucut = 4.0 * eps * (sr4c - sr2c);
                     pe_share += 4.0 * eps * (inv_r4 - inv_r2) - Ucut;
+
+                    // ── DSF electrostatics (1/r, damped shifted force) ──
+                    // Full pairwise force on i (this loop double-counts pairs;
+                    // pe_share is halved at the end to compensate).
+                    if (useCoul) {
+                        let qq = q_i * charges[j];
+                        if (qq != 0.0) {
+                            let r     = sqrt(r2);
+                            let ar    = alpha * r;
+                            let erfcR = erfc_approx(ar);
+                            let expR  = exp(-ar * ar);
+                            let fc = Ke * qq * (
+                                erfcR / r2 +
+                                TWO_OVR_SQRTPI * alpha * expR / r -
+                                fShift
+                            ) / r;
+                            force += fc * d;
+                            pe_share += Ke * qq * (erfcR / r - eShift + fShift * (r - rc));
+                        }
+                    }
                 }
             }
         }
@@ -2969,6 +3202,9 @@ class MD2D_WebGPU {
         this.N = 1000; this.L = 50.0; this.T = 1.0; this.mass = 1.0; this.dt = 0.005;
         this.epsilon = 1.0; this.sigmaPerType = [1.0, 1.0, 1.0, 1.0]; this.rcCut = 2.5;
         this.r0Scale = 1.0;
+        this.coulombK     = 5.0;   // K_e — linear electrostatics strength
+        this.coulombAlpha = 1.0;   // α   — DSF damping
+        this.charge       = null;  // per-bead charge (parallel array), uploaded to chargeBuffer
         this.potentialEnergy = 0;
         this._virial = 0;
         this._KE = 0;
@@ -3003,6 +3239,7 @@ class MD2D_WebGPU {
                 { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform'           } },
                 { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
                 { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+                { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
             ]
         });
 
@@ -3050,6 +3287,7 @@ class MD2D_WebGPU {
                 { binding: 4, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
                 { binding: 5, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
                 { binding: 6, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+                { binding: 7, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
             ]
         });
         this.renderPipeline = this.device.createRenderPipeline({
@@ -3075,6 +3313,7 @@ class MD2D_WebGPU {
                 { binding: 4, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
                 { binding: 5, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
                 { binding: 6, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+                { binding: 7, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
             ]
         });
         this.bondRenderPipeline = this.device.createRenderPipeline({
@@ -3093,7 +3332,8 @@ class MD2D_WebGPU {
     _setupBondRenderBindGroup() {
         if (!this.bondRenderBGL || !this.bondRenderParamsBuffer ||
             !this.particleBuffer || !this.topoBuffer || !this.cameraBuffer ||
-            !this.molIdBuffer || !this.selectionBuffer || !this.molPaletteBuffer) return;
+            !this.molIdBuffer || !this.selectionBuffer || !this.molPaletteBuffer ||
+            !this.chargeBuffer) return;
         this.bondRenderBindGroup = this.device.createBindGroup({
             layout: this.bondRenderBGL,
             entries: [
@@ -3104,6 +3344,7 @@ class MD2D_WebGPU {
                 { binding: 4, resource: { buffer: this.molIdBuffer            } },
                 { binding: 5, resource: { buffer: this.selectionBuffer        } },
                 { binding: 6, resource: { buffer: this.molPaletteBuffer       } },
+                { binding: 7, resource: { buffer: this.chargeBuffer           } },
             ]
         });
     }
@@ -3111,7 +3352,7 @@ class MD2D_WebGPU {
     _setupRenderBindGroup() {
         if (!this.renderBGL || !this.particleBuffer || !this.renderParamsBuffer ||
             !this.paramsBuffer || !this.cameraBuffer || !this.molIdBuffer ||
-            !this.selectionBuffer || !this.molPaletteBuffer) return;
+            !this.selectionBuffer || !this.molPaletteBuffer || !this.chargeBuffer) return;
         this.renderBindGroup = this.device.createBindGroup({
             layout: this.renderBGL,
             entries: [
@@ -3122,6 +3363,7 @@ class MD2D_WebGPU {
                 { binding: 4, resource: { buffer: this.molIdBuffer        } },
                 { binding: 5, resource: { buffer: this.selectionBuffer    } },
                 { binding: 6, resource: { buffer: this.molPaletteBuffer   } },
+                { binding: 7, resource: { buffer: this.chargeBuffer       } },
             ]
         });
         this._setupBondRenderBindGroup();
@@ -3269,6 +3511,20 @@ class MD2D_WebGPU {
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
         this.device.queue.writeBuffer(this.selectionBuffer, 0, new Float32Array(this.N).fill(1.0));
+
+        // Charge buffer: per-bead charge (f32), bound to compute (DSF) and render
+        // (charge colour mode).  Default 0.  Written from this.charge below / in
+        // uploadFromCPU; updated live via updateChargeBuffer() after edits.
+        if (this.chargeBuffer) this.chargeBuffer.destroy();
+        this.chargeBuffer = this.device.createBuffer({
+            size:  Math.max(4, this.N * 4),
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        });
+        {
+            const qData = new Float32Array(this.N);
+            if (this.charge && this.charge.length >= this.N) qData.set(this.charge.subarray(0, this.N));
+            this.device.queue.writeBuffer(this.chargeBuffer, 0, qData);
+        }
 
         // Molecule colour palette buffer: 256 × vec4<f32> = 4096 bytes.
         // Static for built-in molecules; call updateMolPaletteBuffer() after adding custom ones.
@@ -3449,7 +3705,9 @@ class MD2D_WebGPU {
         //  [20-35] epsMatrix    (4×vec4)
         //  [36-51] sigmaSqMix   (4×vec4)
         //  [52]    rcSq  (single scalar — same cutoff for all pairs)
-        //  [53-55] padding
+        //  [53]    coulombK     (K_e — linear electrostatics strength)
+        //  [54]    coulombAlpha (α — DSF damping / inverse screening length)
+        //  [55]    padding
         const paramsData = new Float32Array(56);
         const paramsU32  = new Uint32Array(paramsData.buffer);
         const maxPerCell = 32;
@@ -3478,6 +3736,8 @@ class MD2D_WebGPU {
             }
         }
         paramsData[52] = this.rcCut * this.rcCut;  // rcSq: shared absolute cutoff
+        paramsData[53] = this.coulombK     ?? 1.0;  // K_e  (linear strength)
+        paramsData[54] = this.coulombAlpha ?? 1.0;  // α    (DSF damping)
         return paramsData;
     }
 
@@ -3496,6 +3756,7 @@ class MD2D_WebGPU {
                 { binding: 9,  resource: { buffer: this.integratorParamsBuffer } },
                 { binding: 10, resource: { buffer: this.bondParamsBuffer       } },
                 { binding: 11, resource: { buffer: this.angleParamsBuffer      } },
+                { binding: 12, resource: { buffer: this.chargeBuffer           } },
             ]
         });
     }
@@ -3549,6 +3810,11 @@ class MD2D_WebGPU {
         this.rcCut     = cpuSim.rcCut;
         this.epsMatrix = cpuSim.epsMatrix;
         this.stepCount = cpuSim.stepCount;
+        this.coulombK     = cpuSim.coulombK     ?? 1.0;
+        this.coulombAlpha = cpuSim.coulombAlpha ?? 1.0;
+        this.charge = (cpuSim.charge && cpuSim.charge.length >= cpuSim.N)
+            ? new Float32Array(cpuSim.charge.subarray(0, cpuSim.N))
+            : new Float32Array(cpuSim.N);
 
         this.nBonds      = cpuSim.nBonds      || 0;
         this.nAngles     = cpuSim.nAngles     || 0;
@@ -3811,6 +4077,15 @@ class MD2D_WebGPU {
             this._buildParamsData(this.nx, this.ny, actualCell));
     }
 
+    // Re-upload the full per-bead charge array to the GPU after charge edits.
+    // Used by the inspector commit (charge changes don't reindex topology).
+    updateChargeBuffer() {
+        if (!this.ready || !this.chargeBuffer) return;
+        const qData = new Float32Array(this.N);
+        if (this.charge && this.charge.length >= this.N) qData.set(this.charge.subarray(0, this.N));
+        this.device.queue.writeBuffer(this.chargeBuffer, 0, qData);
+    }
+
     async step(steps, thermostat = null) {
         if (!this.ready) return;
 
@@ -4023,7 +4298,7 @@ async function exportSelectionAsMolecule() {
     const inds    = [..._selection];
     const anchorX = _selectionFrame ? _selectionFrame.corX + _selectionFrame.tx : undefined;
     const anchorY = _selectionFrame ? _selectionFrame.corY + _selectionFrame.ty : undefined;
-    const { positions, beadTypes, bonds, angles } = _selectionToMolData(inds, anchorX, anchorY);
+    const { positions, beadTypes, beadCharges, bonds, angles } = _selectionToMolData(inds, anchorX, anchorY);
 
     // Derive exclusions from bonds + angle endpoints.
     const idxMap = new Map();
@@ -4042,7 +4317,9 @@ async function exportSelectionAsMolecule() {
     const mol = {
         format: 'md2d-molecule', version: '1',
         name:   rawName,
-        nBeads: inds.length, beadTypes, bonds, angles: anglesOut, exclusions, positions,
+        nBeads: inds.length, beadTypes,
+        beadCharges: (beadCharges && beadCharges.some(q => q !== 0)) ? beadCharges : undefined,
+        bonds, angles: anglesOut, exclusions, positions,
     };
 
     const blob = new Blob([JSON.stringify(mol, null, 2)], { type: 'application/json' });
@@ -4082,13 +4359,14 @@ async function saveSimState() {
         angleK:      pd.angleK,
         theta0Deg:   +(pd.theta0 * 180 / Math.PI).toFixed(4),
         chainTypes:  pd.chainTypes.slice(0, pd.chainLength),
+        chainCharges: pd.chainCharges.slice(0, pd.chainLength),
         chainAngles: pd.chainAngles.slice(0, pd.chainLength),
     }));
 
     // ── Particle + topology arrays ─────────────────────────────────────────
     const state = {
         format:  'md2d-state',
-        version: 1,
+        version: 2,
         ui,
         camera:  { x: camera.x, y: camera.y, zoom: camera.zoom },
         engine:  currentEngine,
@@ -4100,6 +4378,12 @@ async function saveSimState() {
             vx:    N > 0 ? Array.from(c.vx.subarray(0, N))   : [],
             vy:    N > 0 ? Array.from(c.vy.subarray(0, N))   : [],
             type:  N > 0 ? Array.from(c.type.subarray(0, N)) : [],
+            // Per-bead charge (v2+).  Omitted (null) when all-zero to keep files small;
+            // loader defaults missing/absent charge to 0 for back-compat with v1.
+            charge: (N > 0 && c.charge && c.totalCharge() === 0 &&
+                     c.charge.subarray(0, N).every(q => q === 0))
+                    ? null
+                    : (N > 0 && c.charge ? Array.from(c.charge.subarray(0, N)) : null),
             molId: (N > 0 && c.molIdPerParticle)
                    ? Array.from(c.molIdPerParticle.subarray(0, N)) : null,
         },
@@ -4177,6 +4461,7 @@ async function loadSimState(json) {
             pd.angleK      = src.angleK       ?? 10;
             pd.theta0      = (src.theta0Deg   ?? 180) * Math.PI / 180;
             if (src.chainTypes)  src.chainTypes.forEach((v, i) => { pd.chainTypes[i]  = v; });
+            if (src.chainCharges) src.chainCharges.forEach((v, i) => { pd.chainCharges[i] = v; });
             if (src.chainAngles) src.chainAngles.forEach((v, i) => { pd.chainAngles[i] = v; });
         });
     }
@@ -4230,6 +4515,10 @@ async function loadSimState(json) {
         cpuSim.fy   = new Float32Array(N);
         cpuSim.next = new Int32Array(N);
         cpuSim.type = new Int8Array(p.type);
+        // Per-bead charge (v2+).  Back-compat: v1 files have no charge → default 0.
+        cpuSim.charge = (p.charge && p.charge.length === N)
+            ? new Float32Array(p.charge)
+            : new Float32Array(N);
         cpuSim.molIdPerParticle = p.molId
             ? new Uint32Array(p.molId)
             : new Uint32Array(N).fill(0xFFFFFFFF);
@@ -4262,6 +4551,7 @@ async function loadSimState(json) {
         gpuSim.x = cpuSim.x; gpuSim.y = cpuSim.y;
         gpuSim.vx = cpuSim.vx; gpuSim.vy = cpuSim.vy;
         gpuSim.type = cpuSim.type; gpuSim.N = cpuSim.N;
+        gpuSim.charge = cpuSim.charge;
         gpuSim.nBonds = cpuSim.nBonds; gpuSim.bondI = cpuSim.bondI; gpuSim.bondJ = cpuSim.bondJ;
         gpuSim.nAngles = cpuSim.nAngles; gpuSim.molIdPerParticle = cpuSim.molIdPerParticle;
         sim = gpuSim;
@@ -4367,6 +4657,7 @@ async function _addGhostParticles(cx, cy, rotation) {
     cpuSim.fy   = _growArr(Float32Array, cpuSim.fy,   newN);
     cpuSim.next = _growArr(Int32Array,   cpuSim.next, newN);
     cpuSim.type = _growArr(Int8Array,    cpuSim.type, newN);
+    cpuSim.charge = _growArr(Float32Array, cpuSim.charge, newN);
     if (cpuSim.molIdPerParticle)
         cpuSim.molIdPerParticle = _growArr(Uint32Array, cpuSim.molIdPerParticle, newN);
     cpuSim.N = newN;
@@ -4380,6 +4671,7 @@ async function _addGhostParticles(cx, cy, rotation) {
         cpuSim.y[gi]  = ((cy + ry) % L + L) % L;
         cpuSim.vx[gi] = 0; cpuSim.vy[gi] = 0;
         cpuSim.type[gi] = cm.molDef.beadTypes[li] ?? 0;
+        if (cpuSim.charge) cpuSim.charge[gi] = cm.molDef.beadCharges?.[li] ?? 0;
         // Use the canonical assembly/import molId directly — no temp ID needed.
         if (cpuSim.molIdPerParticle) cpuSim.molIdPerParticle[gi] = cm.molId;
     }
@@ -4466,7 +4758,7 @@ async function _saveSelectionAsAssembly() {
     const inds    = [..._selection];
     const anchorX = _selectionFrame ? _selectionFrame.corX + _selectionFrame.tx : undefined;
     const anchorY = _selectionFrame ? _selectionFrame.corY + _selectionFrame.ty : undefined;
-    const { positions, beadTypes, bonds, angles } = _selectionToMolData(inds, anchorX, anchorY);
+    const { positions, beadTypes, beadCharges, bonds, angles } = _selectionToMolData(inds, anchorX, anchorY);
 
     const molId  = _nextMolId++;
     const color  = molPaletteCSS[Math.min(molId, 255)];
@@ -4475,7 +4767,7 @@ async function _saveSelectionAsAssembly() {
 
     const entry = {
         name, color, molId, source: 'assembly',
-        molDef: new MolDef({ name, nBeads: inds.length, beadTypes, bonds, angles }),
+        molDef: new MolDef({ name, nBeads: inds.length, beadTypes, beadCharges, bonds, angles }),
         positions,
     };
     customMolDefs.push(entry);
@@ -4501,6 +4793,7 @@ async function _deleteByMolId(targetMolId) {
     const nvx = new Float32Array(newN), nvy = new Float32Array(newN);
     const nfx = new Float32Array(newN), nfy = new Float32Array(newN);
     const nt  = new Int8Array(newN);
+    const nq  = new Float32Array(newN);   // charge follows type through reindex
     const nm  = cpuSim.molIdPerParticle ? new Uint32Array(newN).fill(0xFFFFFFFF) : null;
     for (let i = 0; i < cpuSim.N; i++) {
         if (del.has(i)) continue;
@@ -4508,11 +4801,12 @@ async function _deleteByMolId(targetMolId) {
         nx[ni] = cpuSim.x[i]; ny[ni] = cpuSim.y[i];
         nvx[ni]= cpuSim.vx[i]; nvy[ni]= cpuSim.vy[i];
         nt[ni] = cpuSim.type ? cpuSim.type[i] : 0;
+        nq[ni] = cpuSim.charge ? cpuSim.charge[i] : 0;
         if (nm && cpuSim.molIdPerParticle) nm[ni] = cpuSim.molIdPerParticle[i];
     }
     cpuSim.N = newN; cpuSim.x = nx; cpuSim.y = ny; cpuSim.vx = nvx; cpuSim.vy = nvy;
     cpuSim.fx = nfx; cpuSim.fy = nfy; cpuSim.next = new Int32Array(newN);
-    cpuSim.type = nt; if (nm) cpuSim.molIdPerParticle = nm;
+    cpuSim.type = nt; cpuSim.charge = nq; if (nm) cpuSim.molIdPerParticle = nm;
     const newBonds = [], newBPids = [];
     for (let b = 0; b < (cpuSim.nBonds || 0); b++) {
         const bi = remap[cpuSim.bondI[b]], bj = remap[cpuSim.bondJ[b]];
@@ -4562,6 +4856,7 @@ async function _deleteByIndexRange(base, count) {
     const nvx = new Float32Array(newN), nvy = new Float32Array(newN);
     const nfx = new Float32Array(newN), nfy = new Float32Array(newN);
     const nt  = new Int8Array(newN);
+    const nq  = new Float32Array(newN);   // charge follows type through reindex
     const nm  = cpuSim.molIdPerParticle ? new Uint32Array(newN).fill(0xFFFFFFFF) : null;
     for (let i = 0; i < cpuSim.N; i++) {
         if (i >= base && i < end) continue;
@@ -4569,11 +4864,12 @@ async function _deleteByIndexRange(base, count) {
         nx[ni] = cpuSim.x[i]; ny[ni] = cpuSim.y[i];
         nvx[ni]= cpuSim.vx[i]; nvy[ni]= cpuSim.vy[i];
         nt[ni] = cpuSim.type ? cpuSim.type[i] : 0;
+        nq[ni] = cpuSim.charge ? cpuSim.charge[i] : 0;
         if (nm && cpuSim.molIdPerParticle) nm[ni] = cpuSim.molIdPerParticle[i];
     }
     cpuSim.N = newN; cpuSim.x = nx; cpuSim.y = ny; cpuSim.vx = nvx; cpuSim.vy = nvy;
     cpuSim.fx = nfx; cpuSim.fy = nfy; cpuSim.next = new Int32Array(newN);
-    cpuSim.type = nt; if (nm) cpuSim.molIdPerParticle = nm;
+    cpuSim.type = nt; cpuSim.charge = nq; if (nm) cpuSim.molIdPerParticle = nm;
     const newBonds = [], newBPids = [];
     for (let b = 0; b < (cpuSim.nBonds || 0); b++) {
         const bi = remap[cpuSim.bondI[b]], bj = remap[cpuSim.bondJ[b]];
@@ -4772,6 +5068,7 @@ function _selectionToMolData(inds, anchorX, anchorY) {
         return { x: +(u.x - cx).toFixed(6), y: +(u.y - cy).toFixed(6) };
     });
     const beadTypes = inds.map(i => (sim.type ? sim.type[i] & 3 : 0));
+    const beadCharges = inds.map(i => (sim.charge ? sim.charge[i] : 0));
 
     const bonds = [];
     for (let b = 0; b < (sim.nBonds || 0); b++) {
@@ -4792,7 +5089,7 @@ function _selectionToMolData(inds, anchorX, anchorY) {
                       kAngle: p?.k ?? 10, theta0: p?.theta0 ?? Math.PI });
     }
 
-    return { positions, beadTypes, bonds, angles };
+    return { positions, beadTypes, beadCharges, bonds, angles };
 }
 
 // ── Selection state ───────────────────────────────────────────────────────────
@@ -5663,6 +5960,24 @@ async function _applyParticleType(newType) {
     if (!running) renderFrame();
 }
 
+// Apply a uniform charge to every selected bead.  NaN/blank is rejected by the
+// caller (Set disabled / Enter ignored) — this only ever receives a real number.
+// Charge edits do not change topology, so no reindex is needed; we mutate
+// cpuSim.charge in place and let _finalizeEdit() re-upload + re-point GPU refs.
+async function _applyCharge(newQ) {
+    if (!_selection || _selection.size === 0) return;
+    if (!isFinite(newQ)) return;
+    await _prepareForEdit();
+    if (!cpuSim.charge || cpuSim.charge.length < cpuSim.N)
+        cpuSim.charge = _growArr(Float32Array, cpuSim.charge, cpuSim.N);
+    for (const i of _selection) cpuSim.charge[i] = newQ;
+    cpuSim._computeForces();   // refresh forces/PE so stats reflect the new charges
+    _finalizeEdit();           // uploadFromCPU re-reads cpuSim.charge → chargeBuffer
+    _updateInspectBar();
+    updateStats(sim);
+    if (!running) renderFrame();
+}
+
 // ── Particle-type inspect bar wiring ──────────────────────────────────────────
 (function _wireParticleInspectBar() {
     // Apply button and Enter key delegate to the shared _applyParticleType helper.
@@ -5674,6 +5989,30 @@ async function _applyParticleType(newType) {
     document.getElementById('ip-apply')?.addEventListener('click', _commitFromBar);
     document.getElementById('ip-type')?.addEventListener('keydown', async e => {
         if (e.key === 'Enter') { e.preventDefault(); await _commitFromBar(); }
+    });
+
+    // ── Charge: Set button + Enter.  Blank/NaN is rejected (no-op). ──────────
+    function _commitChargeFromBar() {
+        const el = document.getElementById('ip-charge');
+        if (!el) return;
+        const raw = el.value.trim();
+        if (raw === '') return;             // blank = "mixed", do nothing
+        const v = parseFloat(raw);
+        if (!isFinite(v)) return;           // NaN guard
+        return _applyCharge(v);
+    }
+    document.getElementById('ip-charge-set')?.addEventListener('click', _commitChargeFromBar);
+    document.getElementById('ip-charge')?.addEventListener('keydown', async e => {
+        if (e.key === 'Enter') { e.preventDefault(); await _commitChargeFromBar(); }
+    });
+    // Enable/disable Set as the user types (empty/NaN → disabled).
+    document.getElementById('ip-charge')?.addEventListener('input', () => {
+        const el  = document.getElementById('ip-charge');
+        const set = document.getElementById('ip-charge-set');
+        if (set) {
+            const raw = el.value.trim();
+            set.disabled = (raw === '' || !isFinite(parseFloat(raw)));
+        }
     });
     // Live swatch update while typing
     document.getElementById('ip-type')?.addEventListener('input', () => {
@@ -5782,6 +6121,7 @@ function _copySelection() {
         xs: inds.map(i => unwrapped.get(i).x - cx),
         ys: inds.map(i => unwrapped.get(i).y - cy),
         types:  inds.map(i => (sim.type ? sim.type[i] : 0)),
+        charges: inds.map(i => (sim.charge ? sim.charge[i] : 0)),
         molIds: inds.map(i => (sim.molIdPerParticle ? sim.molIdPerParticle[i] : 0xFFFFFFFF)),
         bonds: [], angles: [],
     };
@@ -5864,6 +6204,9 @@ function syncCPUfromGPU() {
     c.fy           = new Float32Array(g.N);
     c.next         = new Int32Array(g.N);
     c.type         = new Int8Array(g.type);
+    c.charge       = g.charge ? new Float32Array(g.charge) : new Float32Array(g.N);
+    c.coulombK     = g.coulombK     ?? c.coulombK     ?? 1.0;
+    c.coulombAlpha = g.coulombAlpha ?? c.coulombAlpha ?? 1.0;
     c.nBonds       = g.nBonds;
     c.bondI        = g.bondI        ? new Int32Array(g.bondI)        : new Int32Array(1);
     c.bondJ        = g.bondJ        ? new Int32Array(g.bondJ)        : new Int32Array(1);
@@ -5905,6 +6248,7 @@ function _finalizeEdit() {
         gpuSim.x   = cpuSim.x;   gpuSim.y    = cpuSim.y;
         gpuSim.vx  = cpuSim.vx;  gpuSim.vy   = cpuSim.vy;
         gpuSim.type = cpuSim.type; gpuSim.N   = cpuSim.N;
+        gpuSim.charge = cpuSim.charge;
         gpuSim.nBonds = cpuSim.nBonds;   gpuSim.bondI = cpuSim.bondI; gpuSim.bondJ = cpuSim.bondJ;
         gpuSim.nAngles = cpuSim.nAngles; gpuSim.molIdPerParticle = cpuSim.molIdPerParticle;
         sim = gpuSim;
@@ -5945,6 +6289,7 @@ async function _pasteClipboard() {
     cpuSim.fy   = _growArr(Float32Array, cpuSim.fy,   newN);
     cpuSim.next = _growArr(Int32Array,   cpuSim.next, newN);
     cpuSim.type = _growArr(Int8Array,    cpuSim.type, newN);
+    cpuSim.charge = _growArr(Float32Array, cpuSim.charge, newN);
     if (cpuSim.molIdPerParticle)
         cpuSim.molIdPerParticle = _growArr(Uint32Array, cpuSim.molIdPerParticle, newN);
     cpuSim.N = newN;
@@ -5955,6 +6300,7 @@ async function _pasteClipboard() {
         cpuSim.y[gi]  = ((pcy + cb.ys[li]) % L + L) % L;
         cpuSim.vx[gi] = 0; cpuSim.vy[gi] = 0;
         cpuSim.type[gi] = cb.types[li];
+        if (cpuSim.charge && cb.charges) cpuSim.charge[gi] = cb.charges[li] || 0;
         if (cpuSim.molIdPerParticle) cpuSim.molIdPerParticle[gi] = cb.molIds[li];
     }
 
@@ -6022,6 +6368,7 @@ async function _deleteSelection() {
     const nvx = new Float32Array(newN), nvy = new Float32Array(newN);
     const nfx = new Float32Array(newN), nfy = new Float32Array(newN);
     const nt  = new Int8Array(newN);
+    const nq  = new Float32Array(newN);   // charge follows type through reindex
     const nm  = cpuSim.molIdPerParticle ? new Uint32Array(newN).fill(0xFFFFFFFF) : null;
     for (let i = 0; i < cpuSim.N; i++) {
         if (del.has(i)) continue;
@@ -6029,11 +6376,12 @@ async function _deleteSelection() {
         nx[ni] = cpuSim.x[i]; ny[ni] = cpuSim.y[i];
         nvx[ni]= cpuSim.vx[i]; nvy[ni]= cpuSim.vy[i];
         nt[ni] = cpuSim.type ? cpuSim.type[i] : 0;
+        nq[ni] = cpuSim.charge ? cpuSim.charge[i] : 0;
         if (nm && cpuSim.molIdPerParticle) nm[ni] = cpuSim.molIdPerParticle[i];
     }
     cpuSim.N = newN; cpuSim.x = nx; cpuSim.y = ny; cpuSim.vx = nvx; cpuSim.vy = nvy;
     cpuSim.fx = nfx; cpuSim.fy = nfy; cpuSim.next = new Int32Array(newN);
-    cpuSim.type = nt; if (nm) cpuSim.molIdPerParticle = nm;
+    cpuSim.type = nt; cpuSim.charge = nq; if (nm) cpuSim.molIdPerParticle = nm;
 
     const newBonds = [], newBPids = [];
     for (let b = 0; b < (cpuSim.nBonds || 0); b++) {
@@ -6140,6 +6488,24 @@ function _updateInspectBar() {
         if (inp && (inp !== document.activeElement)) inp.value = curType;
         const sw = document.getElementById('ip-swatch');
         if (sw) sw.style.background = _TYPE_COLORS[curType] || '#ccc';
+
+        // Charge uniformity: show the shared value, or blank ("—" placeholder) when
+        // the selection is non-uniform.  Non-uniform → Set disabled, Enter ignored.
+        const qInp = document.getElementById('ip-charge');
+        const qSet = document.getElementById('ip-charge-set');
+        if (qInp && sim.charge) {
+            let uniform = true;
+            const q0 = sim.charge[firstIdx] || 0;
+            for (const i of _selection) {
+                if ((sim.charge[i] || 0) !== q0) { uniform = false; break; }
+            }
+            if (qInp !== document.activeElement) {
+                qInp.value = uniform ? +q0.toFixed(4) : '';
+                qInp.placeholder = uniform ? '' : '—';
+            }
+            qInp.dataset.uniform = uniform ? '1' : '0';
+            if (qSet) qSet.disabled = !uniform && (qInp.value.trim() === '');
+        }
     }
     // Keep the mode stat label in sync for selection modes — shows "SEL N" when a
     // selection is live, bare mode name when empty.  Covers both the initial rubber-band
@@ -6862,6 +7228,8 @@ function _cpuParticleColor(engine, i, colorMode, sel, spd, maxSpd) {
     let css;
     if (colorMode === 'vel') {
         css = speedColor((spd ? spd[i] : 0) / Math.max(maxSpd, 1e-12));
+    } else if (colorMode === 'charge') {
+        css = chargeColorCss(engine.charge ? engine.charge[i] : 0);
     } else if (colorMode === 'mol') {
         const molId = engine.molIdPerParticle ? engine.molIdPerParticle[i] : 0xFFFFFFFF;
         css = getMolColorCSS(molId) ?? _TYPE_COLORS[ti];
@@ -6944,6 +7312,9 @@ function draw(engine, colorMode = 'type', radius = 2) {
                 if (colorMode === 'vel') {
                     const raw = speedColor(spd[i] / maxSpd);
                     ctx.fillStyle = desat ? _desatCssColor(raw) : raw;
+                } else if (colorMode === 'charge') {
+                    const raw = chargeColorCss(engine.charge ? engine.charge[i] : 0);
+                    ctx.fillStyle = desat ? _desatCssColor(raw) : raw;
                 } else if (colorMode === 'mol') {
                     const molId  = engine.molIdPerParticle ? engine.molIdPerParticle[i] : 0xFFFFFFFF;
                     const molCss = getMolColorCSS(molId);
@@ -6972,6 +7343,16 @@ function updateStats(engine) {
     document.getElementById('s-PE').textContent    = N > 0 ? (pe / N).toFixed(4) : '—';
     document.getElementById('s-E').textContent     = N > 0 ? ((ke + pe) / N).toFixed(4) : '—';
     document.getElementById('s-N').textContent     = N;
+    // Net charge Σq — green when neutral (≈0), red otherwise.
+    const qEl = document.getElementById('s-Q');
+    if (qEl) {
+        let sumQ = 0;
+        if (engine.charge) {
+            for (let i = 0; i < N; i++) sumQ += engine.charge[i];
+        }
+        qEl.textContent = (Math.abs(sumQ) < 1e-9 ? 0 : sumQ).toFixed(3);
+        qEl.style.color = (Math.abs(sumQ) < 1e-6) ? '#2a9d4a' : '#d94040';
+    }
     // Show current dt; if still ramping, append target so user knows it's warming up.
     const dtNow = engine.dt ?? 0;
     const dtEl  = document.getElementById('s-dt');
@@ -7000,6 +7381,10 @@ function readUI(targetSim) {
     ];
     targetSim.gravityOn = document.getElementById('gravity-cb').checked;
     targetSim.gravity   = parseFloat(document.getElementById('gravity-n').value) || 9.8;
+    targetSim.coulombK     = parseFloat(document.getElementById('coulombK-n').value);
+    if (!isFinite(targetSim.coulombK)) targetSim.coulombK = 5.0;
+    targetSim.coulombAlpha = parseFloat(document.getElementById('coulombAlpha-n').value);
+    if (!isFinite(targetSim.coulombAlpha)) targetSim.coulombAlpha = 1.0;
     targetSim.epsMatrix = [
         [parseFloat(document.getElementById('eps00').value)||0, parseFloat(document.getElementById('eps01').value)||0,
          parseFloat(document.getElementById('eps02').value)||0, parseFloat(document.getElementById('eps03').value)||0],
@@ -7038,6 +7423,7 @@ function readUI(targetSim) {
     targetSim.ratios = speciesTable.slice(0, 4).map(sp => sp.ratio / monoSum);
     targetSim.chainLengths  = polymerData.map(pd => pd.chainLength);
     targetSim.chainTypesAll = polymerData.map(pd => [...pd.chainTypes]);
+    targetSim.chainChargesAll = polymerData.map(pd => [...pd.chainCharges]);
 }
 
 const typeLabels = ['0 (blue)', '1 (red)', '2 (yellow)', '3 (green)'];
@@ -7069,6 +7455,27 @@ function buildChainTypeUI(length) {
         sel.value = pd.chainTypes[b] ?? 0;
         sel.addEventListener('change', () => {
             pd.chainTypes[b] = parseInt(sel.value);
+            saveToURL();
+        });
+
+        // Per-bead charge input
+        const qLabel = document.createElement('span');
+        qLabel.textContent = 'q:';
+        qLabel.style.cssText = 'font-size:0.75rem;color:#888;flex:0 0 auto;';
+        const qIn = document.createElement('input');
+        qIn.type      = 'number';
+        qIn.id        = `chaincharge-${b}`;
+        qIn.className = 'param-input';
+        qIn.step      = 0.1;
+        qIn.style.flex = '0 0 44px';
+        qIn.style.width = '44px';
+        qIn.value = +(pd.chainCharges[b] ?? 0).toFixed(2);
+        qIn.addEventListener('change', () => {
+            let v = parseFloat(qIn.value);
+            if (!isFinite(v)) v = 0;
+            qIn.value = v;
+            pd.chainCharges[b] = v;
+            syncPolymerToMolDef(activePolymer);
             saveToURL();
         });
 
@@ -7107,6 +7514,8 @@ function buildChainTypeUI(length) {
 
         row.appendChild(label);
         row.appendChild(sel);
+        row.appendChild(qLabel);
+        row.appendChild(qIn);
         row.appendChild(angleLabel);
         row.appendChild(angleIn);
         container.appendChild(row);
@@ -7146,6 +7555,25 @@ wire('gravity-s', 'gravity-n', v => {
     cpuSim.gravity = v;
     if (currentEngine === 'gpu') { gpuSim.gravity = v; gpuSim.updateParamsLive(); }
     triggerEase();
+});
+wire('coulombK-s', 'coulombK-n', v => {
+    cpuSim.coulombK = v;
+    if (currentEngine === 'gpu') { gpuSim.coulombK = v; gpuSim.updateParamsLive(); }
+    // Refresh forces/PE so a paused view reflects the new strength immediately.
+    if (!running) {
+        cpuSim._computeForces();
+        if (currentEngine === 'gpu' && gpuSim.ready) gpuSim.potentialEnergy = cpuSim.potentialEnergy;
+        updateStats(sim); renderFrame();
+    }
+});
+wire('coulombAlpha-s', 'coulombAlpha-n', v => {
+    cpuSim.coulombAlpha = v;
+    if (currentEngine === 'gpu') { gpuSim.coulombAlpha = v; gpuSim.updateParamsLive(); }
+    if (!running) {
+        cpuSim._computeForces();
+        if (currentEngine === 'gpu' && gpuSim.ready) gpuSim.potentialEnergy = cpuSim.potentialEnergy;
+        updateStats(sim); renderFrame();
+    }
 });
 wire('rc-s', 'rc-n', v => {
     cpuSim.rcCut = v;
@@ -7819,6 +8247,7 @@ btnInit.addEventListener('click', async () => {
                 for (let b = 0; b < nB; b++) {
                     newXY.push({ x: beadPos[b].x, y: beadPos[b].y,
                                  type: (molDef.beadTypes[b] ?? 0) & 3,
+                                 charge: molDef.beadCharges?.[b] ?? 0,
                                  molId: cm.entry.molId ?? 0xFFFFFFFF });
                     _fcAdd(beadPos[b].x, beadPos[b].y);
                 }
@@ -7851,6 +8280,7 @@ btnInit.addEventListener('click', async () => {
         cpuSim.fy   = _growArr(Float32Array, cpuSim.fy,   totalN);
         cpuSim.next = _growArr(Int32Array,   cpuSim.next, totalN);
         cpuSim.type = _growArr(Int8Array,    cpuSim.type, totalN);
+        cpuSim.charge = _growArr(Float32Array, cpuSim.charge, totalN);  // new beads default 0
         const newMol = _growArr(Uint32Array, cpuSim.molIdPerParticle, totalN);
         for (let i = baseN; i < totalN; i++) newMol[i] = 0xFFFFFFFF;
         cpuSim.molIdPerParticle = newMol;
@@ -7862,6 +8292,7 @@ btnInit.addEventListener('click', async () => {
             cpuSim.vx[gi] = std * cpuSim._gaussian();
             cpuSim.vy[gi] = std * cpuSim._gaussian();
             cpuSim.type[gi]             = p.type;
+            if (cpuSim.charge) cpuSim.charge[gi] = p.charge ?? 0;
             cpuSim.molIdPerParticle[gi] = p.molId;
         }
         cpuSim.N = totalN;
@@ -7938,6 +8369,7 @@ btnInit.addEventListener('click', async () => {
         const polymerRatios = cpuSim.polymerRatios || [0,0,0,0];
         const chainLengths  = cpuSim.chainLengths   || [2,2,2,2];
         const chainTypesAll = cpuSim.chainTypesAll  || Array.from({length:4}, ()=>[]);
+        const chainChargesAll = cpuSim.chainChargesAll || Array.from({length:4}, ()=>[]);
 
         const nChainsByPoly = polymerRatios.map((r, pi) =>
             r > 0 ? Math.floor(adjustedFillN * r / Math.max(1, chainLengths[pi])) : 0);
@@ -7972,6 +8404,7 @@ btnInit.addEventListener('click', async () => {
             const nChains    = nChainsByPoly[pi];
             if (nChains === 0) continue;
             const chainTypes = chainTypesAll[pi];
+            const chainCharges = chainChargesAll[pi] || [];
             const def        = molDefTable[pi];
 
             const validStarts = [];
@@ -7999,7 +8432,7 @@ btnInit.addEventListener('click', async () => {
                 const base = newXY.length;
                 for (let b = 0; b < chainLen; b++) {
                     const bx = (s.ix+b+0.5)*spacing, by = (s.iy+0.5)*spacing;
-                    newXY.push({ x: bx, y: by, type: chainTypes[b] ?? 0, molId: pi });
+                    newXY.push({ x: bx, y: by, type: chainTypes[b] ?? 0, charge: chainCharges[b] ?? 0, molId: pi });
                     occupied.add((s.ix+b) * ny + s.iy);
                     _fcAdd(bx, by);
                 }
