@@ -494,12 +494,6 @@ button.btn-snap:hover { background: #3a9455; }
     border-radius: 4px;
     font-family: monospace;
 }
-
-footer a {
-    color: inherit;              /* match the grey footer text */
-    text-decoration: underline;  /* keep it readable as a link */
-}
-footer a:hover { color: var(--blue); }  /* brand blue on hover */
 </style>
 </head>
 <body>
@@ -972,7 +966,7 @@ footer a:hover { color: var(--blue); }  /* brand blue on hover */
     </div>
 </div>
 
-<footer id="footer">Mocktini v1.1.0 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · <a href="https://github.com/BartBruininks/Mocktini">GitHub</a> · MIT license</footer>
+<footer id="footer">Mocktini v1.1.0 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license</footer>
 
 <script>
 'use strict';
@@ -984,21 +978,35 @@ footer a:hover { color: var(--blue); }  /* brand blue on hover */
 //  --------
 //  Single-file 2D MD simulator with a CPU path (pure JS) and a GPU path
 //  (WebGPU compute shaders).  Both engines share the same initial conditions
-//  and can be hot-swapped while paused.
+//  and can be hot-swapped while paused.  Particles interact through two
+//  non-bonded terms — the Mie 2-4 potential (always on) and optional DSF
+//  (Damped Shifted Force) 1/r electrostatics driven by per-bead charges —
+//  plus harmonic bonds and signed-angle bending for molecules.
 //
 //  ARCHITECTURE
 //  ------------
-//  UI / HTML          lines    1 –  568   CSS + control panel HTML
-//  UI Utilities       lines ~570 –  880   wire(), URL persistence, colour helpers
-//  CPU Engine         lines ~880 – 1500   MD2D_CPU class  (VV + BAOAB integrators)
-//  GPU Shaders        lines~1500 – 1760   WGSL render + bond-render strings
-//  GPU Engine         lines~1760 – 2960   MD2D_GPU class  (WebGPU compute + render)
-//  Camera / Draw      lines~2960 – 3050   2D canvas draw(), camera helpers
-//  Interaction        lines~3050 – 3080   setMode(), _MODE_CURSOR map
-//  Selection System   lines~3080 – 3460   rubber-band, copy/paste, delete, overlay
-//  Mouse / Keyboard   lines~3460 – 3840   mousedown/move/up, dblclick, keydown
-//  Event Wiring       lines~3840 – 4130   wire() calls, per-control handlers
-//  Init / Loop        lines~4130 – 4300   btnInit, btnRun, engine-select, startup IIFE
+//  Sections appear top-to-bottom in this order. Most carry a  // ═══  banner;
+//  search a title (or a distinctive keyword from it) to jump. Line numbers are
+//  intentionally omitted so this map survives edits.
+//
+//  UI / HTML             CSS, control panel, stats bar, inspect bar, footer
+//  UI Utilities          URL_PARAMS persistence, polymerData
+//  Colour utilities      palette + charge colour map, species table, MolDef
+//                        (molecule definition + JSON IO), polymer→MolDef sync
+//  Electrostatics        _erfc (A&S 7.1.26) + DSF constants, shared by CPU/GPU
+//  CPU Engine            MD2D_CPU — VV + BAOAB, cell-list Mie + DSF forces
+//  WGSL Params struct    shared compute/render uniform layout
+//  WebGPU Render Shader  particle + bond render (WGSL)
+//  Compute shader        force / integrate kernels (WGSL, incl. DSF)
+//  GPU Engine            MD2D_WebGPU class (WebGPU compute + render)
+//  Renderer & App state  draw(), camera helpers, application globals
+//  Molecule file IO      molecule save / load / placement
+//  State file IO         full simulation snapshot save / load (.md2d.json)
+//  PBC Geometry          periodic-boundary helpers (selection, copy, paste, export)
+//  Interaction modes     setMode(), Bond Edit, Angle Edit, Inspect bar
+//  Mouse / Keyboard      pointer + key handlers
+//  Event Wiring          wire() calls, per-control handlers
+//  Init / Loop           btnInit, btnRun, engine select, startup IIFE
 //
 //  VERSIONING  (semantic: MAJOR.MINOR.PATCH)
 //  -----------------------------------------
