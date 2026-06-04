@@ -8,11 +8,11 @@ The Mie potential is short-ranged: by the time you reach the cutoff $r_c$, it ha
 
 The **Wolf / Damped-Shifted-Force** construction fixes this in two moves: a short-range **damping** (an `erfc` envelope set by $\alpha$) that makes the interaction decay faster, and a **shift of both the energy and the force** so each reaches exactly zero at $r_c$. The pair energy used by Mocktini is
 
-$$U(r) = K_e\, q_i q_j\left[\frac{\operatorname{erfc}(\alpha r)}{r} - \frac{\operatorname{erfc}(\alpha r_c)}{r_c} + F_\text{shift}\,(r - r_c)\right]$$
+$$U(r) = K_e\, q_i q_j\left[\frac{\mathop{\text{erfc}}(\alpha r)}{r} - \frac{\mathop{\text{erfc}}(\alpha r_c)}{r_c} + F_\text{shift}\,(r - r_c)\right]$$
 
 with the shift constant evaluated once at the cutoff,
 
-$$F_\text{shift} = \frac{\operatorname{erfc}(\alpha r_c)}{r_c^{2}} + \frac{2\alpha}{\sqrt{\pi}}\,\frac{e^{-\alpha^2 r_c^2}}{r_c}.$$
+$$F_\text{shift} = \frac{\mathop{\text{erfc}}(\alpha r_c)}{r_c^{2}} + \frac{2\alpha}{\sqrt{\pi}}\,\frac{e^{-\alpha^2 r_c^2}}{r_c}.$$
 
 The middle constant pins $U(r_c)=0$; the linear $F_\text{shift}(r-r_c)$ term pins the *force* to zero there too.
 
@@ -90,17 +90,17 @@ Mocktini deliberately uses the familiar **3D form** ($\varphi \propto 1/r$) inst
 
 **Force.** The magnitude along $\hat{\mathbf r}$ is
 
-$$F(r) = K_e\,q_i q_j\left[\frac{\operatorname{erfc}(\alpha r)}{r^{2}} + \frac{2\alpha}{\sqrt{\pi}}\frac{e^{-\alpha^2 r^2}}{r} - F_\text{shift}\right],$$
+$$F(r) = K_e\,q_i q_j\left[\frac{\mathop{\text{erfc}}(\alpha r)}{r^{2}} + \frac{2\alpha}{\sqrt{\pi}}\frac{e^{-\alpha^2 r^2}}{r} - F_\text{shift}\right],$$
 
 and you can check directly that $U(r_c)=0$ and $F(r_c)=0$ — both the constant and the linear term are built so the bracket vanishes at the cutoff.
 
-**The $\alpha \to 0$ limit.** Since $\operatorname{erfc}(0)=1$, the damping disappears and $F_\text{shift}\to 1/r_c^2$, recovering the plain **shifted-force Coulomb** (the Wolf method without damping).
+**The $\alpha \to 0$ limit.** Since $\mathop{\text{erfc}}(0)=1$, the damping disappears and $F_\text{shift}\to 1/r_c^2$, recovering the plain **shifted-force Coulomb** (the Wolf method without damping).
 
 **`erfc`.** Both the CPU and GPU engines evaluate `erfc` with the same Abramowitz & Stegun 7.1.26 rational approximation (error $\le 1.5\times10^{-7}$), so the two backends agree to floating-point precision.
 
-**Neutrality.** DSF, like every cutoff-based electrostatics method, assumes the box is **net-neutral**. A non-zero total charge $\sum_i q_i$ introduces a spurious self-interaction. The live stats bar reports $\Sigma q$ so you can keep it at zero.
-
 </details>
+
+**Neutrality.** DSF, like every cutoff-based electrostatics method, assumes the box is **net-neutral**. A non-zero total charge $\sum_i q_i$ introduces a spurious self-interaction. The live stats bar reports $\Sigma q$ so you can keep it at zero.
 
 ## In Mocktini
 
