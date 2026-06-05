@@ -966,12 +966,12 @@ button.btn-snap:hover { background: #3a9455; }
     </div>
 </div>
 
-<footer id="footer">Mocktini v1.1.0 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license</footer>
+<footer id="footer">Mocktini v1.1.1 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license</footer>
 
 <script>
 'use strict';
 // ════════════════════════════════════════════════════════════════════════════
-//  Mocktini - 2D Mie 2-4 Molecular Dynamics  —  v1.1.0
+//  Mocktini - 2D Mie 2-4 Molecular Dynamics  —  v1.1.1
 // ════════════════════════════════════════════════════════════════════════════
 //
 //  OVERVIEW
@@ -1168,6 +1168,11 @@ const customMolDefs = [];   // all custom molecule definitions (imports + assemb
 let _placementMol   = null;  // current entry from customMolDefs (mol definition being placed)
 let _ghostBaseIndex = null;  // index of first ghost particle in cpuSim arrays (null = no ghost)
 let _ghostCount     = 0;     // number of ghost particles; live range is [_ghostBaseIndex, _ghostBaseIndex + _ghostCount)
+// Cumulative ghost orientation (radians).  Single source of truth for placement
+// rotation: starts at 0 when entering placement mode, accumulates as you scroll,
+// and persists across stamps so each newly spawned ghost keeps the running angle.
+// Reset to 0 when leaving placement mode (see _removeGhostParticles).
+let _placementRotation = 0;
 
 // Returns the CSS colour for a mol ID, or null if it's a free monomer.
 // Callers should fall back to the bead type colour when null is returned.
@@ -4640,15 +4645,20 @@ async function importMoleculeFile(file) {
 async function enterPlacementMode(molEntry) {
     await _removeGhostParticles();        // clean up any previous ghost
     _placementMol = molEntry;
-    await _addGhostParticles(camera.x, camera.y, 0);
+    _placementRotation = 0;               // fresh molecule starts unrotated
+    await _addGhostParticles(camera.x, camera.y);
     setMode('place');
     renderFrame();
 }
 
-// Add ghost particles for the current _placementMol centred at (cx, cy) with
-// the given initial rotation (radians).  Sets up _selection and _selectionFrame
-// so the ghost moves and rotates through the standard selection frame path.
-async function _addGhostParticles(cx, cy, rotation) {
+// Add ghost particles for the current _placementMol centred at (cx, cy).
+// Particles are spawned in their canonical (unrotated) shape; the cumulative
+// placement orientation lives entirely in _selectionFrame.rotation, seeded from
+// _placementRotation.  This keeps refX/refY equal to the canonical molecule and
+// the frame's rotation equal to the full angle — no split representation that can
+// drift across stamps.  Sets up _selection and _selectionFrame so the ghost moves
+// and rotates through the standard selection frame path.
+async function _addGhostParticles(cx, cy) {
     if (!_placementMol) return;
     await _prepareForEdit();
 
@@ -4656,7 +4666,6 @@ async function _addGhostParticles(cx, cy, rotation) {
     const n    = cm.positions.length;
     const base = cpuSim.N, newN = base + n;
     const L    = cpuSim.L;
-    const cos  = Math.cos(rotation), sin = Math.sin(rotation);
 
     // Record the exact index range so we can find/remove the ghost without
     // relying on a special molId — the canonical assembly molId is used directly.
@@ -4679,10 +4688,10 @@ async function _addGhostParticles(cx, cy, rotation) {
     for (let li = 0; li < n; li++) {
         const gi = base + li;
         const p  = cm.positions[li];
-        const rx = p.x * cos - p.y * sin;
-        const ry = p.x * sin + p.y * cos;
-        cpuSim.x[gi]  = ((cx + rx) % L + L) % L;
-        cpuSim.y[gi]  = ((cy + ry) % L + L) % L;
+        // Spawn in canonical orientation; rotation is applied via the selection
+        // frame below so refX/refY stay equal to the canonical molecule shape.
+        cpuSim.x[gi]  = ((cx + p.x) % L + L) % L;
+        cpuSim.y[gi]  = ((cy + p.y) % L + L) % L;
         cpuSim.vx[gi] = 0; cpuSim.vy[gi] = 0;
         cpuSim.type[gi] = cm.molDef.beadTypes[li] ?? 0;
         if (cpuSim.charge) cpuSim.charge[gi] = cm.molDef.beadCharges?.[li] ?? 0;
@@ -4730,7 +4739,13 @@ async function _addGhostParticles(cx, cy, rotation) {
     _selection = new Set();
     for (let li = 0; li < n; li++) _selection.add(base + li);
     _selectionFrame = buildSelectionFrame([..._selection], cx, cy);
+    // Carry the cumulative placement orientation into the freshly built frame and
+    // render it.  buildSelectionFrame always returns rotation:0, so without this the
+    // ghost would lose the running rotation on every re-spawn.
+    _selectionFrame.rotation = _placementRotation;
+    applySelectionFrame(_selectionFrame);
     _syncSelectionToGPU();
+    if (currentEngine === 'gpu') _gpuWriteXY(_selectionFrame.indices);
 }
 
 // Remove the live ghost particles from the sim (called on Escape or mode exit).
@@ -4741,6 +4756,7 @@ async function _removeGhostParticles() {
     _ghostBaseIndex = null;
     _ghostCount     = 0;
     _placementMol   = null;
+    _placementRotation = 0;   // leaving placement mode resets the rotation tracker
     _selection      = null;
     _selectionFrame = null;
     _syncSelectionToGPU();
@@ -4751,16 +4767,17 @@ async function _removeGhostParticles() {
 // added at the same position so the user can drop multiple copies.
 async function _confirmPlacement(simX, simY) {
     if (!_placementMol || _ghostBaseIndex === null || !_selectionFrame) return;
-    // Capture rotation before resetting state.
-    const rotation = _selectionFrame.rotation;
+    // _placementRotation is the cumulative orientation and is already current
+    // (kept in sync by the scroll handler) — no need to re-derive it from the
+    // frame, whose .rotation only holds the delta since the last rebuild.
     // The ghost particles already carry the canonical molId — nothing to rewrite.
     // Just clear the ghost tracking so they are considered permanent.
     _ghostBaseIndex = null;
     _ghostCount     = 0;
     _selection  = null; _selectionFrame = null;
     _syncSelectionToGPU();
-    // Add a fresh ghost at the confirmed click position, keeping the rotation.
-    await _addGhostParticles(simX, simY, rotation);
+    // Add a fresh ghost at the confirmed click position, keeping the cumulative rotation.
+    await _addGhostParticles(simX, simY);
     renderFrame();
 }
 
@@ -7165,7 +7182,10 @@ canvasWrapper.addEventListener('wheel', e => {
     // Place mode: rotate the ghost pre-placement.
     if (interactionMode === 'place' && _placementMol && !running && _selectionFrame) {
         if (notches !== 0) {
-            _selectionFrame.rotation += notches * STEP;
+            // Accumulate into the single source of truth and mirror it onto the
+            // frame so the displayed angle and the value used at placement agree.
+            _placementRotation += notches * STEP;
+            _selectionFrame.rotation = _placementRotation;
             applySelectionFrame(_selectionFrame);
             if (currentEngine === 'gpu') _gpuWriteXY(_selectionFrame.indices);
             renderFrame();
