@@ -1,5 +1,5 @@
 # Welcome to the Mocktini Wiki
 
-![The Mie potential and why we use it](wiki/Mie-Potential.md)
+![The Mie potential and why we use it](Mie-Potential.md)
 
-![DSF electrostatics](wiki/DSF-Electrostatics.md)
+![DSF electrostatics](DSF-Electrostatics.md)
