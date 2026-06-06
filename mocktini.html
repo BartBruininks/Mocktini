@@ -338,20 +338,24 @@ footer {
 }
 
 /* ── Species composition table ───────────────────────────────────── */
+/* ── Species table: a shared column grid so monomers, polymers and
+   molecules/assemblies all line up.  Columns:
+     swatch | name | molar (ratio input) | bead% | real% | place | remove
+   Built-in rows simply omit the trailing remove cell; the grid keeps every
+   other column aligned regardless. */
 .species-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: 10px minmax(0, 1fr) 48px 30px 34px 44px 18px;
     align-items: center;
-    gap: 5px;
+    gap: 4px;
     margin-bottom: 4px;
 }
 .species-swatch {
     width: 10px; height: 10px;
     border-radius: 50%;
-    flex: 0 0 10px;
     border: 1px solid rgba(0,0,0,0.18);
 }
 .species-name {
-    flex: 1 1 auto;
     font-size: 0.77rem;
     white-space: nowrap;
     overflow: hidden;
@@ -359,14 +363,21 @@ footer {
     color: #333;
 }
 .species-ratio-input {
-    flex: 0 0 52px !important;
-    width: 52px !important;
+    width: 100% !important;
+    min-width: 0;
+    text-align: right;
 }
 .species-pct {
-    flex: 0 0 30px;
     text-align: right;
     font-size: 0.71rem;
     color: #999;
+    font-family: monospace;
+}
+/* Realized (actually-placed) bead fraction, shown next to the intended % */
+.species-pct-real {
+    text-align: right;
+    font-size: 0.71rem;
+    color: var(--blue-dark);
     font-family: monospace;
 }
 
@@ -386,8 +397,8 @@ footer {
 #mol-dropzone:hover, #mol-dropzone.drag-over { border-color: var(--blue); color: var(--blue); }
 #btn-save-mol { width: 100%; margin-bottom: 4px; }
 .species-edit-btn {
-    flex: 0 0 auto;
-    padding: 2px 7px;
+    width: 100%;
+    padding: 2px 2px;
     font-size: 0.68rem;
     border-radius: 3px;
     cursor: pointer;
@@ -473,15 +484,6 @@ button.btn-snap:hover { background: #3a9455; }
     border: 1px solid rgba(0,0,0,0.2);
     vertical-align: middle;
     flex: 0 0 12px;
-}
-
-/* Custom mol row — read-only beads/mol label */
-.species-bpm {
-    font-size: 0.68rem;
-    color: var(--text-muted, #888);
-    font-family: monospace;
-    white-space: nowrap;
-    flex: 0 0 auto;
 }
 
 .eps-matrix input {
@@ -966,12 +968,12 @@ button.btn-snap:hover { background: #3a9455; }
     </div>
 </div>
 
-<footer id="footer">Mocktini v1.1.1 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license</footer>
+<footer id="footer">Mocktini v1.1.0 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license</footer>
 
 <script>
 'use strict';
 // ════════════════════════════════════════════════════════════════════════════
-//  Mocktini - 2D Mie 2-4 Molecular Dynamics  —  v1.1.1
+//  Mocktini - 2D Mie 2-4 Molecular Dynamics  —  v1.1.0
 // ════════════════════════════════════════════════════════════════════════════
 //
 //  OVERVIEW
@@ -1231,7 +1233,8 @@ function buildSpeciesTableUI() {
         nameIn.className = 'species-name-input';
         nameIn.value     = entry.name;
         nameIn.title     = entry.kind === 'polymer'
-            ? `Polymer ${entry.polyIdx} · ${beads} beads/mol` : entry.name;
+            ? `Polymer ${entry.polyIdx} · ${beads} beads/mol`
+            : `Monomer · type ${entry.typeIdx} · 1 bead`;
         nameIn.addEventListener('change', () => {
             entry.name = nameIn.value.trim() || entry.name;
             nameIn.value = entry.name;
@@ -1243,6 +1246,7 @@ function buildSpeciesTableUI() {
         ratioIn.value     = entry.ratio;
         ratioIn.step      = '0.05';
         ratioIn.min       = '0';
+        ratioIn.title     = 'Molar ratio — the relative amount of this species placed on Fill';
         ratioIn.addEventListener('change', () => {
             const v = Math.max(0, parseFloat(ratioIn.value) || 0);
             ratioIn.value = v; entry.ratio = v;
@@ -1255,11 +1259,18 @@ function buildSpeciesTableUI() {
         pct.id = `species-pct-${i}`;
         pct.textContent = total > 0
             ? `${Math.round(100 * entry.ratio * beads / total)}%` : '—';
+        pct.title = 'Intended bead fraction — share of all beads this species should make up, from the molar ratios';
+
+        const pctReal = document.createElement('span');
+        pctReal.className = 'species-pct-real';
+        pctReal.id = `species-pct-real-${i}`;
+        pctReal.textContent = '(–)';
+        pctReal.title = 'Realized bead fraction — share of all beads this species actually makes up right now';
 
         const placeBtn = document.createElement('button');
         placeBtn.textContent = 'Place';
         placeBtn.className   = 'species-edit-btn';
-        placeBtn.style.cssText = 'background:var(--blue);padding:2px 6px;font-size:0.68rem';
+        placeBtn.style.cssText = 'background:var(--blue);font-size:0.68rem';
         placeBtn.title = 'Place a copy of this species';
         placeBtn.addEventListener('click', () => {
             if (running) return;
@@ -1268,7 +1279,8 @@ function buildSpeciesTableUI() {
         });
 
         row.appendChild(swatch); row.appendChild(nameIn);
-        row.appendChild(ratioIn); row.appendChild(pct); row.appendChild(placeBtn);
+        row.appendChild(ratioIn); row.appendChild(pct); row.appendChild(pctReal);
+        row.appendChild(placeBtn);
         container.appendChild(row);
     }
 
@@ -1291,7 +1303,7 @@ function buildSpeciesTableUI() {
         nameIn.value     = entry.name;
         nameIn.title     = isImport
             ? `Imported · molId ${entry.molId} · ${nBeads} beads`
-            : `Assembly · ${nBeads} beads — instances remain when removed`;
+            : `Assembly · molId ${entry.molId} · ${nBeads} beads — instances remain when removed`;
         nameIn.addEventListener('change', () => {
             entry.name = nameIn.value.trim() || entry.name;
             spEntry.name = entry.name;
@@ -1304,36 +1316,36 @@ function buildSpeciesTableUI() {
         ratioIn.value     = spEntry.ratio ?? 1;
         ratioIn.step      = '1';
         ratioIn.min       = '0';
-        ratioIn.title     = 'Number of molecules (molar ratio) for Fill — bead cost = ratio × beads/mol';
+        ratioIn.title     = `Molar ratio — number of these molecules placed on Fill (${nBeads} beads each)`;
         ratioIn.addEventListener('change', () => {
             const v = Math.max(0, parseFloat(ratioIn.value) || 0);
             ratioIn.value = v; spEntry.ratio = v;
             updateSpeciesTablePcts(); saveToURL();
         });
 
-        // Read-only bead-count label: shows "× K beads" so the user always sees both
-        // the molar ratio and the bead cost of a single molecule.
-        const bpmLabel = document.createElement('span');
-        bpmLabel.className = 'species-bpm';
-        bpmLabel.textContent = `×\u202f${nBeads}b`;
-        bpmLabel.title = `${nBeads} beads per molecule`;
-
         const pct = document.createElement('span');
         pct.className   = 'species-pct';
         pct.id          = `species-pct-${spIdx}`;
         pct.textContent = total > 0
             ? `${Math.round(100 * (spEntry.ratio ?? 0) * nBeads / total)}%` : '—';
+        pct.title = 'Intended bead fraction — share of all beads this species should make up, from the molar ratios';
+
+        const pctReal = document.createElement('span');
+        pctReal.className = 'species-pct-real';
+        pctReal.id        = `species-pct-real-${spIdx}`;
+        pctReal.textContent = '(–)';
+        pctReal.title = 'Realized bead fraction — share of all beads this species actually makes up right now';
 
         const placeBtn = document.createElement('button');
         placeBtn.textContent = 'Place';
         placeBtn.className   = 'species-edit-btn';
-        placeBtn.style.cssText = 'background:var(--blue);padding:2px 6px;font-size:0.68rem';
+        placeBtn.style.cssText = 'background:var(--blue);font-size:0.68rem';
         placeBtn.addEventListener('click', () => { if (!running) enterPlacementMode(entry); });
 
         const xBtn = document.createElement('button');
         xBtn.textContent = '×';
         xBtn.className   = 'species-edit-btn';
-        xBtn.style.cssText = 'background:#ff6b6b;padding:2px 6px;font-size:0.78rem;font-weight:700';
+        xBtn.style.cssText = 'background:#ff6b6b;font-size:0.82rem;font-weight:700;line-height:1';
         xBtn.title = isImport
             ? 'Remove this import reference (placed instances stay in the simulation)'
             : 'Remove this assembly reference (instances stay in the simulation)';
@@ -1354,7 +1366,8 @@ function buildSpeciesTableUI() {
         });
 
         row.appendChild(swatch); row.appendChild(nameIn);
-        row.appendChild(ratioIn); row.appendChild(bpmLabel); row.appendChild(pct);
+        row.appendChild(ratioIn); row.appendChild(pct);
+        row.appendChild(pctReal);
         row.appendChild(placeBtn); row.appendChild(xBtn);
         container.appendChild(row);
     }
@@ -1378,6 +1391,7 @@ function buildSpeciesTableUI() {
         }
     }
 
+    updateRealizedPcts();   // populate realized-% labels for the freshly built rows
 }
 
 // Build a minimal placement entry for a built-in species (monomer or polymer).
@@ -1425,6 +1439,59 @@ function updateSpeciesTablePcts() {
             beads = entry && entry.positions ? entry.positions.length : 1;
         }
         el.textContent = total > 0 ? `${Math.round(100 * s.ratio * beads / total)}%` : '—';
+    }
+}
+
+// Count the REALIZED beads of each species directly from the live molIdPerParticle
+// (+ type) arrays.  We count bead INSTANCES, not whole molecules, so the figure
+// stays correct even when a molecule's bonds are broken or its beads are relabelled.
+// molId scheme: free monomers carry 0xFFFFFFFF and are distinguished by bead type;
+// built-in polymers carry molId 0-3; custom mols/assemblies carry their entry.molId.
+// Live placement-ghost beads are excluded so the figure reflects committed particles.
+function _realizedBeadCounts() {
+    const counts = new Array(speciesTable.length).fill(0);
+    const N = cpuSim ? (cpuSim.N | 0) : 0;
+    if (!N || !cpuSim.molIdPerParticle) return { counts, denom: 0 };
+
+    const molIdToRow   = new Map();   // polymer/custom molId  → species row index
+    const monoTypeToRow = new Map();  // free-monomer bead type → species row index
+    for (let i = 0; i < speciesTable.length; i++) {
+        const sp = speciesTable[i];
+        if (sp.kind === 'monomer')      monoTypeToRow.set(sp.typeIdx, i);
+        else if (sp.kind === 'polymer') molIdToRow.set(sp.polyIdx, i);
+        else if (sp.kind === 'custom') {
+            const e = customMolDefs[sp.customIdx];
+            if (e) molIdToRow.set(e.molId, i);
+        }
+    }
+
+    // Exclude live ghost preview beads from the count and the denominator.
+    const ghostLo = (_ghostBaseIndex !== null) ? _ghostBaseIndex : -1;
+    const ghostHi = (_ghostBaseIndex !== null) ? _ghostBaseIndex + _ghostCount : -1;
+
+    const mids = cpuSim.molIdPerParticle, types = cpuSim.type;
+    let denom = 0;
+    for (let i = 0; i < N; i++) {
+        if (i >= ghostLo && i < ghostHi) continue;
+        denom++;
+        const mid = mids[i];
+        const row = (mid === 0xFFFFFFFF)
+            ? monoTypeToRow.get(types[i] & 3)
+            : molIdToRow.get(mid);
+        if (row !== undefined) counts[row]++;
+    }
+    return { counts, denom };
+}
+
+// Update the realized-% labels.  Called after any edit that touches the particle
+// set / molIdPerParticle (fill, placement, delete, paste, load, relabel) and on
+// every species-table rebuild.  Cheap: a single O(N) pass over the bead arrays.
+function updateRealizedPcts() {
+    const { counts, denom } = _realizedBeadCounts();
+    for (let i = 0; i < speciesTable.length; i++) {
+        const el = document.getElementById(`species-pct-real-${i}`);
+        if (!el) continue;
+        el.textContent = denom > 0 ? `(${Math.round(100 * counts[i] / denom)}%)` : '(–)';
     }
 }
 
@@ -1875,163 +1942,28 @@ class MD2D_CPU {
     }
 
 	initialize() {
+        // Allocate an EMPTY particle system.  ALL particle placement now flows
+        // through the unified Fill path (performFill); this routine only sets up
+        // empty buffers + bonded-state shells for a fresh or cleared box.  The old
+        // N>0 grid placer (with random fallback) lived here and has been removed so
+        // there is a single placement code path shared by first-init and every Fill.
         this._buildSigmaMatrices();
-
-        // ── Empty-canvas path (N=0): allocate shells and return ──────────
-        if (this.N === 0) {
-            this._alloc(0);
-            this.stepCount = 0;
-            this._setupCells();
-            this.nBonds  = 0; this.nAngles = 0;
-            this.bondI   = new Int32Array(1);  this.bondJ  = new Int32Array(1);
-            this.bondParamId  = new Uint32Array(1);
-            this.angleI  = new Int32Array(1);  this.angleJ = new Int32Array(1);
-            this.angleKarr    = new Int32Array(1);
-            this.angleParamId = new Uint32Array(1);
-            this.bondParamTable  = [];
-            this.angleParamTable = [];
-            this.bondExclude     = new Set();
-            this.molIdPerParticle = new Uint32Array(0);
-            this.exclOffsets = new Uint32Array(1);
-            this.exclList    = new Uint32Array(1);
-            return;
-        }
-
-        const sigmaMax = Math.max(...this.sigmaPerType);
-        const r0       = Math.pow(2, 1/6) * sigmaMax;
-        const spacing  = (this.spacingFactor || 1.0) * r0;
-        const nx      = Math.floor(this.L / spacing);
-        const ny      = Math.floor(this.L / spacing);
-
-        const grid = [];
-        for (let iy = 0; iy < ny; iy++)
-            for (let ix = 0; ix < nx; ix++)
-                grid.push({ix, iy});
-
-        const baseN         = this.N;
-        const polymerRatios = this.polymerRatios  || [0, 0, 0, 0];
-        const chainLengths  = this.chainLengths   || [2, 2, 2, 2];
-        const chainTypesAll = this.chainTypesAll  || Array.from({length: 4}, () => []);
-        const chainChargesAll = this.chainChargesAll || Array.from({length: 4}, () => []);
-
-        const nChainsByPoly  = polymerRatios.map((r, pi) =>
-            r > 0 ? Math.floor(baseN * r / Math.max(1, chainLengths[pi])) : 0);
-        const nBeadsByPoly   = nChainsByPoly.map((nc, pi) => nc * Math.max(1, chainLengths[pi]));
-        const nPolyBeads     = nBeadsByPoly.reduce((a, b) => a + b, 0);
-
-        // Safety: if polymer beads exceed N (e.g. due to rounding or invalid ratios), scale down.
-        if (nPolyBeads > baseN) {
-            const scale = baseN / nPolyBeads;
-            for (let pi = 0; pi < 4; pi++) {
-                nChainsByPoly[pi] = Math.floor(nChainsByPoly[pi] * scale);
-                nBeadsByPoly[pi]  = nChainsByPoly[pi] * Math.max(1, chainLengths[pi]);
-            }
-        }
-
-        this.N = baseN;
-        this._alloc(baseN);
+        this.N = 0;
+        this._alloc(0);
         this.stepCount = 0;
         this._setupCells();
-
-        const occupied = new Set();
-        let pIdx = 0;
-
-        for (let pi = 0; pi < 4; pi++) {
-            const chainLen   = Math.max(1, chainLengths[pi]);
-            const nChains    = nChainsByPoly[pi];
-            if (nChains === 0) continue;
-            const chainTypes = chainTypesAll[pi];
-            const chainCharges = chainChargesAll[pi] || [];
-
-            const validStarts = [];
-            for (let iy = 0; iy < ny; iy++)
-                for (let ix = 0; ix < nx - chainLen; ix++)
-                    validStarts.push({ix, iy});
-
-            for (let i = validStarts.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [validStarts[i], validStarts[j]] = [validStarts[j], validStarts[i]];
-            }
-
-            let placedChains = 0;
-            for (const s of validStarts) {
-                if (placedChains >= nChains) break;
-                let ok = true;
-                for (let b = 0; b < chainLen; b++) {
-                    if (occupied.has(`${s.ix + b},${s.iy}`)) { ok = false; break; }
-                }
-                if (!ok) continue;
-                for (let b = 0; b < chainLen; b++) {
-                    const gx = s.ix + b;
-                    this.x[pIdx]    = (gx   + 0.5) * spacing;
-                    this.y[pIdx]    = (s.iy + 0.5) * spacing;
-                    this.type[pIdx] = chainTypes[b] ?? 0;
-                    if (this.charge) this.charge[pIdx] = chainCharges[b] ?? 0;
-                    occupied.add(`${gx},${s.iy}`);
-                    pIdx++;
-                }
-                placedChains++;
-            }
-            for (let c = placedChains; c < nChains; c++) {
-                for (let b = 0; b < chainLen; b++) {
-                    this.x[pIdx]    = Math.random() * this.L;
-                    this.y[pIdx]    = Math.random() * this.L;
-                    this.type[pIdx] = chainTypes[b] ?? 0;
-                    if (this.charge) this.charge[pIdx] = chainCharges[b] ?? 0;
-                    pIdx++;
-                }
-            }
-        }
-
-        const freeCells = grid.filter(c => !occupied.has(`${c.ix},${c.iy}`));
-        for (let i = freeCells.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [freeCells[i], freeCells[j]] = [freeCells[j], freeCells[i]];
-        }
-
-        const nSingles = baseN - nPolyBeads;
-        for (let fi = 0; fi < nSingles; fi++, pIdx++) {
-            if (fi < freeCells.length) {
-                this.x[pIdx] = (freeCells[fi].ix + 0.5) * spacing;
-                this.y[pIdx] = (freeCells[fi].iy + 0.5) * spacing;
-            } else {
-                this.x[pIdx] = Math.random() * this.L;
-                this.y[pIdx] = Math.random() * this.L;
-            }
-        }
-
-        if (nSingles > 0) {
-            const ratios = this.ratios || [0.25, 0.25, 0.25, 0.25];
-            const sum    = ratios.reduce((a, b) => a + b, 0) || 1;
-            const norm   = ratios.map(r => r / sum);
-            const counts = norm.map(r => Math.floor(r * nSingles));
-            let assigned = counts.reduce((a, b) => a + b, 0);
-            let iFix = 0;
-            while (assigned < nSingles) { counts[iFix++ % 4]++; assigned++; }
-            let tIdx = nPolyBeads;
-            for (let t = 0; t < 4; t++)
-                for (let k = 0; k < counts[t]; k++) this.type[tIdx++] = t;
-            for (let i = baseN - 1; i > nPolyBeads; i--) {
-                const j   = nPolyBeads + Math.floor(Math.random() * (i - nPolyBeads + 1));
-                const tmp = this.type[i]; this.type[i] = this.type[j]; this.type[j] = tmp;
-            }
-        }
-
-        const std = Math.sqrt(this.T / this.mass);
-        let sumVx = 0, sumVy = 0;
-        for (let i = 0; i < this.N; i++) {
-            this.vx[i] = std * this._gaussian();
-            this.vy[i] = std * this._gaussian();
-            sumVx += this.vx[i]; sumVy += this.vy[i];
-        }
-        sumVx /= this.N; sumVy /= this.N;
-        // Don't remove COM momentum for a single particle — it would zero the velocity.
-        if (this.N > 1)
-            for (let i = 0; i < this.N; i++) { this.vx[i] -= sumVx; this.vy[i] -= sumVy; }
-
-        this.rescaleVelocities();
-        this._setupBonds();
-        this._computeForces();
+        this.nBonds  = 0; this.nAngles = 0;
+        this.bondI   = new Int32Array(1);  this.bondJ  = new Int32Array(1);
+        this.bondParamId  = new Uint32Array(1);
+        this.angleI  = new Int32Array(1);  this.angleJ = new Int32Array(1);
+        this.angleKarr    = new Int32Array(1);
+        this.angleParamId = new Uint32Array(1);
+        this.bondParamTable  = [];
+        this.angleParamTable = [];
+        this.bondExclude     = new Set();
+        this.molIdPerParticle = new Uint32Array(0);
+        this.exclOffsets = new Uint32Array(1);
+        this.exclList    = new Uint32Array(1);
     }
 	
 	_setupBonds() {
@@ -4594,6 +4526,7 @@ async function loadSimState(json) {
     }
     _savePreRunSnapshot();  // new checkpoint so Reset to last works immediately
     updateStats(sim);
+    updateRealizedPcts();   // particle set now restored — refresh realized %
     renderFrame();
 }
 
@@ -6298,6 +6231,7 @@ function _finalizeEdit() {
     }
     updateStats(sim);
     _drawSelectionOverlay();
+    updateRealizedPcts();   // particle set / molIds may have changed — refresh realized %
     // Any deliberate edit (bond change, paste, placement, delete, undo) should
     // become the new "Reset to last" checkpoint — not just pressing Run.
     // startLoop() will snapshot again before the first step regardless.
@@ -7974,6 +7908,7 @@ async function clearSimulation() {
     );
 
     updateStats(cpuSim);
+    updateRealizedPcts();   // box is now empty — reset realized % labels
 }
 
 if (btnClear) btnClear.addEventListener('click', clearSimulation);
@@ -8153,7 +8088,11 @@ async function startLoop() {
 
 btnRun.addEventListener('click', () => { if (running) stopLoop(); else startLoop(); });
 
-btnInit.addEventListener('click', async () => {
+// Populate the box from the current UI ratios.  This is the SINGLE placement
+// path used everywhere: the Fill button, and the first init on page load.
+// If the canvas is empty it fills a fresh box; otherwise it tops up the existing
+// system.  (Previously the first init used Sim.initialize()'s own placer.)
+async function performFill() {
     const wasRunning = running; await stopLoop();   // await so GPU readback completes before we snapshot
     _invalidateDragAdj();
     _selection = null; _selectionMode = null;
@@ -8367,11 +8306,14 @@ btnInit.addEventListener('click', async () => {
     }
 
     // ── Step 1: set up base particle system ───────────────────────────────
-    // Empty box: initialize() places the built-in (monomer/polymer) beads.
-    // Fill mode: existing particles stay, cpuSim.N is restored to exN.
+    // Both empty and fill cases now populate through the SAME grid placement
+    // path (Step 3 custom mols + Step 4 polymers/monomers).  An empty canvas
+    // simply starts from N = 0; previously it called initialize() with
+    // N = adjustedFillN, which used a different placer with random fallback —
+    // the source of the empty-vs-nonempty divergence.
     if (exN === 0) {
-        cpuSim.N = adjustedFillN;
-        cpuSim.initialize();
+        cpuSim.N = 0;
+        cpuSim.initialize();            // N=0 path: allocate empty shells + cell list only
         resetCamera();
         cpuSim._buildSigmaMatrices();   // ensure sigmaPerType is current
     } else {
@@ -8397,9 +8339,12 @@ btnInit.addEventListener('click', async () => {
     // ── Step 3: custom molecules first (largest first, already sorted) ────
     placeCustomMols(newXY, newBonds, newAngles);
 
-    // ── Step 4: polymer chains + single beads (fill mode only) ───────────
-    // Empty box already has monomers/polymers from initialize(); skip this.
-    if (exN > 0) {
+    // ── Step 4: polymer chains + single beads ────────────────────────────
+    // Runs for both empty and fill canvases.  Places built-in polymers then
+    // monomers on the spacing grid, largest first, with no random fallback.
+    // N is an upper limit: leftover bead budget that does not tile cleanly is
+    // intentionally left unplaced (we never pad the box with stray beads).
+    {
         const polymerRatios = cpuSim.polymerRatios || [0,0,0,0];
         const chainLengths  = cpuSim.chainLengths   || [2,2,2,2];
         const chainTypesAll = cpuSim.chainTypesAll  || Array.from({length:4}, ()=>[]);
@@ -8417,7 +8362,14 @@ btnInit.addEventListener('click', async () => {
             }
             nPolyBeads = nBeadsByPoly.reduce((a,b) => a+b, 0);
         }
-        const nSingles = adjustedFillN - nPolyBeads;
+        // Monomer (single-bead) budget comes from the monomer species' own ratio
+        // share — NOT "everything left over after polymers".  This removes the old
+        // behaviour of padding the box with random single beads when N doesn't tile
+        // cleanly into the requested molecules.  builtinW (computed above) already
+        // weights monomers by 1 bead and polymers by chain length, so monoW/builtinW
+        // is exactly the monomer bead fraction of the built-in budget.
+        const monoW    = speciesTable.slice(0, 4).reduce((s, sp) => s + (sp.ratio ?? 0), 0);
+        const nSingles = builtinW > 0 ? Math.floor(adjustedFillN * monoW / builtinW) : 0;
 
         // Coarse occupied grid seeded from existing + custom mol beads
         const occupied = new Set();
@@ -8516,7 +8468,7 @@ btnInit.addEventListener('click', async () => {
                 _fcAdd(bx, by);
             }
         }
-    }   // end fill-mode polymer/monomer section
+    }   // end Step 4 (polymer + monomer grid placement)
 
     // ── Step 5: append all new particles and rebuild simulation state ─────
     appendNewParticles(baseN, newXY, newBonds, newAngles);
@@ -8551,8 +8503,11 @@ btnInit.addEventListener('click', async () => {
         draw(sim, getColorMode(), parseFloat(document.getElementById('pr-n').value) || 0.45);
     }
     updateStats(sim);
+    updateRealizedPcts();
     if (wasRunning) startLoop();
-});
+}
+
+btnInit.addEventListener('click', performFill);
 
 engineSelect.addEventListener('change', async (e) => {
     const wasRunning = running; await stopLoop();
@@ -8607,10 +8562,14 @@ engineSelect.addEventListener('change', async (e) => {
     loadFromURL();
     buildSpeciesTableUI();   // populate after URL values are loaded
     applyIntegratorUI();
-    readUI(cpuSim);
-    cpuSim.initialize();
+    // First init uses the SAME placement path as the Fill button: start from an
+    // empty box (N=0) and fill it from the UI ratios.  performFill() runs its own
+    // readUI() and resetCamera(); GPU upload happens just below once the device
+    // is ready (performFill falls back to the CPU branch here since gpuSim isn't
+    // initialised yet, exactly as the old initialize()+upload sequence did).
+    cpuSim.N = 0;
+    await performFill();
     buildChainTypeUI(polymerData[activePolymer].chainLength);
-    resetCamera();
 
     currentEngine = 'gpu';
     document.getElementById('engine-select').value = currentEngine;
