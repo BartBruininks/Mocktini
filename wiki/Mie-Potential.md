@@ -1,6 +1,6 @@
 # The Mie Potential and Why We Use It
 
-> 💡 Mocktini's non-bonded particles attract and repel through the **Mie 2-4 potential** — a softer cousin of the famous Lennard-Jones 12-6. This page explains what it is, why the soft "2-4" exponents suit a 2D simulation, and why we *shift* it at the cutoff.
+> 💡 Mocktini's non-bonded particles attract and repel through the **Mie 2-4 potential** — a softer cousin of the famous Lennard-Jones 12-6. This page explains what it is, why the soft "2-4" exponents suit a 2D simulation, and why we *shift* it at the cutoff. Currently we are also exploring the idea of a Wang-Frenkel potential, but this is something we need to work out in the future.
 
 ## The idea
 
