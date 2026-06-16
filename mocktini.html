@@ -1012,12 +1012,12 @@ button.btn-snap:hover { background: #3a9455; }
     </div>
 </div>
 
-<footer id="footer">Mocktini v1.2.0 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license</footer>
+<footer id="footer">Mocktini v1.2.1 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license</footer>
 
 <script>
 'use strict';
 // ════════════════════════════════════════════════════════════════════════════
-//  Mocktini - 2D Molecular Dynamics  —  v1.2.0
+//  Mocktini - 2D Molecular Dynamics  —  v1.2.1
 // ════════════════════════════════════════════════════════════════════════════
 //
 //  OVERVIEW
@@ -1769,9 +1769,7 @@ function loadFromURL() {
     for (let pi = 0; pi < 4; pi++) syncPolymerToMolDef(pi);
     syncPolymerDataToVisible();
     // Sync which potential parameter block is visible with the restored dropdown.
-    const _ptype = document.getElementById('potential-select').value;
-    document.getElementById('mie-params').style.display = (_ptype === 'wf') ? 'none' : 'block';
-    document.getElementById('wf-params').style.display  = (_ptype === 'wf') ? 'block' : 'none';
+    syncPotentialPanels();
 }
 
 let _saveURLTimer = null;
@@ -4690,6 +4688,8 @@ async function loadSimState(json) {
     syncPolymerDataToVisible();
     applyIntegratorPanels();
     applyIntegratorParams();
+    // Sync potential parameter panels (mie/wf) with the restored dropdown.
+    syncPotentialPanels();
 
     // ── 2. Restore custom molecule definitions ─────────────────────────────
     // Remove previously loaded custom mols from speciesTable, then rebuild.
@@ -7849,14 +7849,23 @@ wire('rc-s', 'rc-n', v => {
 });
 
 // ── Non-bonded potential selection + Mie exponents ──────────────────────────
+// syncPotentialPanels() shows the mie/wf parameter block that matches the
+// current dropdown value. Called from applyPotentialSettings() and from both
+// restore paths (URL + loadSimState) so the visible panel never drifts from
+// the selected potential.
+function syncPotentialPanels() {
+    const type = document.getElementById('potential-select').value;
+    document.getElementById('mie-params').style.display = (type === 'wf') ? 'none' : 'block';
+    document.getElementById('wf-params').style.display  = (type === 'wf') ? 'block' : 'none';
+}
+
 // applyPotentialSettings() reads the UI, validates (n>m≥1, integers),
 // recomputes C, pushes to both engines, and recomputes forces when paused.
 function applyPotentialSettings() {
     const type = document.getElementById('potential-select').value;   // 'mie' | 'wf'
     cpuSim.potentialType = type;
     // Toggle which parameter block is visible (fields keep their last values).
-    document.getElementById('mie-params').style.display = (type === 'wf') ? 'none' : 'block';
-    document.getElementById('wf-params').style.display  = (type === 'wf') ? 'block' : 'none';
+    syncPotentialPanels();
 
     // ── Mie exponents (always parsed so they persist) ──
     let m = Math.round(parseFloat(document.getElementById('mie-m').value));
