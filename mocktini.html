@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>2D Mie 2-4 Molecular Dynamics (Mocktini)</title>
+<title>2D Molecular Dynamics (Mocktini)</title>
 <style>
 *, *::before, *::after { box-sizing: border-box; }
 
@@ -784,13 +784,6 @@ button.btn-snap:hover { background: #3a9455; }
 
             <button id="btn-set-vel" style="display:none"></button>
 
-            <div class="sub-header">Cutoff</div>
-            <div class="control-row">
-                <label>r<sub>cut</sub></label>
-                <input type="range" id="rc-s" min="1.0" max="8.0" step="0.1" value="2.5">
-                <input type="number" class="param-input" id="rc-n" value="2.5">
-            </div>
-
             <div class="sub-header">Gravity</div>
             <div class="control-row checkbox-row">
                 <label>Enable gravity</label>
@@ -901,6 +894,57 @@ button.btn-snap:hover { background: #3a9455; }
 			</div>
 
             <div class="sub-header">Particle properties</div>
+
+            <div class="control-row" title="Non-bonded pair potential. Mie: U(r)=Cε[(σ/r)ⁿ−(σ/r)ᵐ], energy-shifted to 0 at rc. Wang-Frenkel: finite-range U=εα[(σ/r)^{2μ}−1][(rc/r)^{2μ}−1]^{2ν}, with U(rc)=F(rc)=0 by construction (no shift/cutoff artifact).">
+                <label>Potential</label>
+                <select id="potential-select" class="param-input" style="flex:0 0 110px;width:110px">
+                    <option value="mie" selected="">Mie (n–m)</option>
+                    <option value="wf">Wang–Frenkel</option>
+                </select>
+            </div>
+
+            <!-- Mie parameter fields (shown when Potential = Mie) -->
+            <div id="mie-params">
+                <div class="control-row" id="mie-exponents-row" title="Mie exponents (integers). Left = m (attractive), right = n (repulsive). Require n > m. Defaults 2–4. The (2,4) pair uses a hard-coded fast path; other pairs use a general (slightly slower) path.">
+                    <label>Exponents m–n</label>
+                    <input type="number" class="param-input" id="mie-m" value="2" step="1" min="1" max="48" style="flex:0 0 52px;width:52px">
+                    <input type="number" class="param-input" id="mie-n" value="4" step="1" min="2" max="50" style="flex:0 0 52px;width:52px">
+                </div>
+                <div class="control-row" title="Absolute non-bonded cutoff rc (sim units, NOT relative to σ). The cell grid sizes to rc; larger rc → fewer, fatter cells → more neighbours per cell.">
+                    <label>r<sub>cut</sub></label>
+                    <input type="range" id="rc-s" min="1.0" max="8.0" step="0.1" value="2.5">
+                    <input type="number" class="param-input" id="rc-n" value="2.5">
+                </div>
+            </div>
+
+            <!-- Wang-Frenkel parameter fields (shown when Potential = Wang–Frenkel) -->
+            <div id="wf-params" style="display:none">
+                <div class="control-row" title="WF range / cutoff rc (absolute sim units). The potential and its force are exactly zero at and beyond rc. This value also sets the neighbour-cell cutoff while WF is active.">
+                    <label>r<sub>well</sub></label>
+                    <input type="number" class="param-input" id="wf-rwell" value="1.0" step="0.1" min="0.2" max="8.0" style="flex:0 0 70px;width:70px">
+                </div>
+                <div class="control-row" title="Global σ multiplier applied on top of each pair's per-type σ_mix: σ_eff = σ·σ_mix. Must keep σ_eff < rc for every pair, else that pair is disabled.">
+                    <label>σ (mult)</label>
+                    <input type="number" class="param-input" id="wf-sigma" value="0.5" step="0.05" min="0.05" max="4.0" style="flex:0 0 70px;width:70px">
+                </div>
+                <div class="control-row" title="μ — softness exponent. Smaller μ → softer/wider repulsive core.">
+                    <label>μ<sub>soft</sub></label>
+                    <input type="number" class="param-input" id="wf-mu" value="0.1" step="0.05" min="0.02" max="6.0" style="flex:0 0 70px;width:70px">
+                </div>
+                <div class="control-row" title="ν — steepness / landing smoothness. ν&gt;0.5 gives F(rc)=0; ν=1.5 also gives a fully tangent (F'(rc)=0) force landing.">
+                    <label>ν<sub>steep</sub></label>
+                    <input type="number" class="param-input" id="wf-nu" value="1.5" step="0.25" min="0.5" max="6.0" style="flex:0 0 70px;width:70px">
+                </div>
+            </div>
+
+            <div class="control-row" title="GPU neighbour-cell capacity: max particles stored per cell on the GPU compute path. If a cell exceeds this, extra particles are dropped from the neighbour list (missing forces → overlaps → blow-ups). Raise it for dense systems or large rc. CPU path is unbounded and ignores this.">
+                <label>Cell capacity</label>
+                <input type="number" class="param-input" id="maxpercell-n" value="32" step="8" min="8" max="1024" style="flex:0 0 70px;width:70px">
+            </div>
+            <div class="control-row" id="neighbor-overflow-warn" style="display:none;background:rgba(255,107,107,0.15);border:1px solid var(--red,#ff6b6b);border-radius:4px;padding:5px 7px;">
+                <span style="color:var(--red,#ff6b6b);font-size:0.66rem;line-height:1.3;">⚠ Neighbour-cell overflow on the GPU path — some pair forces are being dropped. Raise <b>Cell capacity</b> until this clears.</span>
+            </div>
+
 			<div class="sub-header" style="border:none;margin:6px 0 4px;color:#aaa;font-size:0.64rem;">ε matrix</div>
 			<div class="eps-matrix">
 				<!-- Row 0 -->
@@ -968,12 +1012,12 @@ button.btn-snap:hover { background: #3a9455; }
     </div>
 </div>
 
-<footer id="footer">Mocktini v1.1.2 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license</footer>
+<footer id="footer">Mocktini v1.2.0 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license</footer>
 
 <script>
 'use strict';
 // ════════════════════════════════════════════════════════════════════════════
-//  Mocktini - 2D Mie 2-4 Molecular Dynamics  —  v1.1.2
+//  Mocktini - 2D Molecular Dynamics  —  v1.2.0
 // ════════════════════════════════════════════════════════════════════════════
 //
 //  OVERVIEW
@@ -1054,6 +1098,11 @@ const URL_PARAMS = [
     {id:'sigma0',type:'number'},{id:'sigma1',type:'number'},
     {id:'sigma2',type:'number'},{id:'sigma3',type:'number'},
     {id:'rc-n',type:'number'},{id:'spacing-n',type:'number'},
+    {id:'potential-select',type:'string'},
+    {id:'mie-m',type:'number'},{id:'mie-n',type:'number'},
+    {id:'maxpercell-n',type:'number'},
+    {id:'wf-rwell',type:'number'},{id:'wf-sigma',type:'number'},
+    {id:'wf-mu',type:'number'},{id:'wf-nu',type:'number'},
     {id:'r0scale-n',type:'number'},
     {id:'bond-k-n',type:'number'},
     {id:'angle-k-n',type:'number'},{id:'angle-theta-n',type:'number'},
@@ -1719,6 +1768,10 @@ function loadFromURL() {
     }
     for (let pi = 0; pi < 4; pi++) syncPolymerToMolDef(pi);
     syncPolymerDataToVisible();
+    // Sync which potential parameter block is visible with the restored dropdown.
+    const _ptype = document.getElementById('potential-select').value;
+    document.getElementById('mie-params').style.display = (_ptype === 'wf') ? 'none' : 'block';
+    document.getElementById('wf-params').style.display  = (_ptype === 'wf') ? 'block' : 'none';
 }
 
 let _saveURLTimer = null;
@@ -1868,6 +1921,26 @@ class MD2D_CPU {
     this.sigmaPerType = [1.0, 1.0, 1.0, 1.0];
     this.massPerType  = [1.0, 1.0, 1.0, 1.0];
     this.rcCut        = 2.5;  // absolute cutoff distance (not relative to sigma)
+    // ── Non-bonded pair potential selection ─────────────────────────────
+    // potentialType : 'mie' or 'wf' (Wang-Frenkel).
+    // Mie: U(r)=C·ε·[(σ/r)ⁿ − (σ/r)ᵐ], n>m, energy-shifted to 0 at rc.
+    //   mieN = repulsive exponent (n), mieM = attractive exponent (m).
+    //   mieC = (n/(n−m))·(n/m)^(m/(n−m)) — recomputed whenever n or m change.
+    // The (m,n)=(2,4) default keeps a hard-coded fast path (sqrt-free); any
+    // other integer pair uses a general pow-based path.
+    this.potentialType = 'mie';
+    this.mieN = 4; this.mieM = 2; this.mieC = 4.0;
+    // ── Wang-Frenkel: U(r)=ε·α·[(σ_eff/r)^{2μ}−1]·[(rc/r)^{2μ}−1]^{2ν}, r≤rc ──
+    //   Finite-range by construction: U(rc)=0 and F(rc)=0 (no shift/switch).
+    //   σ_eff = wfSigma · σ_mix (per pair).  rc = wfRwell (sets the cell cutoff
+    //   when WF is active).  α normalises the well depth to −ε, so it is built
+    //   PER PAIR (depends on rc/σ_eff) into wfAlphaMix, like sigmaSqMix.
+    this.wfRwell = 1.0;   // WF range / cutoff (absolute sim units)
+    this.wfSigma = 0.5;   // global σ multiplier applied on top of per-type σ
+    this.wfMu    = 0.1;   // μ (softness)
+    this.wfNu    = 1.5;   // ν (steepness / landing smoothness)
+    this.wfAlphaMix = null;
+    this.maxPerCell = 32;   // GPU neighbour-cell capacity (CPU cell list is unbounded; stored only to carry the setting to the GPU)
     this.r0Scale      = 1.0;
     this.gravity      = 9.8;
     this.gravityOn    = false;
@@ -1912,6 +1985,16 @@ class MD2D_CPU {
 	
     get rc() { return this.rcCut; }
 
+    // Mie prefactor C(n,m) = (n/(n−m))·(n/m)^(m/(n−m)).  Guards n>m≥1; on a
+    // bad pair it leaves the last valid C so the sim never divides by zero.
+    _recomputeMieC() {
+        const n = this.mieN, m = this.mieM;
+        if (n > m && m >= 1) {
+            this.mieC = (n / (n - m)) * Math.pow(n / m, m / (n - m));
+        }
+        return this.mieC;
+    }
+
     _buildSigmaMatrices() {
         const spt = this.sigmaPerType;
         // Per-pair σ_mix² controls potential shape; a single rcCut is used for all pairs.
@@ -1919,6 +2002,28 @@ class MD2D_CPU {
             Array.from({length: 4}, (_, j) => {
                 const mix = (spt[i] + spt[j]) / 2;
                 return mix * mix;
+            })
+        );
+        this._buildWFAlpha();
+    }
+
+    // Wang-Frenkel α normalisation, per pair: depends on rc/σ_eff, μ, ν.
+    // Returns 0 for degenerate pairs (rc ≤ σ_eff) so they contribute nothing
+    // rather than a mis-normalised (wrong-depth) interaction.
+    static wfAlpha(rc, sEff, mu, nu) {
+        if (!(rc > 0) || !(sEff > 0) || !(rc > sEff)) return 0;
+        const R = Math.pow(rc / sEff, 2 * mu);
+        if (!(R > 1)) return 0;
+        return 2 * nu * R * Math.pow((1 + 2 * nu) / (2 * nu * (R - 1)), 2 * nu + 1);
+    }
+
+    _buildWFAlpha() {
+        const spt = this.sigmaPerType;
+        const rc = this.wfRwell, ws = this.wfSigma, mu = this.wfMu, nu = this.wfNu;
+        this.wfAlphaMix = Array.from({length: 4}, (_, i) =>
+            Array.from({length: 4}, (_, j) => {
+                const sEff = ws * ((spt[i] + spt[j]) / 2);
+                return MD2D_CPU.wfAlpha(rc, sEff, mu, nu);
             })
         );
     }
@@ -2133,6 +2238,21 @@ class MD2D_CPU {
         const smat = this.sigmaSqMix;
         const rc2  = this.rcCut * this.rcCut;  // single cutoff for all pairs
 
+        // ── Mie potential exponents (hoisted once per call) ──────────────────
+        // mieFast = the original sqrt-free hard-coded (m,n)=(2,4) kernel.
+        // Otherwise a general pow-based path runs (works in x=σ²/r², so no extra
+        // sqrt): (σ/r)ⁿ = x^(n/2), (σ/r)ᵐ = x^(m/2).
+        const mN = this.mieN, mM = this.mieM, mC = this.mieC;
+        const halfN = 0.5 * mN, halfM = 0.5 * mM;
+        const mieFast = (mN === 4 && mM === 2);
+
+        // ── Potential selector + Wang-Frenkel params (hoisted once per call) ──
+        const isWF   = (this.potentialType === 'wf');
+        const wfMu   = this.wfMu, wfNu = this.wfNu;
+        const wfS2   = this.wfSigma * this.wfSigma;   // global σ-multiplier², applied to σ_mix²
+        const wfAlph = this.wfAlphaMix;
+        const twoNu  = 2 * wfNu;
+
         // ── DSF electrostatics: cutoff-constant precompute (once per call) ───
         // Skipped entirely when no charges are set (qScale stays 0 → no erfc).
         const q       = this.charge;
@@ -2176,20 +2296,47 @@ class MD2D_CPU {
                                 const sig2 = sigRow[tj];           // σ_mix²
                                 const eps  = this.epsMatrix[ti][tj];
 
-                                // Mie 2-4: f_mag = 8ε(2·x² − x)/r²  where x = σ²/r²
-                                const inv_r2 = sig2 / r2;
-                                const inv_r4 = inv_r2 * inv_r2;
-                                const f_mag  = 8.0 * eps * (2.0 * inv_r4 - inv_r2) / r2;
+                                let f_mag, uPair;
+                                if (isWF) {
+                                    // Wang-Frenkel. b=(rc/r)^{2μ}>1 for r<rc, so all
+                                    // pow bases are positive. α=0 disables degenerate pairs.
+                                    const alphaP = wfAlph[ti][tj];
+                                    if (alphaP === 0) {
+                                        f_mag = 0; uPair = 0;
+                                    } else {
+                                        const s2 = wfS2 * sig2;                 // σ_eff² = (wfSigma·σ_mix)²
+                                        const a  = Math.pow(s2 / r2, wfMu);     // (σ_eff/r)^{2μ}
+                                        const b  = Math.pow(rc2 / r2, wfMu);    // (rc/r)^{2μ}
+                                        const bm1 = b - 1;
+                                        const pn1 = Math.pow(bm1, twoNu - 1);   // (b−1)^{2ν−1}
+                                        const ea  = eps * alphaP;
+                                        f_mag = (2 * wfMu * ea / r2) * pn1 * (a * bm1 + twoNu * b * (a - 1));
+                                        uPair = ea * (a - 1) * (pn1 * bm1);     // = ea·(a−1)·(b−1)^{2ν}
+                                    }
+                                } else if (mieFast) {
+                                    // (m,n)=(2,4) fast path — sqrt-free, bit-identical to original.
+                                    const inv_r2 = sig2 / r2;
+                                    const inv_r4 = inv_r2 * inv_r2;
+                                    f_mag = 8.0 * eps * (2.0 * inv_r4 - inv_r2) / r2;
+                                    const sr2c = sig2 / rc2;
+                                    const sr4c = sr2c * sr2c;
+                                    uPair = 4.0 * eps * (inv_r4 - inv_r2)
+                                          - 4.0 * eps * (sr4c - sr2c);   // shift U(rc)→0
+                                } else {
+                                    // General Mie: work in x=σ²/r² so no extra sqrt.
+                                    const x   = sig2 / r2;
+                                    const srn = Math.pow(x, halfN);    // (σ/r)ⁿ
+                                    const srm = Math.pow(x, halfM);    // (σ/r)ᵐ
+                                    f_mag = mC * eps * (mN * srn - mM * srm) / r2;
+                                    const xc  = sig2 / rc2;
+                                    const Ucut = mC * eps * (Math.pow(xc, halfN) - Math.pow(xc, halfM));
+                                    uPair = mC * eps * (srn - srm) - Ucut;   // shift U(rc)→0
+                                }
 
                                 this.fx[i] += f_mag * dx; this.fy[i] += f_mag * dy;
                                 this.fx[j] -= f_mag * dx; this.fy[j] -= f_mag * dy;
                                 virial += f_mag * r2;  // r_ij · F_ij contribution (pair counted once)
-
-                                // Shift: subtract U(rc) so potential is 0 at cutoff
-                                const sr2c = sig2 / rc2;
-                                const sr4c = sr2c * sr2c;
-                                const Ucut = 4.0 * eps * (sr4c - sr2c);
-                                pot += 4.0 * eps * (inv_r4 - inv_r2) - Ucut;
+                                pot += uPair;
 
                                 // ── DSF electrostatics (1/r, damped shifted force) ──
                                 // Reuses dx,dy,r2 and the same bondExclude skip above.
@@ -2456,6 +2603,9 @@ struct Params {
     epsMatrix:  array<vec4<f32>, 4>,
     sigmaSqMix: array<vec4<f32>, 4>,
     rcSq: f32, coulombK: f32, coulombAlpha: f32, _p3: f32,
+    potType: u32, mieN: f32, mieM: f32, mieC: f32,
+    wfMu: f32, wfNu: f32, wfSigma: f32, _p4: f32,
+    wfAlphaMix: array<vec4<f32>, 4>,
 }
 `;
 
@@ -2805,7 +2955,9 @@ fn box_muller(seed1: u32, seed2: u32) -> vec2<f32> {
 @compute @workgroup_size(64)
 fn clearGrid(@builtin(global_invocation_id) id: vec3<u32>) {
     let idx = id.x;
-    if (idx >= params.nx * params.ny) { return; }
+    // gridCounters has nx*ny cell counters plus ONE trailing overflow flag at
+    // index nx*ny.  Clearing the +1 slot here resets the flag every rebuild.
+    if (idx >= params.nx * params.ny + 1u) { return; }
     atomicStore(&gridCounters[idx], 0u);
 }
 
@@ -2833,6 +2985,11 @@ fn step1_and_build(@builtin(global_invocation_id) id: vec3<u32>) {
     let count = atomicAdd(&gridCounters[cellIdx], 1u);
     if (count < params.maxPerCell) {
         gridCells[cellIdx * params.maxPerCell + count] = i;
+    } else {
+        // Cell full — this particle is dropped from the neighbour list (its
+        // pair forces go missing → overlaps → blow-up).  Flag it so the host
+        // can warn.  One atomic store, taken only on overflow → ~free otherwise.
+        atomicStore(&gridCounters[params.nx * params.ny], 1u);
     }
 }
 
@@ -2889,6 +3046,8 @@ fn step2_sd_build(@builtin(global_invocation_id) id: vec3<u32>) {
     let count   = atomicAdd(&gridCounters[cellIdx], 1u);
     if (count < params.maxPerCell) {
         gridCells[cellIdx * params.maxPerCell + count] = i;
+    } else {
+        atomicStore(&gridCounters[params.nx * params.ny], 1u);
     }
 }
 
@@ -2943,18 +3102,49 @@ fn computeForces(@builtin(global_invocation_id) id: vec3<u32>) {
                 );
                 let r2 = dot(d, d);
 
-                // Mie 2-4: U(r) = 4ε[(σ/r)⁴ − (σ/r)²] − U(rc)
+                // Non-bonded pair potential (potType 0 = Mie, 1 = Wang-Frenkel)
                 if (r2 < rcSq && r2 > 1e-12) {
-                    let inv_r2 = sigmaSq / r2;          // (σ_mix/r)²
-                    let inv_r4 = inv_r2 * inv_r2;       // (σ_mix/r)⁴
-                    let f_mag  = 8.0 * eps * (2.0 * inv_r4 - inv_r2) / r2;
-                    force     += f_mag * d;
-
-                    // Shift potential to 0 at rc (per-pair σ, shared absolute rc)
-                    let sr2c = sigmaSq / rcSq;
-                    let sr4c = sr2c * sr2c;
-                    let Ucut = 4.0 * eps * (sr4c - sr2c);
-                    pe_share += 4.0 * eps * (inv_r4 - inv_r2) - Ucut;
+                    var f_mag: f32;
+                    var u_pair: f32;
+                    if (params.potType == 1u) {
+                        // Wang-Frenkel: U=ε·α·[(σ_eff/r)^{2μ}−1]·[(rc/r)^{2μ}−1]^{2ν}.
+                        // b=(rc/r)^{2μ}>1 for r<rc → all pow bases positive. α=0 disables.
+                        let alphaP = params.wfAlphaMix[type_i][type_j];
+                        if (alphaP != 0.0) {
+                            let twoNu = 2.0 * params.wfNu;
+                            let s2  = params.wfSigma * params.wfSigma * sigmaSq;  // σ_eff²
+                            let a   = pow(s2  / r2, params.wfMu);   // (σ_eff/r)^{2μ}
+                            let b   = pow(rcSq / r2, params.wfMu);  // (rc/r)^{2μ}
+                            let bm1 = b - 1.0;
+                            let pn1 = pow(bm1, twoNu - 1.0);        // (b−1)^{2ν−1}
+                            let ea  = eps * alphaP;
+                            f_mag = (2.0 * params.wfMu * ea / r2) * pn1 * (a * bm1 + twoNu * b * (a - 1.0));
+                            u_pair = ea * (a - 1.0) * (pn1 * bm1);  // = ea·(a−1)·(b−1)^{2ν}
+                        } else {
+                            f_mag = 0.0; u_pair = 0.0;
+                        }
+                    } else if (params.mieN == 4.0 && params.mieM == 2.0) {
+                        // (m,n)=(2,4) fast path — matches CPU fast path exactly.
+                        let inv_r2 = sigmaSq / r2;          // (σ_mix/r)²
+                        let inv_r4 = inv_r2 * inv_r2;       // (σ_mix/r)⁴
+                        f_mag = 8.0 * eps * (2.0 * inv_r4 - inv_r2) / r2;
+                        let sr2c = sigmaSq / rcSq;
+                        let sr4c = sr2c * sr2c;
+                        u_pair = 4.0 * eps * (inv_r4 - inv_r2) - 4.0 * eps * (sr4c - sr2c);
+                    } else {
+                        // General Mie (works in x=σ²/r², no extra sqrt).
+                        let halfN = 0.5 * params.mieN;
+                        let halfM = 0.5 * params.mieM;
+                        let x   = sigmaSq / r2;
+                        let srn = pow(x, halfN);            // (σ/r)ⁿ
+                        let srm = pow(x, halfM);            // (σ/r)ᵐ
+                        f_mag = params.mieC * eps * (params.mieN * srn - params.mieM * srm) / r2;
+                        let xc   = sigmaSq / rcSq;
+                        let Ucut = params.mieC * eps * (pow(xc, halfN) - pow(xc, halfM));
+                        u_pair = params.mieC * eps * (srn - srm) - Ucut;
+                    }
+                    force    += f_mag * d;
+                    pe_share += u_pair;
 
                     // ── DSF electrostatics (1/r, damped shifted force) ──
                     // Full pairwise force on i (this loop double-counts pairs;
@@ -3153,6 +3343,12 @@ class MD2D_WebGPU {
         this.N = 1000; this.L = 50.0; this.T = 1.0; this.mass = 1.0; this.dt = 0.005;
         this.epsilon = 1.0; this.sigmaPerType = [1.0, 1.0, 1.0, 1.0]; this.rcCut = 2.5;
         this.r0Scale = 1.0;
+        this.potentialType = 'mie';
+        this.mieN = 4; this.mieM = 2; this.mieC = 4.0;
+        this.wfRwell = 1.0; this.wfSigma = 0.5; this.wfMu = 0.1; this.wfNu = 1.5;
+        this.maxPerCell = 32;   // GPU neighbour-cell capacity (settable; CPU path is unbounded)
+        this._overflowFlag = 0; // last read-back overflow state (0/1)
+        this._overflowMapPending = false;
         this.coulombK     = 5.0;   // K_e — linear electrostatics strength
         this.coulombAlpha = 1.0;   // α   — DSF damping
         this.charge       = null;  // per-bead charge (parallel array), uploaded to chargeBuffer
@@ -3422,7 +3618,7 @@ class MD2D_WebGPU {
         const nx           = Math.max(1, Math.floor(this.L / cellSize));
         const ny           = nx;
         const actualCell   = this.L / nx;
-        const maxPerCell   = 32;
+        const maxPerCell   = this.maxPerCell;
         this.numWorkgroups = Math.ceil(this.N / 64);
         this.nx = nx; this.ny = ny;
 
@@ -3489,14 +3685,22 @@ class MD2D_WebGPU {
         const numCells = nx * ny;
         if (this.gridCounters) this.gridCounters.destroy();
         if (this.gridCells)    this.gridCells.destroy();
+        // +1 trailing slot holds the overflow flag (set by the binning kernels
+        // when a cell exceeds maxPerCell).  COPY_SRC lets the host read it back.
         this.gridCounters = this.device.createBuffer({
-            size:  numCells * 4,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+            size:  (numCells + 1) * 4,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
         });
         this.gridCells = this.device.createBuffer({
             size:  numCells * maxPerCell * 4,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
         });
+        if (!this.overflowReadback) {
+            this.overflowReadback = this.device.createBuffer({
+                size:  4,
+                usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+            });
+        }
 
         const redSize = this.numWorkgroups * 16;
         if (this.reductionBuffer)   this.reductionBuffer.destroy();
@@ -3647,7 +3851,7 @@ class MD2D_WebGPU {
     }
 
     _buildParamsData(nx, ny, actualCell) {
-        // Layout (56 floats = 224 bytes, matches WGSL Params struct):
+        // Layout (80 floats = 320 bytes, matches WGSL Params struct):
         //  [0-3]   N, nx, ny, maxPerCell (u32)
         //  [4-7]   L, cellSize, mass, dt
         //  [8-11]  sigmaPerType (vec4)
@@ -3659,9 +3863,13 @@ class MD2D_WebGPU {
         //  [53]    coulombK     (K_e — linear electrostatics strength)
         //  [54]    coulombAlpha (α — DSF damping / inverse screening length)
         //  [55]    padding
-        const paramsData = new Float32Array(56);
+        //  [56]    potType (u32: 0=Mie, 1=Wang-Frenkel)
+        //  [57-59] mieN, mieM, mieC  (f32)
+        //  [60-63] wfMu, wfNu, wfSigma, _pad
+        //  [64-79] wfAlphaMix (4×vec4) — per-pair WF normalisation
+        const paramsData = new Float32Array(80);
         const paramsU32  = new Uint32Array(paramsData.buffer);
-        const maxPerCell = 32;
+        const maxPerCell = this.maxPerCell;
         paramsU32[0] = this.N;  paramsU32[1] = nx;
         paramsU32[2] = ny;      paramsU32[3] = maxPerCell;
         paramsData[4] = this.L; paramsData[5] = actualCell;
@@ -3689,6 +3897,24 @@ class MD2D_WebGPU {
         paramsData[52] = this.rcCut * this.rcCut;  // rcSq: shared absolute cutoff
         paramsData[53] = this.coulombK     ?? 1.0;  // K_e  (linear strength)
         paramsData[54] = this.coulombAlpha ?? 1.0;  // α    (DSF damping)
+        // Non-bonded potential selection.
+        paramsU32[56]  = (this.potentialType === 'wf') ? 1 : 0;   // potType
+        paramsData[57] = this.mieN ?? 4.0;
+        paramsData[58] = this.mieM ?? 2.0;
+        paramsData[59] = this.mieC ?? 4.0;
+        // Wang-Frenkel params + per-pair α (built from rc=rcCut, wfSigma, μ, ν, σ_mix).
+        const wfMu = this.wfMu ?? 0.1, wfNu = this.wfNu ?? 1.5, wfSig = this.wfSigma ?? 0.5;
+        const rcW  = this.rcCut;   // WF range == cell cutoff when WF is active
+        paramsData[60] = wfMu;
+        paramsData[61] = wfNu;
+        paramsData[62] = wfSig;
+        let aIdx = 64;
+        for (let r = 0; r < 4; r++) {
+            for (let c = 0; c < 4; c++) {
+                const sEff = wfSig * ((spt[r] + spt[c]) / 2);
+                paramsData[aIdx++] = MD2D_CPU.wfAlpha(rcW, sEff, wfMu, wfNu);
+            }
+        }
         return paramsData;
     }
 
@@ -3721,15 +3947,15 @@ class MD2D_WebGPU {
         const nx         = Math.max(1, Math.floor(this.L / cellSize));
         const ny         = nx;
         const actualCell = this.L / nx;
-        const maxPerCell = 32;
+        const maxPerCell = this.maxPerCell;
 
         if (nx !== this.nx || ny !== this.ny) {
             const numCells = nx * ny;
             if (this.gridCounters) this.gridCounters.destroy();
             if (this.gridCells)    this.gridCells.destroy();
             this.gridCounters = this.device.createBuffer({
-                size:  numCells * 4,
-                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+                size:  (numCells + 1) * 4,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
             });
             this.gridCells = this.device.createBuffer({
                 size:  numCells * maxPerCell * 4,
@@ -3759,6 +3985,11 @@ class MD2D_WebGPU {
         this.gravity   = cpuSim.gravity  ?? 0.0;
         this.gravityOn = cpuSim.gravityOn ?? false;
         this.rcCut     = cpuSim.rcCut;
+        this.potentialType = cpuSim.potentialType ?? 'mie';
+        this.mieN = cpuSim.mieN ?? 4; this.mieM = cpuSim.mieM ?? 2; this.mieC = cpuSim.mieC ?? 4.0;
+        this.wfRwell = cpuSim.wfRwell ?? 1.0; this.wfSigma = cpuSim.wfSigma ?? 0.5;
+        this.wfMu = cpuSim.wfMu ?? 0.1; this.wfNu = cpuSim.wfNu ?? 1.5;
+        this.maxPerCell = cpuSim.maxPerCell ?? this.maxPerCell ?? 32;
         this.epsMatrix = cpuSim.epsMatrix;
         this.stepCount = cpuSim.stepCount;
         this.coulombK     = cpuSim.coulombK     ?? 1.0;
@@ -4028,6 +4259,45 @@ class MD2D_WebGPU {
             this._buildParamsData(this.nx, this.ny, actualCell));
     }
 
+    // Resize the per-cell neighbour buffer (gridCells).  Counter buffer size
+    // depends only on cell count, not capacity, so it is left untouched.
+    setMaxPerCell(v) {
+        const n = Math.max(8, Math.min(1024, Math.round(v) || 32));
+        this.maxPerCell = n;
+        if (!this.ready) return;
+        const numCells = Math.max(1, this.nx * this.ny);
+        if (this.gridCells) this.gridCells.destroy();
+        this.gridCells = this.device.createBuffer({
+            size:  numCells * n * 4,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+        });
+        this._rebuildComputeBindGroup();
+        this.updateParamsLive();          // push new maxPerCell (param slot 3) to kernels
+        this._overflowFlag = 0;
+    }
+
+    // Read back the single overflow flag (gridCounters[nx*ny]).  Cheap: a 4-byte
+    // copy + async map, gated so only one map is in flight.  Poll at low cadence.
+    async readOverflow() {
+        if (!this.ready || !this.gridCounters || !this.overflowReadback) return this._overflowFlag;
+        if (this._overflowMapPending) return this._overflowFlag;
+        this._overflowMapPending = true;
+        try {
+            const numCells = this.nx * this.ny;
+            const enc = this.device.createCommandEncoder();
+            enc.copyBufferToBuffer(this.gridCounters, numCells * 4, this.overflowReadback, 0, 4);
+            this.device.queue.submit([enc.finish()]);
+            await this.overflowReadback.mapAsync(GPUMapMode.READ);
+            this._overflowFlag = new Uint32Array(this.overflowReadback.getMappedRange())[0] ? 1 : 0;
+            this.overflowReadback.unmap();
+        } catch (e) {
+            // gridCounters may have been rebuilt mid-poll; ignore and retry next cycle.
+        } finally {
+            this._overflowMapPending = false;
+        }
+        return this._overflowFlag;
+    }
+
     // Re-upload the full per-bead charge array to the GPU after charge edits.
     // Used by the inspector commit (charge changes don't reindex topology).
     updateChargeBuffer() {
@@ -4041,7 +4311,7 @@ class MD2D_WebGPU {
         if (!this.ready) return;
 
         const wgN    = Math.ceil(this.N / 64);
-        const wgGrid = Math.ceil((this.nx * this.ny) / 64);
+        const wgGrid = Math.ceil((this.nx * this.ny + 1) / 64);  // +1 covers overflow-flag slot
 
         if (this.integratorType === 'sd') {
             for (let s = 0; s < steps; s++) {
@@ -7370,7 +7640,31 @@ function readUI(targetSim) {
         parseFloat(document.getElementById('sigma3').value) || 1,
     ];
     targetSim.r0Scale       = parseFloat(document.getElementById('r0scale-n').value) || 0.9;
-    targetSim.rcCut         = parseFloat(document.getElementById('rc-n').value)  || 2.5;
+    // Non-bonded potential: type, Mie exponents, and Wang-Frenkel params.
+    targetSim.potentialType = document.getElementById('potential-select').value || 'mie';
+    {
+        let m = Math.round(parseFloat(document.getElementById('mie-m').value));
+        let n = Math.round(parseFloat(document.getElementById('mie-n').value));
+        if (!Number.isFinite(m) || m < 1) m = 2;
+        if (!Number.isFinite(n) || n < 2) n = 4;
+        if (n <= m) n = m + 1;
+        targetSim.mieM = m; targetSim.mieN = n;
+        if (targetSim._recomputeMieC) targetSim._recomputeMieC();
+        else targetSim.mieC = (n / (n - m)) * Math.pow(n / m, m / (n - m));
+    }
+    {
+        const rwell = parseFloat(document.getElementById('wf-rwell').value) || 1.0;
+        const wsig  = parseFloat(document.getElementById('wf-sigma').value) || 0.5;
+        const wmu   = parseFloat(document.getElementById('wf-mu').value)    || 0.1;
+        const wnu   = parseFloat(document.getElementById('wf-nu').value)    || 1.5;
+        targetSim.wfRwell = rwell; targetSim.wfSigma = wsig;
+        targetSim.wfMu = wmu; targetSim.wfNu = wnu;
+        // Effective cell cutoff depends on the active potential.
+        targetSim.rcCut = (targetSim.potentialType === 'wf')
+            ? rwell
+            : (parseFloat(document.getElementById('rc-n').value) || 2.5);
+    }
+    targetSim.maxPerCell = Math.max(8, Math.min(1024, Math.round(parseFloat(document.getElementById('maxpercell-n').value)) || 32));
     targetSim.spacingFactor = parseFloat(document.getElementById('spacing-n').value) || 0.9;
     // NOTE: targetSim.ratios and targetSim.polymerRatios are derived from speciesTable below.
     targetSim.integratorType = document.getElementById('integrator-select').value;
@@ -7553,6 +7847,85 @@ wire('rc-s', 'rc-n', v => {
     }
     triggerEase();
 });
+
+// ── Non-bonded potential selection + Mie exponents ──────────────────────────
+// applyPotentialSettings() reads the UI, validates (n>m≥1, integers),
+// recomputes C, pushes to both engines, and recomputes forces when paused.
+function applyPotentialSettings() {
+    const type = document.getElementById('potential-select').value;   // 'mie' | 'wf'
+    cpuSim.potentialType = type;
+    // Toggle which parameter block is visible (fields keep their last values).
+    document.getElementById('mie-params').style.display = (type === 'wf') ? 'none' : 'block';
+    document.getElementById('wf-params').style.display  = (type === 'wf') ? 'block' : 'none';
+
+    // ── Mie exponents (always parsed so they persist) ──
+    let m = Math.round(parseFloat(document.getElementById('mie-m').value));
+    let n = Math.round(parseFloat(document.getElementById('mie-n').value));
+    if (!Number.isFinite(m) || m < 1) m = 2;
+    if (!Number.isFinite(n) || n < 2) n = 4;
+    if (n <= m) n = m + 1;                 // enforce n>m so a well exists
+    document.getElementById('mie-m').value = m;
+    document.getElementById('mie-n').value = n;
+    cpuSim.mieM = m; cpuSim.mieN = n; cpuSim._recomputeMieC();
+
+    // ── Wang-Frenkel params ──
+    let rwell = parseFloat(document.getElementById('wf-rwell').value);
+    let wsig  = parseFloat(document.getElementById('wf-sigma').value);
+    let wmu   = parseFloat(document.getElementById('wf-mu').value);
+    let wnu   = parseFloat(document.getElementById('wf-nu').value);
+    if (!(rwell > 0)) rwell = 1.0;
+    if (!(wsig  > 0)) wsig  = 0.5;
+    if (!(wmu   > 0)) wmu   = 0.1;
+    if (!(wnu   > 0)) wnu   = 1.5;
+    document.getElementById('wf-rwell').value = rwell;
+    document.getElementById('wf-sigma').value = wsig;
+    document.getElementById('wf-mu').value    = wmu;
+    document.getElementById('wf-nu').value    = wnu;
+    cpuSim.wfRwell = rwell; cpuSim.wfSigma = wsig; cpuSim.wfMu = wmu; cpuSim.wfNu = wnu;
+
+    // Effective cell cutoff: Mie uses the r_cut field; WF uses its own range r_well.
+    const effRc = (type === 'wf') ? rwell : (parseFloat(document.getElementById('rc-n').value) || 2.5);
+    cpuSim.rcCut = effRc;
+    cpuSim._buildSigmaMatrices();   // also rebuilds wfAlphaMix
+    cpuSim._setupCells();
+
+    if (currentEngine === 'gpu' && gpuSim.ready) {
+        gpuSim.potentialType = type;
+        gpuSim.mieM = m; gpuSim.mieN = n; gpuSim.mieC = cpuSim.mieC;
+        gpuSim.wfRwell = rwell; gpuSim.wfSigma = wsig; gpuSim.wfMu = wmu; gpuSim.wfNu = wnu;
+        gpuSim.rcCut = effRc;
+        gpuSim.updateSigmaLive();   // rebuilds grid if cell count changed + re-uploads params (incl. α matrix)
+    }
+    if (!running) {
+        cpuSim._computeForces();
+        if (currentEngine === 'gpu' && gpuSim.ready) gpuSim.potentialEnergy = cpuSim.potentialEnergy;
+        updateStats(sim); renderFrame();
+    } else {
+        triggerEase();
+    }
+    saveToURL();
+}
+document.getElementById('potential-select').addEventListener('change', applyPotentialSettings);
+['mie-m', 'mie-n', 'wf-rwell', 'wf-sigma', 'wf-mu', 'wf-nu'].forEach(id =>
+    document.getElementById(id).addEventListener('change', applyPotentialSettings));
+
+// ── GPU neighbour-cell capacity (maxPerCell) ────────────────────────────────
+document.getElementById('maxpercell-n').addEventListener('change', e => {
+    const v = Math.max(8, Math.min(1024, Math.round(parseFloat(e.target.value)) || 32));
+    e.target.value = v;
+    cpuSim.maxPerCell = v;
+    if (currentEngine === 'gpu' && gpuSim.ready) {
+        gpuSim.setMaxPerCell(v);          // reallocs gridCells + pushes to kernel
+        setOverflowWarning(false);        // give it a clean slate; re-flags if still overflowing
+    }
+    saveToURL();
+});
+
+// Toggle the neighbour-overflow warning banner (idempotent).
+function setOverflowWarning(on) {
+    const el = document.getElementById('neighbor-overflow-warn');
+    if (el) el.style.display = on ? 'flex' : 'none';
+}
 [0, 1, 2, 3].forEach(t => {
     document.getElementById(`sigma${t}`).addEventListener('change', e => {
         const v = Math.max(0.1, parseFloat(e.target.value) || 1);
@@ -8074,6 +8447,11 @@ async function startLoop() {
         } else {
             await sim.step(spf, thOn ? { enabled: true, interval: thInt } : null);
             sim.renderGPU(colorSpd, radius);
+            // Poll the neighbour-cell overflow flag every ~30 frames (cheap: a
+            // 4-byte readback, fire-and-forget — never blocks the step loop).
+            if ((sim.stepCount & 31) < spf && typeof sim.readOverflow === 'function') {
+                sim.readOverflow().then(f => setOverflowWarning(!!f));
+            }
         }
         _drawSelectionOverlay();
         if (interactionMode === 'bond')  _drawEditOverlay();
