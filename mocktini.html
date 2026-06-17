@@ -5587,19 +5587,23 @@ function _simDist(i,j) {
 // _rebuildBondExclude was a partial rebuild (Set only, no CSR arrays).
 // All call sites now use _rebuildExcl(cpuSim) directly for a full, consistent rebuild.
 
+// ── Interactive-editor "last used" force constants ────────────────────────
+// These are owned by the bond/angle draw tools (NOT the polymer builder, which
+// keeps its own pd.bondK / pd.angleK). A newly drawn bond/angle inherits the
+// last force constant the user actually applied; an inspect-bar k commit updates
+// the running default. Seeds: 100 (bonds) / 10 (angles).
+let _lastBondK  = 100;
+let _lastAngleK = 10;
+
 // ── CRUD (raw = no undo push, called after undo is already pushed) ────────
 function _createBondRaw(i,j) {
     if(_findBond(i,j)>=0) return -1;
-    const k   = parseFloat(document.getElementById('bond-k-n').value)||100;
-    // Default r0 = r0scale × sigma_avg — same formula as the initializer.
-    // This gives a physically meaningful rest length without depending on
-    // where the particles happen to be right now.  Use the snap button to
-    // override with the current separation if you want geometry-matched bonds.
-    const r0s = parseFloat(document.getElementById('r0scale-n').value)||0.9;
-    const spt = cpuSim.sigmaPerType||[1,1,1,1];
-    const ti  = (cpuSim.type?cpuSim.type[i]:0)&3;
-    const tj  = (cpuSim.type?cpuSim.type[j]:0)&3;
-    const r0  = r0s * (spt[ti]+spt[tj]) * 0.5 * Math.pow(2, 1/6);
+    // Force constant: inherit the last-used bond k (sticky default, seed 100).
+    const k   = _lastBondK;
+    // Rest length: snap to the current separation so a freshly drawn bond is at
+    // equilibrium in its present geometry. PBC-correct via _simDist; clamped off
+    // zero to avoid a degenerate rest length if two beads sit exactly atop.
+    const r0  = Math.max(_simDist(i, j), 1e-3);
     const nb = cpuSim.nBonds+1;
     const nBI=new Int32Array(nb);   nBI.set(cpuSim.bondI||[]);
     const nBJ=new Int32Array(nb);   nBJ.set(cpuSim.bondJ||[]);
@@ -5887,9 +5891,12 @@ function _simAngleDeg(i, j, k) {
 function _createAngleRaw(i, j, k) {
     if (_findAngle(i, j, k) >= 0) return -1;
     if (_findBond(i, j) < 0 || _findBond(j, k) < 0) return -1;
-    const kVal   = parseFloat(document.getElementById('angle-k-n').value) || 10;
-    const t0deg  = parseFloat(document.getElementById('angle-theta-n').value) || 180;
-    const theta0 = t0deg * Math.PI / 180;
+    // Force constant: inherit the last-used angle k (sticky default, seed 10).
+    const kVal   = _lastAngleK;
+    // Equilibrium angle: snap to the current (signed) i-j-k angle so a freshly
+    // drawn angle is at equilibrium in its present geometry. _simAngleDeg is the
+    // same PBC-correct measure the angle snap button uses.
+    const theta0 = _simAngleDeg(i, j, k) * Math.PI / 180;
     const na  = cpuSim.nAngles + 1;
     const nAI = new Int32Array(na);  nAI.set(cpuSim.angleI    || []);
     const nAJ = new Int32Array(na);  nAJ.set(cpuSim.angleJ    || []);
@@ -6150,7 +6157,7 @@ function _drawAngleOverlay(skipClear = false) {
             const t0d = parseFloat(document.getElementById('ia-theta0').value);
             if (!isNaN(t0d)) p.theta0 = t0d * Math.PI / 180;
             const kv = parseFloat(document.getElementById('ia-k').value);
-            if (!isNaN(kv) && kv >= 0) p.k = kv;
+            if (!isNaN(kv) && kv >= 0) { p.k = kv; _lastAngleK = kv; }   // running default
         }
         _finalizeEdit();
         if (!running) renderFrame();
@@ -6767,6 +6774,7 @@ function _updateInspectBar() {
         if (p) {
             p.r0=parseFloat(document.getElementById('ib-r0').value)||p.r0;
             p.k =parseFloat(document.getElementById('ib-k').value)||p.k;
+            _lastBondK = p.k;   // editing a bond's k makes it the running default
         }
         _finalizeEdit(); if(!running) renderFrame();
     }
