@@ -427,6 +427,16 @@ button.btn-snap {
     border-radius: 3px;
 }
 button.btn-snap:hover { background: #3a9455; }
+/* ── auto-generate button (inspect bar batch panels) ──────────────────── */
+button.btn-auto {
+    flex: 0 0 auto;
+    padding: 2px 10px;
+    font-size: 0.72rem;
+    background: var(--blue, #3b82f6);
+    border-radius: 3px;
+    font-weight: 600;
+}
+button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
 
 
 
@@ -598,6 +608,34 @@ button.btn-snap:hover { background: #3a9455; }
                 <button id="ip-charge-set">Set</button>
                 <button id="ip-del" class="btn-danger">Delete</button>
             </div>
+            <!-- Bond batch (selection present, no specific bond active) -->
+            <div id="ib-bond-batch" style="display:none">
+                <span class="stat-key">SEL</span>
+                <span class="stat-val" id="ibb-sel">—</span>
+                <span class="stat-key">r₀</span>
+                <input type="number" class="inspect-input" id="ibb-r0" step="0.01" min="0.01"
+                       title="Press Enter to write this rest length to every selected bond. Autobond uses it as the max distance (cutoff) for which pairs get bonded.">
+                <span class="stat-key">k</span>
+                <input type="number" class="inspect-input" id="ibb-k" step="1" min="0"
+                       title="Press Enter to write this force constant to every selected bond. Also used for bonds created by Autobond.">
+                <button id="ibb-snap" class="btn-snap" title="Snap r₀ of every selected bond to its current length">⌖ snap</button>
+                <button id="ibb-auto" class="btn-auto" title="Bond every selected pair within r₀ of each other (r₀ = cutoff). New bonds snap r₀ to actual distance; k from the k field.">Autobond</button>
+                <button id="ibb-remove" class="btn-danger" title="Delete every bond fully inside the selection. Cascades: angles whose leg used a removed bond are deleted, and 1-2/1-3 exclusions are rebuilt.">Delete</button>
+            </div>
+            <!-- Angle batch (selection present, no specific angle active) -->
+            <div id="ib-angle-batch" style="display:none">
+                <span class="stat-key">SEL</span>
+                <span class="stat-val" id="iba-sel">—</span>
+                <span class="stat-key">θ₀</span>
+                <input type="number" class="inspect-input" id="iba-theta0" step="1" min="-180" max="180"
+                       title="Press Enter to write this equilibrium angle to every selected angle. (Autoangle ignores this and snaps θ₀ to each triple’s current angle.)">
+                <span class="stat-key">k</span>
+                <input type="number" class="inspect-input" id="iba-k" step="1" min="0"
+                       title="Press Enter to write this force constant to every selected angle. Also used for angles created by Autoangle.">
+                <button id="iba-snap" class="btn-snap" title="Snap θ₀ of every selected angle to its current value">⌖ snap</button>
+                <button id="iba-auto" class="btn-auto" title="Create every angle between bonded neighbours inside the selection. θ₀ snaps to current; k from the k field.">Autoangle</button>
+                <button id="iba-remove" class="btn-danger" title="Delete every angle fully inside the selection (all three beads selected). 1-3 exclusions are rebuilt.">Delete</button>
+            </div>
         </div>
         <!-- Spacer: always reserves inspect-bar height so canvas size stays stable -->
         <div id="inspect-placeholder" style="height:0"></div>
@@ -657,7 +695,7 @@ button.btn-snap:hover { background: #3a9455; }
                 <div>Click anchor again — Deselect anchor</div>
                 <div>Click other bead — Create / select bond</div>
                 <div>RMB <em>or</em> <kbd>B</kbd> — Drop anchor &amp; reset</div>
-                <div><kbd>Del</kbd> — Delete selected bond</div>
+                <div><kbd>Del</kbd> — Delete selected bond, or all bonds in selection</div>
             </div>
 
             <!-- Angle Edit mode -->
@@ -667,7 +705,7 @@ button.btn-snap:hover { background: #3a9455; }
                 <div>Click bonded bead — Create / select angle</div>
                 <div><em>Arc sweeps CW from i to k — order sets direction</em></div>
                 <div>RMB <em>or</em> <kbd>A</kbd> — Drop picks &amp; reset</div>
-                <div><kbd>Del</kbd> — Delete selected angle</div>
+                <div><kbd>Del</kbd> — Delete selected angle, or all angles in selection</div>
             </div>
 
             <!-- Particle Type mode -->
@@ -4468,6 +4506,11 @@ function setMode(mode) {
     if (running && mode !== 'camera') return;
     const prevMode = interactionMode;
     interactionMode = mode;
+    // Fresh entry into bond/angle mode starts with no specific bond/angle held, so
+    // a pre-existing selection surfaces the batch panel immediately (rather than a
+    // stale single-item panel left over from a previous visit to the mode).
+    if (mode === 'bond'  && prevMode !== 'bond')  { _beA = -1; _beBondIdx = -1; }
+    if (mode === 'angle' && prevMode !== 'angle') { _aeA = -1; _aeB = -1; _aeAngleIdx = -1; }
     const statEl = document.getElementById('s-mode');
     if (statEl) {
         const short = { camera: 'CAMERA', select: 'SELECT', place: 'PLACE', bond: 'BOND EDIT', angle: 'ANGLE EDIT', particle: 'PARTICLE' };
@@ -5587,19 +5630,23 @@ function _simDist(i,j) {
 // _rebuildBondExclude was a partial rebuild (Set only, no CSR arrays).
 // All call sites now use _rebuildExcl(cpuSim) directly for a full, consistent rebuild.
 
+// ── Interactive-editor "last used" force constants ────────────────────────
+// These are owned by the bond/angle draw tools (NOT the polymer builder, which
+// keeps its own pd.bondK / pd.angleK). A newly drawn bond/angle inherits the
+// last force constant the user actually applied; an inspect-bar k commit updates
+// the running default. Seeds: 100 (bonds) / 10 (angles).
+let _lastBondK  = 100;
+let _lastAngleK = 10;
+
 // ── CRUD (raw = no undo push, called after undo is already pushed) ────────
 function _createBondRaw(i,j) {
     if(_findBond(i,j)>=0) return -1;
-    const k   = parseFloat(document.getElementById('bond-k-n').value)||100;
-    // Default r0 = r0scale × sigma_avg — same formula as the initializer.
-    // This gives a physically meaningful rest length without depending on
-    // where the particles happen to be right now.  Use the snap button to
-    // override with the current separation if you want geometry-matched bonds.
-    const r0s = parseFloat(document.getElementById('r0scale-n').value)||0.9;
-    const spt = cpuSim.sigmaPerType||[1,1,1,1];
-    const ti  = (cpuSim.type?cpuSim.type[i]:0)&3;
-    const tj  = (cpuSim.type?cpuSim.type[j]:0)&3;
-    const r0  = r0s * (spt[ti]+spt[tj]) * 0.5 * Math.pow(2, 1/6);
+    // Force constant: inherit the last-used bond k (sticky default, seed 100).
+    const k   = _lastBondK;
+    // Rest length: snap to the current separation so a freshly drawn bond is at
+    // equilibrium in its present geometry. PBC-correct via _simDist; clamped off
+    // zero to avoid a degenerate rest length if two beads sit exactly atop.
+    const r0  = Math.max(_simDist(i, j), 1e-3);
     const nb = cpuSim.nBonds+1;
     const nBI=new Int32Array(nb);   nBI.set(cpuSim.bondI||[]);
     const nBJ=new Int32Array(nb);   nBJ.set(cpuSim.bondJ||[]);
@@ -5887,9 +5934,12 @@ function _simAngleDeg(i, j, k) {
 function _createAngleRaw(i, j, k) {
     if (_findAngle(i, j, k) >= 0) return -1;
     if (_findBond(i, j) < 0 || _findBond(j, k) < 0) return -1;
-    const kVal   = parseFloat(document.getElementById('angle-k-n').value) || 10;
-    const t0deg  = parseFloat(document.getElementById('angle-theta-n').value) || 180;
-    const theta0 = t0deg * Math.PI / 180;
+    // Force constant: inherit the last-used angle k (sticky default, seed 10).
+    const kVal   = _lastAngleK;
+    // Equilibrium angle: snap to the current (signed) i-j-k angle so a freshly
+    // drawn angle is at equilibrium in its present geometry. _simAngleDeg is the
+    // same PBC-correct measure the angle snap button uses.
+    const theta0 = _simAngleDeg(i, j, k) * Math.PI / 180;
     const na  = cpuSim.nAngles + 1;
     const nAI = new Int32Array(na);  nAI.set(cpuSim.angleI    || []);
     const nAJ = new Int32Array(na);  nAJ.set(cpuSim.angleJ    || []);
@@ -6150,7 +6200,7 @@ function _drawAngleOverlay(skipClear = false) {
             const t0d = parseFloat(document.getElementById('ia-theta0').value);
             if (!isNaN(t0d)) p.theta0 = t0d * Math.PI / 180;
             const kv = parseFloat(document.getElementById('ia-k').value);
-            if (!isNaN(kv) && kv >= 0) p.k = kv;
+            if (!isNaN(kv) && kv >= 0) { p.k = kv; _lastAngleK = kv; }   // running default
         }
         _finalizeEdit();
         if (!running) renderFrame();
@@ -6178,6 +6228,330 @@ function _drawAngleOverlay(skipClear = false) {
         await _aeDeleteAngle(idx);
         _updateInspectBar(); _drawAngleOverlay();
     });
+})();
+
+// ═══════════════════════════════════════════════════════════════════
+//  Batch bond / angle editing over the current selection
+//  Shown in BOND / ANGLE mode whenever a molecular/particle selection is
+//  held and no single bond/angle is being inspected. Two flavours:
+//    • set-to-sel / snap-all — mutate params of bonds/angles already inside
+//      the selection (no topology change). In-place param mutation is safe
+//      because every bond/angle owns a unique param-table entry (1:1).
+//    • Autobond / Autoangle  — create new topology inside the selection.
+// ═══════════════════════════════════════════════════════════════════
+
+// Bonds whose BOTH endpoints are selected.
+function _selBondIdxs() {
+    const s = _selection; if (!s || !s.size) return [];
+    const out = [];
+    for (let b = 0; b < cpuSim.nBonds; b++)
+        if (s.has(cpuSim.bondI[b]) && s.has(cpuSim.bondJ[b])) out.push(b);
+    return out;
+}
+// Angles whose ALL THREE beads are selected.
+function _selAngleIdxs() {
+    const s = _selection; if (!s || !s.size) return [];
+    const out = [];
+    for (let a = 0; a < cpuSim.nAngles; a++)
+        if (s.has(cpuSim.angleI[a]) && s.has(cpuSim.angleJ[a]) && s.has(cpuSim.angleKarr[a])) out.push(a);
+    return out;
+}
+
+// All unordered selected pairs within `cutoff`, via a linked-cell list built at
+// the cutoff scale and scoped to the selection — same scheme as cpuSim._buildCells
+// and the force inner loop, so it's O(n + pairs), not O(n²). Falls back to direct
+// pair enumeration when the box can't host a ≥3-cell grid at this cutoff (below
+// which the 3×3 PBC stencil would alias a cell onto itself and double-count).
+// Reads live positions through sim.x/sim.y, exactly like _simDist.
+function _selPairsWithin(selArr, cutoff) {
+    const L = cpuSim.L, h = L / 2, n = selArr.length;
+    const X = sim.x, Y = sim.y, cut2 = cutoff * cutoff, out = [];
+    const nx = Math.max(1, Math.floor(L / cutoff));
+    if (nx < 3) {   // small/over-large-cutoff grid → safe direct enumeration
+        for (let a = 0; a < n; a++) {
+            const i = selArr[a];
+            for (let b = a + 1; b < n; b++) {
+                const j = selArr[b];
+                let dx = X[i]-X[j], dy = Y[i]-Y[j];
+                if (dx>h)dx-=L; if(dx<-h)dx+=L; if(dy>h)dy-=L; if(dy<-h)dy+=L;
+                const r2 = dx*dx + dy*dy;
+                if (r2 <= cut2 && r2 > 1e-12) out.push([i, j, Math.sqrt(r2)]);
+            }
+        }
+        return out;
+    }
+    const ny = nx, cs = L / nx;
+    const head = new Int32Array(nx * ny).fill(-1);
+    const next = new Int32Array(cpuSim.N).fill(-1);
+    for (let a = 0; a < n; a++) {
+        const i = selArr[a];
+        let cx = Math.floor(X[i] / cs), cy = Math.floor(Y[i] / cs);
+        cx = ((cx % nx) + nx) % nx; cy = ((cy % ny) + ny) % ny;
+        const c = cx + cy * nx;
+        next[i] = head[c]; head[c] = i;
+    }
+    for (let cx = 0; cx < nx; cx++) for (let cy = 0; cy < ny; cy++) {
+        const c = cx + cy * nx;
+        for (let i = head[c]; i !== -1; i = next[i]) {
+            for (let dcx = -1; dcx <= 1; dcx++) for (let dcy = -1; dcy <= 1; dcy++) {
+                const nc = (((cx+dcx)+nx)%nx) + (((cy+dcy)+ny)%ny) * nx;
+                for (let j = head[nc]; j !== -1; j = next[j]) {
+                    if (j <= i) continue;   // half-stencil: count each unordered pair once
+                    let dx = X[i]-X[j], dy = Y[i]-Y[j];
+                    if (dx>h)dx-=L; if(dx<-h)dx+=L; if(dy>h)dy-=L; if(dy<-h)dy+=L;
+                    const r2 = dx*dx + dy*dy;
+                    if (r2 <= cut2 && r2 > 1e-12) out.push([i, j, Math.sqrt(r2)]);
+                }
+            }
+        }
+    }
+    return out;
+}
+
+// Batch array-append (single grow + fresh param entry per item; caller handles
+// undo / _rebuildExcl / _finalizeEdit). Mirrors the append in appendNewParticles.
+function _appendBondsBatch(list) {
+    if (!list.length) return;
+    const nbOld = cpuSim.nBonds || 0, nbNew = nbOld + list.length;
+    const nBI = _growArr(Int32Array,  cpuSim.bondI,       nbNew);
+    const nBJ = _growArr(Int32Array,  cpuSim.bondJ,       nbNew);
+    const nBP = _growArr(Uint32Array, cpuSim.bondParamId, nbNew);
+    for (let b = 0; b < list.length; b++) {
+        const pid = cpuSim.bondParamTable.length;
+        cpuSim.bondParamTable.push({ k: list[b].k, r0: list[b].r0 });
+        nBI[nbOld+b] = list[b].i; nBJ[nbOld+b] = list[b].j; nBP[nbOld+b] = pid;
+    }
+    cpuSim.bondI = nBI; cpuSim.bondJ = nBJ; cpuSim.bondParamId = nBP; cpuSim.nBonds = nbNew;
+}
+function _appendAnglesBatch(list) {
+    if (!list.length) return;
+    const naOld = cpuSim.nAngles || 0, naNew = naOld + list.length;
+    const nAI = _growArr(Int32Array,  cpuSim.angleI,       naNew);
+    const nAJ = _growArr(Int32Array,  cpuSim.angleJ,       naNew);
+    const nAK = _growArr(Int32Array,  cpuSim.angleKarr,    naNew);
+    const nAP = _growArr(Uint32Array, cpuSim.angleParamId, naNew);
+    for (let a = 0; a < list.length; a++) {
+        const pid = cpuSim.angleParamTable.length;
+        cpuSim.angleParamTable.push({ k: list[a].kAngle, theta0: list[a].theta0 });
+        nAI[naOld+a] = list[a].i; nAJ[naOld+a] = list[a].j; nAK[naOld+a] = list[a].k; nAP[naOld+a] = pid;
+    }
+    cpuSim.angleI = nAI; cpuSim.angleJ = nAJ; cpuSim.angleKarr = nAK;
+    cpuSim.angleParamId = nAP; cpuSim.nAngles = naNew;
+}
+
+// ── Bond batch ops ─────────────────────────────────────────────────────────
+async function _batchBondSetR0() {
+    const v = parseFloat(document.getElementById('ibb-r0').value);
+    if (!isFinite(v) || v <= 0) return;
+    const idxs = _selBondIdxs(); if (!idxs.length) return;
+    await _prepareForEdit(); _pushUndo();
+    const r0 = Math.max(v, 1e-3);
+    for (const b of idxs) { const p = cpuSim.bondParamTable?.[cpuSim.bondParamId[b]]; if (p) p.r0 = r0; }
+    _finalizeEdit(); _updateInspectBar(); if (!running) renderFrame();
+}
+async function _batchBondSetK() {
+    const v = parseFloat(document.getElementById('ibb-k').value);
+    if (!isFinite(v) || v < 0) return;
+    const idxs = _selBondIdxs(); if (!idxs.length) return;
+    await _prepareForEdit(); _pushUndo();
+    for (const b of idxs) { const p = cpuSim.bondParamTable?.[cpuSim.bondParamId[b]]; if (p) p.k = v; }
+    _lastBondK = v;   // keep the freehand draw default in sync
+    _finalizeEdit(); _updateInspectBar(); if (!running) renderFrame();
+}
+async function _batchBondSnapAll() {
+    const idxs = _selBondIdxs(); if (!idxs.length) return;
+    await _prepareForEdit(); _pushUndo();
+    for (const b of idxs) {
+        const p = cpuSim.bondParamTable?.[cpuSim.bondParamId[b]];
+        if (p) p.r0 = Math.max(_simDist(cpuSim.bondI[b], cpuSim.bondJ[b]), 1e-3);
+    }
+    _finalizeEdit(); _updateInspectBar(); if (!running) renderFrame();
+}
+async function _autobond() {
+    const cutoff = parseFloat(document.getElementById('ibb-r0').value);
+    if (!isFinite(cutoff) || cutoff <= 0) return;
+    const kField = parseFloat(document.getElementById('ibb-k').value);
+    const k = (isFinite(kField) && kField >= 0) ? kField : _lastBondK;
+    const sel = _selection ? [..._selection] : [];
+    if (sel.length < 2) return;
+    await _prepareForEdit();
+    const N = cpuSim.N;
+    const existing = new Set();
+    for (let b = 0; b < cpuSim.nBonds; b++) {
+        const i = cpuSim.bondI[b], j = cpuSim.bondJ[b];
+        existing.add(Math.min(i,j) * N + Math.max(i,j));
+    }
+    const toAdd = [];
+    for (const [i, j, r] of _selPairsWithin(sel, cutoff)) {
+        if (existing.has(Math.min(i,j) * N + Math.max(i,j))) continue;
+        toAdd.push({ i, j, r0: Math.max(r, 1e-3), k });   // snap r0 to actual distance
+    }
+    _lastBondK = k;
+    if (!toAdd.length) { _updateInspectBar(); return; }   // nothing new → no undo churn
+    _pushUndo();
+    _appendBondsBatch(toAdd);
+    _rebuildExcl(cpuSim); _finalizeEdit(); _updateInspectBar();
+    if (!running) renderFrame();
+}
+// Remove every bond fully inside the selection (both endpoints selected), then
+// cascade: drop angles whose i–j or j–k leg used a removed bond (angles exist
+// only between bonded objects), and rebuild 1-2/1-3 exclusions. Mirrors the
+// single-bond cascade in _beDeleteBond, batched into one compaction pass.
+async function _batchBondRemove() {
+    const idxs = _selBondIdxs(); if (!idxs.length) return;
+    await _prepareForEdit(); _pushUndo();
+    const N = cpuSim.N;
+    const key = (i, j) => Math.min(i, j) * N + Math.max(i, j);
+
+    // Pairs being removed — used both to filter bonds and to invalidate angle legs.
+    const removed = new Set();
+    for (const b of idxs) removed.add(key(cpuSim.bondI[b], cpuSim.bondJ[b]));
+
+    // ── Compact bonds: keep those not fully inside the selection ──────────
+    const nb = cpuSim.nBonds - idxs.length;
+    const nBI = new Int32Array(Math.max(1, nb));
+    const nBJ = new Int32Array(Math.max(1, nb));
+    const nBP = new Uint32Array(Math.max(1, nb));
+    const drop = new Set(idxs);   // bond-array indices to skip
+    let w = 0;
+    for (let b = 0; b < cpuSim.nBonds; b++) {
+        if (drop.has(b)) continue;
+        nBI[w] = cpuSim.bondI[b]; nBJ[w] = cpuSim.bondJ[b]; nBP[w] = cpuSim.bondParamId[b]; w++;
+    }
+    cpuSim.bondI = nBI; cpuSim.bondJ = nBJ; cpuSim.bondParamId = nBP; cpuSim.nBonds = nb;
+
+    // ── Cascade: drop angles whose i–j or j–k leg is a removed bond ───────
+    if (cpuSim.nAngles > 0) {
+        const keepAngles = [], keepAPids = [];
+        for (let a = 0; a < cpuSim.nAngles; a++) {
+            const ai = cpuSim.angleI[a], aj = cpuSim.angleJ[a], ak = cpuSim.angleKarr[a];
+            if (removed.has(key(ai, aj)) || removed.has(key(aj, ak))) continue;
+            keepAngles.push([ai, aj, ak]);
+            keepAPids.push(cpuSim.angleParamId ? cpuSim.angleParamId[a] : 0);
+        }
+        const na = keepAngles.length;
+        cpuSim.nAngles      = na;
+        cpuSim.angleI       = new Int32Array(Math.max(1, na));
+        cpuSim.angleJ       = new Int32Array(Math.max(1, na));
+        cpuSim.angleKarr    = new Int32Array(Math.max(1, na));
+        cpuSim.angleParamId = new Uint32Array(Math.max(1, na));
+        for (let a = 0; a < na; a++) {
+            cpuSim.angleI[a]       = keepAngles[a][0];
+            cpuSim.angleJ[a]       = keepAngles[a][1];
+            cpuSim.angleKarr[a]    = keepAngles[a][2];
+            cpuSim.angleParamId[a] = keepAPids[a];
+        }
+    }
+
+    _rebuildExcl(cpuSim); _pdragAdj = null;   // full rebuild: CSR arrays + bondExclude Set
+    _finalizeEdit(); _updateInspectBar();
+    if (!running) renderFrame();
+}
+
+// ── Angle batch ops ────────────────────────────────────────────────────────
+async function _batchAngleSetTheta0() {
+    const d = parseFloat(document.getElementById('iba-theta0').value);
+    if (!isFinite(d)) return;
+    const idxs = _selAngleIdxs(); if (!idxs.length) return;
+    await _prepareForEdit(); _pushUndo();
+    const t0 = d * Math.PI / 180;
+    for (const a of idxs) { const p = cpuSim.angleParamTable?.[cpuSim.angleParamId[a]]; if (p) p.theta0 = t0; }
+    _finalizeEdit(); _updateInspectBar(); if (!running) renderFrame();
+}
+async function _batchAngleSetK() {
+    const v = parseFloat(document.getElementById('iba-k').value);
+    if (!isFinite(v) || v < 0) return;
+    const idxs = _selAngleIdxs(); if (!idxs.length) return;
+    await _prepareForEdit(); _pushUndo();
+    for (const a of idxs) { const p = cpuSim.angleParamTable?.[cpuSim.angleParamId[a]]; if (p) p.k = v; }
+    _lastAngleK = v;
+    _finalizeEdit(); _updateInspectBar(); if (!running) renderFrame();
+}
+async function _batchAngleSnapAll() {
+    const idxs = _selAngleIdxs(); if (!idxs.length) return;
+    await _prepareForEdit(); _pushUndo();
+    for (const a of idxs) {
+        const p = cpuSim.angleParamTable?.[cpuSim.angleParamId[a]];
+        if (p) p.theta0 = _simAngleDeg(cpuSim.angleI[a], cpuSim.angleJ[a], cpuSim.angleKarr[a]) * Math.PI / 180;
+    }
+    _finalizeEdit(); _updateInspectBar(); if (!running) renderFrame();
+}
+async function _autoangle() {
+    const kField = parseFloat(document.getElementById('iba-k').value);
+    const k = (isFinite(kField) && kField >= 0) ? kField : _lastAngleK;
+    const s = _selection;
+    if (!s || s.size < 3) return;
+    await _prepareForEdit();
+    // Bonded adjacency restricted to bonds fully inside the selection — angles in
+    // this engine exist only between bonded objects, so this is the right structure
+    // (no spatial scan needed). O(Σ degree²), tiny for MD-degree beads.
+    const adj = new Map();
+    for (let b = 0; b < cpuSim.nBonds; b++) {
+        const i = cpuSim.bondI[b], j = cpuSim.bondJ[b];
+        if (!s.has(i) || !s.has(j)) continue;
+        (adj.get(i) ?? adj.set(i, []).get(i)).push(j);
+        (adj.get(j) ?? adj.set(j, []).get(j)).push(i);
+    }
+    const seen = new Set();   // center + sorted outer pair (string key — overflow-proof)
+    for (let a = 0; a < cpuSim.nAngles; a++) {
+        const i = cpuSim.angleI[a], j = cpuSim.angleJ[a], kk = cpuSim.angleKarr[a];
+        seen.add(`${j}|${Math.min(i,kk)}|${Math.max(i,kk)}`);
+    }
+    const toAdd = [];
+    for (const [j, nbrs] of adj) {
+        for (let a = 0; a < nbrs.length; a++) for (let b = a + 1; b < nbrs.length; b++) {
+            const i = nbrs[a], kk = nbrs[b];
+            const key = `${j}|${Math.min(i,kk)}|${Math.max(i,kk)}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            toAdd.push({ i, j, k: kk, theta0: _simAngleDeg(i, j, kk) * Math.PI / 180, kAngle: k });
+        }
+    }
+    _lastAngleK = k;
+    if (!toAdd.length) { _updateInspectBar(); return; }   // nothing new → no undo churn
+    _pushUndo();
+    _appendAnglesBatch(toAdd);
+    _rebuildExcl(cpuSim); _finalizeEdit(); _updateInspectBar();
+    if (!running) renderFrame();
+}
+// Delete every angle fully inside the selection (all three beads selected).
+// No bond/angle cascade (nothing depends on an angle); _rebuildExcl drops the
+// now-stale 1-3 exclusions. Single compaction pass mirroring _aeDeleteAngle.
+async function _batchAngleRemove() {
+    const idxs = _selAngleIdxs(); if (!idxs.length) return;
+    await _prepareForEdit(); _pushUndo();
+    const drop = new Set(idxs);
+    const na = cpuSim.nAngles - idxs.length;
+    const nAI = new Int32Array(Math.max(1, na));
+    const nAJ = new Int32Array(Math.max(1, na));
+    const nAK = new Int32Array(Math.max(1, na));
+    const nAP = new Uint32Array(Math.max(1, na));
+    let w = 0;
+    for (let a = 0; a < cpuSim.nAngles; a++) {
+        if (drop.has(a)) continue;
+        nAI[w] = cpuSim.angleI[a]; nAJ[w] = cpuSim.angleJ[a]; nAK[w] = cpuSim.angleKarr[a];
+        nAP[w] = cpuSim.angleParamId ? cpuSim.angleParamId[a] : 0; w++;
+    }
+    cpuSim.angleI = nAI; cpuSim.angleJ = nAJ; cpuSim.angleKarr = nAK;
+    cpuSim.angleParamId = nAP; cpuSim.nAngles = na;
+    _rebuildExcl(cpuSim); _finalizeEdit(); _updateInspectBar();
+    if (!running) renderFrame();
+}
+
+(function _wireBatchInspectBar() {
+    const click = (id, fn) => document.getElementById(id)?.addEventListener('click', fn);
+    const enter = (id, fn) => document.getElementById(id)?.addEventListener('keydown',
+        e => { if (e.key === 'Enter') { e.preventDefault(); fn(); } });
+    click('ibb-snap',   _batchBondSnapAll);
+    click('ibb-auto',   _autobond);
+    click('ibb-remove', _batchBondRemove);
+    enter('ibb-r0', _batchBondSetR0);
+    enter('ibb-k',  _batchBondSetK);
+    click('iba-snap',   _batchAngleSnapAll);
+    click('iba-auto',   _autoangle);
+    click('iba-remove', _batchAngleRemove);
+    enter('iba-theta0', _batchAngleSetTheta0);
+    enter('iba-k', _batchAngleSetK);
 })();
 
 // Apply a bead type (0–3) to the current particle-mode selection.
@@ -6677,11 +7051,19 @@ function _updateInspectBar() {
     const hasBond     = (interactionMode==='bond')     && _beBondIdx>=0 && _beBondIdx<cpuSim.nBonds;
     const hasAngle    = (interactionMode==='angle')    && _aeAngleIdx>=0 && _aeAngleIdx<cpuSim.nAngles;
     const hasParticle = (interactionMode==='particle') && _selection && _selection.size > 0;
-    const show = hasBond || hasAngle || hasParticle;
+    // Batch panels: a selection is held and no single bond/angle is being inspected.
+    const selN          = _selection ? _selection.size : 0;
+    const hasBondBatch  = (interactionMode==='bond')  && _beBondIdx<0 && selN>0;
+    const hasAngleBatch = (interactionMode==='angle') && _aeAngleIdx<0 && selN>0;
+    const ibBB = document.getElementById('ib-bond-batch');
+    const ibAB = document.getElementById('ib-angle-batch');
+    const show = hasBond || hasAngle || hasParticle || hasBondBatch || hasAngleBatch;
     bar.style.display = show ? '' : 'none';
     ibB.style.display = hasBond    ? 'contents' : 'none';
     if (ibA) ibA.style.display = hasAngle    ? 'contents' : 'none';
     if (ibP) ibP.style.display = hasParticle ? 'contents' : 'none';
+    if (ibBB) ibBB.style.display = hasBondBatch  ? 'contents' : 'none';
+    if (ibAB) ibAB.style.display = hasAngleBatch ? 'contents' : 'none';
     // Keep placeholder height in sync: when bar is hidden the placeholder holds its
     // reserved height (measured once) so the canvas size stays stable.
     if (ph) {
@@ -6742,6 +7124,25 @@ function _updateInspectBar() {
             if (qSet) qSet.disabled = !uniform && (qInp.value.trim() === '');
         }
     }
+    if (hasBondBatch) {
+        const m   = _selBondIdxs().length;
+        const lbl = document.getElementById('ibb-sel');
+        if (lbl) lbl.textContent = `${selN} bead${selN===1?'':'s'} · ${m} bond${m===1?'':'s'}`;
+        // Seed only empty fields so we never clobber a value the user typed.
+        const kEl = document.getElementById('ibb-k');
+        if (kEl && kEl !== document.activeElement && kEl.value.trim() === '') kEl.value = _lastBondK;
+        const r0El = document.getElementById('ibb-r0');
+        if (r0El && r0El.value.trim() === '') r0El.value = (Math.pow(2, 1/6)).toFixed(3);
+    }
+    if (hasAngleBatch) {
+        const m   = _selAngleIdxs().length;
+        const lbl = document.getElementById('iba-sel');
+        if (lbl) lbl.textContent = `${selN} bead${selN===1?'':'s'} · ${m} angle${m===1?'':'s'}`;
+        const kEl = document.getElementById('iba-k');
+        if (kEl && kEl !== document.activeElement && kEl.value.trim() === '') kEl.value = _lastAngleK;
+        const t0El = document.getElementById('iba-theta0');
+        if (t0El && t0El.value.trim() === '') t0El.value = '180';
+    }
     // Keep the mode stat label in sync for selection modes — shows "SEL N" when a
     // selection is live, bare mode name when empty.  Covers both the initial rubber-band
     // result and re-entry into the mode while a selection is still held.
@@ -6767,6 +7168,7 @@ function _updateInspectBar() {
         if (p) {
             p.r0=parseFloat(document.getElementById('ib-r0').value)||p.r0;
             p.k =parseFloat(document.getElementById('ib-k').value)||p.k;
+            _lastBondK = p.k;   // editing a bond's k makes it the running default
         }
         _finalizeEdit(); if(!running) renderFrame();
     }
@@ -6812,10 +7214,12 @@ document.addEventListener('keydown', async e => {
     }
     if ((k === 'delete' || k === 'backspace') && interactionMode === 'bond') {
         if(_beBondIdx>=0) { const idx=_beBondIdx; _beBondIdx=-1; await _beDeleteBond(idx); _updateInspectBar(); _drawEditOverlay(); }
+        else if (_selBondIdxs().length) { await _batchBondRemove(); _drawEditOverlay(); }
         e.preventDefault(); return;
     }
     if ((k === 'delete' || k === 'backspace') && interactionMode === 'angle') {
         if(_aeAngleIdx>=0) { const idx=_aeAngleIdx; _aeAngleIdx=-1; await _aeDeleteAngle(idx); _updateInspectBar(); _drawAngleOverlay(); }
+        else if (_selAngleIdxs().length) { await _batchAngleRemove(); _drawAngleOverlay(); }
         e.preventDefault(); return;
     }
     if ((k === 'delete' || k === 'backspace') && interactionMode === 'particle') {
