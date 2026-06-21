@@ -614,14 +614,13 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
                 <span class="stat-val" id="ibb-sel">—</span>
                 <span class="stat-key">r₀</span>
                 <input type="number" class="inspect-input" id="ibb-r0" step="0.01" min="0.01"
-                       title="‘set to sel’ writes this rest length to every selected bond. Autobond uses it as the max distance (cutoff) for which pairs get bonded.">
-                <button id="ibb-r0-set" title="Set r₀ on all bonds fully inside the selection">set to sel</button>
+                       title="Press Enter to write this rest length to every selected bond. Autobond uses it as the max distance (cutoff) for which pairs get bonded.">
                 <span class="stat-key">k</span>
                 <input type="number" class="inspect-input" id="ibb-k" step="1" min="0"
-                       title="Force constant for ‘set to sel’ and for bonds created by Autobond.">
-                <button id="ibb-k-set" title="Set k on all bonds fully inside the selection">set to sel</button>
-                <button id="ibb-snap" class="btn-snap" title="Snap r₀ of every selected bond to its current length">⌖ snap all</button>
+                       title="Press Enter to write this force constant to every selected bond. Also used for bonds created by Autobond.">
+                <button id="ibb-snap" class="btn-snap" title="Snap r₀ of every selected bond to its current length">⌖ snap</button>
                 <button id="ibb-auto" class="btn-auto" title="Bond every selected pair within r₀ of each other (r₀ = cutoff). New bonds snap r₀ to actual distance; k from the k field.">Autobond</button>
+                <button id="ibb-remove" class="btn-danger" title="Delete every bond fully inside the selection. Cascades: angles whose leg used a removed bond are deleted, and 1-2/1-3 exclusions are rebuilt.">Delete</button>
             </div>
             <!-- Angle batch (selection present, no specific angle active) -->
             <div id="ib-angle-batch" style="display:none">
@@ -629,14 +628,13 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
                 <span class="stat-val" id="iba-sel">—</span>
                 <span class="stat-key">θ₀</span>
                 <input type="number" class="inspect-input" id="iba-theta0" step="1" min="-180" max="180"
-                       title="‘set to sel’ writes this equilibrium angle to every selected angle. (Autoangle ignores this and snaps θ₀ to each triple’s current angle.)">
-                <button id="iba-theta0-set" title="Set θ₀ on all angles fully inside the selection">set to sel</button>
+                       title="Press Enter to write this equilibrium angle to every selected angle. (Autoangle ignores this and snaps θ₀ to each triple’s current angle.)">
                 <span class="stat-key">k</span>
                 <input type="number" class="inspect-input" id="iba-k" step="1" min="0"
-                       title="Force constant for ‘set to sel’ and for angles created by Autoangle.">
-                <button id="iba-k-set" title="Set k on all angles fully inside the selection">set to sel</button>
-                <button id="iba-snap" class="btn-snap" title="Snap θ₀ of every selected angle to its current value">⌖ snap all</button>
+                       title="Press Enter to write this force constant to every selected angle. Also used for angles created by Autoangle.">
+                <button id="iba-snap" class="btn-snap" title="Snap θ₀ of every selected angle to its current value">⌖ snap</button>
                 <button id="iba-auto" class="btn-auto" title="Create every angle between bonded neighbours inside the selection. θ₀ snaps to current; k from the k field.">Autoangle</button>
+                <button id="iba-remove" class="btn-danger" title="Delete every angle fully inside the selection (all three beads selected). 1-3 exclusions are rebuilt.">Delete</button>
             </div>
         </div>
         <!-- Spacer: always reserves inspect-bar height so canvas size stays stable -->
@@ -697,7 +695,7 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
                 <div>Click anchor again — Deselect anchor</div>
                 <div>Click other bead — Create / select bond</div>
                 <div>RMB <em>or</em> <kbd>B</kbd> — Drop anchor &amp; reset</div>
-                <div><kbd>Del</kbd> — Delete selected bond</div>
+                <div><kbd>Del</kbd> — Delete selected bond, or all bonds in selection</div>
             </div>
 
             <!-- Angle Edit mode -->
@@ -707,7 +705,7 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
                 <div>Click bonded bead — Create / select angle</div>
                 <div><em>Arc sweeps CW from i to k — order sets direction</em></div>
                 <div>RMB <em>or</em> <kbd>A</kbd> — Drop picks &amp; reset</div>
-                <div><kbd>Del</kbd> — Delete selected angle</div>
+                <div><kbd>Del</kbd> — Delete selected angle, or all angles in selection</div>
             </div>
 
             <!-- Particle Type mode -->
@@ -6395,6 +6393,60 @@ async function _autobond() {
     _rebuildExcl(cpuSim); _finalizeEdit(); _updateInspectBar();
     if (!running) renderFrame();
 }
+// Remove every bond fully inside the selection (both endpoints selected), then
+// cascade: drop angles whose i–j or j–k leg used a removed bond (angles exist
+// only between bonded objects), and rebuild 1-2/1-3 exclusions. Mirrors the
+// single-bond cascade in _beDeleteBond, batched into one compaction pass.
+async function _batchBondRemove() {
+    const idxs = _selBondIdxs(); if (!idxs.length) return;
+    await _prepareForEdit(); _pushUndo();
+    const N = cpuSim.N;
+    const key = (i, j) => Math.min(i, j) * N + Math.max(i, j);
+
+    // Pairs being removed — used both to filter bonds and to invalidate angle legs.
+    const removed = new Set();
+    for (const b of idxs) removed.add(key(cpuSim.bondI[b], cpuSim.bondJ[b]));
+
+    // ── Compact bonds: keep those not fully inside the selection ──────────
+    const nb = cpuSim.nBonds - idxs.length;
+    const nBI = new Int32Array(Math.max(1, nb));
+    const nBJ = new Int32Array(Math.max(1, nb));
+    const nBP = new Uint32Array(Math.max(1, nb));
+    const drop = new Set(idxs);   // bond-array indices to skip
+    let w = 0;
+    for (let b = 0; b < cpuSim.nBonds; b++) {
+        if (drop.has(b)) continue;
+        nBI[w] = cpuSim.bondI[b]; nBJ[w] = cpuSim.bondJ[b]; nBP[w] = cpuSim.bondParamId[b]; w++;
+    }
+    cpuSim.bondI = nBI; cpuSim.bondJ = nBJ; cpuSim.bondParamId = nBP; cpuSim.nBonds = nb;
+
+    // ── Cascade: drop angles whose i–j or j–k leg is a removed bond ───────
+    if (cpuSim.nAngles > 0) {
+        const keepAngles = [], keepAPids = [];
+        for (let a = 0; a < cpuSim.nAngles; a++) {
+            const ai = cpuSim.angleI[a], aj = cpuSim.angleJ[a], ak = cpuSim.angleKarr[a];
+            if (removed.has(key(ai, aj)) || removed.has(key(aj, ak))) continue;
+            keepAngles.push([ai, aj, ak]);
+            keepAPids.push(cpuSim.angleParamId ? cpuSim.angleParamId[a] : 0);
+        }
+        const na = keepAngles.length;
+        cpuSim.nAngles      = na;
+        cpuSim.angleI       = new Int32Array(Math.max(1, na));
+        cpuSim.angleJ       = new Int32Array(Math.max(1, na));
+        cpuSim.angleKarr    = new Int32Array(Math.max(1, na));
+        cpuSim.angleParamId = new Uint32Array(Math.max(1, na));
+        for (let a = 0; a < na; a++) {
+            cpuSim.angleI[a]       = keepAngles[a][0];
+            cpuSim.angleJ[a]       = keepAngles[a][1];
+            cpuSim.angleKarr[a]    = keepAngles[a][2];
+            cpuSim.angleParamId[a] = keepAPids[a];
+        }
+    }
+
+    _rebuildExcl(cpuSim); _pdragAdj = null;   // full rebuild: CSR arrays + bondExclude Set
+    _finalizeEdit(); _updateInspectBar();
+    if (!running) renderFrame();
+}
 
 // ── Angle batch ops ────────────────────────────────────────────────────────
 async function _batchAngleSetTheta0() {
@@ -6462,19 +6514,44 @@ async function _autoangle() {
     _rebuildExcl(cpuSim); _finalizeEdit(); _updateInspectBar();
     if (!running) renderFrame();
 }
+// Delete every angle fully inside the selection (all three beads selected).
+// No bond/angle cascade (nothing depends on an angle); _rebuildExcl drops the
+// now-stale 1-3 exclusions. Single compaction pass mirroring _aeDeleteAngle.
+async function _batchAngleRemove() {
+    const idxs = _selAngleIdxs(); if (!idxs.length) return;
+    await _prepareForEdit(); _pushUndo();
+    const drop = new Set(idxs);
+    const na = cpuSim.nAngles - idxs.length;
+    const nAI = new Int32Array(Math.max(1, na));
+    const nAJ = new Int32Array(Math.max(1, na));
+    const nAK = new Int32Array(Math.max(1, na));
+    const nAP = new Uint32Array(Math.max(1, na));
+    let w = 0;
+    for (let a = 0; a < cpuSim.nAngles; a++) {
+        if (drop.has(a)) continue;
+        nAI[w] = cpuSim.angleI[a]; nAJ[w] = cpuSim.angleJ[a]; nAK[w] = cpuSim.angleKarr[a];
+        nAP[w] = cpuSim.angleParamId ? cpuSim.angleParamId[a] : 0; w++;
+    }
+    cpuSim.angleI = nAI; cpuSim.angleJ = nAJ; cpuSim.angleKarr = nAK;
+    cpuSim.angleParamId = nAP; cpuSim.nAngles = na;
+    _rebuildExcl(cpuSim); _finalizeEdit(); _updateInspectBar();
+    if (!running) renderFrame();
+}
 
 (function _wireBatchInspectBar() {
     const click = (id, fn) => document.getElementById(id)?.addEventListener('click', fn);
     const enter = (id, fn) => document.getElementById(id)?.addEventListener('keydown',
         e => { if (e.key === 'Enter') { e.preventDefault(); fn(); } });
-    click('ibb-r0-set', _batchBondSetR0);   enter('ibb-r0', _batchBondSetR0);
-    click('ibb-k-set',  _batchBondSetK);    enter('ibb-k',  _batchBondSetK);
     click('ibb-snap',   _batchBondSnapAll);
     click('ibb-auto',   _autobond);
-    click('iba-theta0-set', _batchAngleSetTheta0); enter('iba-theta0', _batchAngleSetTheta0);
-    click('iba-k-set',  _batchAngleSetK);   enter('iba-k', _batchAngleSetK);
+    click('ibb-remove', _batchBondRemove);
+    enter('ibb-r0', _batchBondSetR0);
+    enter('ibb-k',  _batchBondSetK);
     click('iba-snap',   _batchAngleSnapAll);
     click('iba-auto',   _autoangle);
+    click('iba-remove', _batchAngleRemove);
+    enter('iba-theta0', _batchAngleSetTheta0);
+    enter('iba-k', _batchAngleSetK);
 })();
 
 // Apply a bead type (0–3) to the current particle-mode selection.
@@ -7137,10 +7214,12 @@ document.addEventListener('keydown', async e => {
     }
     if ((k === 'delete' || k === 'backspace') && interactionMode === 'bond') {
         if(_beBondIdx>=0) { const idx=_beBondIdx; _beBondIdx=-1; await _beDeleteBond(idx); _updateInspectBar(); _drawEditOverlay(); }
+        else if (_selBondIdxs().length) { await _batchBondRemove(); _drawEditOverlay(); }
         e.preventDefault(); return;
     }
     if ((k === 'delete' || k === 'backspace') && interactionMode === 'angle') {
         if(_aeAngleIdx>=0) { const idx=_aeAngleIdx; _aeAngleIdx=-1; await _aeDeleteAngle(idx); _updateInspectBar(); _drawAngleOverlay(); }
+        else if (_selAngleIdxs().length) { await _batchAngleRemove(); _drawAngleOverlay(); }
         e.preventDefault(); return;
     }
     if ((k === 'delete' || k === 'backspace') && interactionMode === 'particle') {
