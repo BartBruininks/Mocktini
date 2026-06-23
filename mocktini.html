@@ -660,6 +660,7 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
                 <div><kbd>A</kbd> — Switch to Angle Edit</div>
                 <div><kbd>P</kbd> — Switch to Particle Type mode</div>
                 <div><kbd>Esc</kbd> — Cancel placement</div>
+                <div><kbd>Ctrl Z</kbd> / <kbd>Ctrl Shift Z</kbd> — Undo / Redo (up to 5 steps)</div>
                 <div><em>Run automatically switches to Camera; Stop restores previous mode</em></div>
             </div>
 
@@ -734,9 +735,17 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
             <div class="button-group" style="margin-top:6px">
                 <button id="btn-clear" class="btn-danger"
                     title="Removes all particles and resets the canvas to the current Box L setting. Box size is applied immediately on Clear — use Fill afterward to populate the new box.">Clear</button>
-                <button id="btn-reset-last" disabled style="background:#888"
-                    title="Restore positions and topology to the state just before the last Run was pressed">
-                    Reset to last
+                <button id="btn-reset" disabled style="background:#888"
+                    title="Return to the starting point: the last loaded state file, or the initial fill if nothing was loaded. Reset is itself undoable.">Reset</button>
+            </div>
+            <div class="button-group" style="margin-top:6px">
+                <button id="btn-undo" disabled style="background:#888"
+                    title="Undo the last action — edit, placement, move, clear, load, or run (Ctrl+Z). Up to 5 steps.">
+                    Undo
+                </button>
+                <button id="btn-redo" disabled style="background:#888"
+                    title="Redo the last undone action (Ctrl+Shift+Z).">
+                    Redo
                 </button>
             </div>
             <div class="button-group" style="margin-top:6px">
@@ -4541,6 +4550,10 @@ function setMode(mode) {
     _updateCursor();
     // Ensure the inspect bar and s-mode stat are always in sync with the new mode.
     _updateInspectBar();
+    // Repaint the overlay for the new mode. _drawSelectionOverlay clears and then
+    // delegates to the right mode's widget draw (or nothing), so leaving bond/angle
+    // clears their widgets and entering them paints fresh — in one consistent pass.
+    if (!running) _drawSelectionOverlay();
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -4685,12 +4698,11 @@ async function saveSimState() {
 }
 
 async function loadSimState(json) {
-    stopLoop();
+    await stopLoop();
+    if (cpuSim.N > 0) _checkpoint();   // pre-load state stays undoable (e.g. a misclicked Load)
     _invalidateDragAdj();
     _selection = null;
     octx.clearRect(0, 0, 1000, 1000);
-    _preRunSnapshot = null;
-    if (btnResetLast) { btnResetLast.disabled = true; btnResetLast.style.background = '#888'; }
 
     // ── 1. Restore UI inputs ───────────────────────────────────────────────
     const ui = json.ui || {};
@@ -4837,9 +4849,9 @@ async function loadSimState(json) {
         }
         draw(sim, getColorMode(), parseFloat(document.getElementById('pr-n').value) || 0.45);
     }
-    _savePreRunSnapshot();  // new checkpoint so Reset to last works immediately
     updateStats(sim);
     updateRealizedPcts();   // particle set now restored — refresh realized %
+    _setResetBaseline();    // Reset returns to this loaded state
     renderFrame();
 }
 
@@ -4890,6 +4902,7 @@ async function importMoleculeFile(file) {
 // movement and rotation reuses the existing _selectionFrame path (GPU, fast).
 async function enterPlacementMode(molEntry) {
     await _removeGhostParticles();        // clean up any previous ghost
+    _checkpoint();                        // pre-placement state is undoable (ghost not yet added)
     _placementMol = molEntry;
     _placementRotation = 0;               // fresh molecule starts unrotated
     await _addGhostParticles(camera.x, camera.y);
@@ -5399,17 +5412,14 @@ function _drawSelectionOverlay() {
 
     // ── Placement ghost ───────────────────────────────────────────────────────
     // Ghost particles are real sim particles (the active selection) rendered by
-    // the GPU.  Nothing to draw here; just composite any persistent bond state.
+    // the GPU.  Nothing to draw on the overlay here.
     if (interactionMode === 'place' && _placementMol) {
-        _drawEditOverlay(true);
         return;
     }
 
     // ── Rubber-band rect ──────────────────────────────────────────────────────
     if (dragState !== DRAG.SEL_RUBBER || !_selDragStart || !_selDragCur) {
-        // No rubber-band active — just composite any persistent bond state.
-        _drawEditOverlay(true);
-        return;
+        return;   // no rubber-band active — overlay already cleared above
     }
 
     const sx0 = _selDragStart.x * scale + offX, sy0 = _selDragStart.y * scale + offY;
@@ -5421,8 +5431,6 @@ function _drawSelectionOverlay() {
     octx.setLineDash([6, 4]);
     octx.strokeRect(sx0, sy0, sx1 - sx0, sy1 - sy0);
     octx.setLineDash([]);
-    // Composite persistent bond state on top of the rubber-band.
-    _drawEditOverlay(true);
 }
 
 // ── Particle type mode overlay — rubber-band rect only ───────────────────────
@@ -5528,7 +5536,10 @@ let _beBondIdx    = -1;    // selected bond index
 let _beHoverBead  = -1;    // bead under pointer
 let _beHoverBond  = -1;    // bond under pointer
 let _beMouseSim   = null;  // pointer position in sim-space
-let _undoStack    = [];    // undo snapshots (max 20)
+// ── Unified undo/redo: full-state snapshots, two-stack model (see below) ────
+const _UNDO_DEPTH = 5;     // max snapshots kept per stack
+let _undoStack    = [];    // pre-mutation states we can step back to
+let _redoStack    = [];    // states we can step forward to (cleared on new edit)
 
 // ── Enter / exit ──────────────────────────────────────────────────────────
 async function _enterBondEdit() {
@@ -5537,7 +5548,6 @@ async function _enterBondEdit() {
     if (currentEngine === 'gpu' && gpuSim.ready) await gpuSim._fullReadback();
     _beA        = -1; _beBondIdx = -1;
     _beHoverBead = -1; _beHoverBond = -1;
-    _undoStack  = [];
     setMode('bond');
     _updateInspectBar();
     _drawEditOverlay();
@@ -5551,57 +5561,191 @@ function _exitBondEdit() {
     if (!running) renderFrame();
 }
 
-// ── Undo ──────────────────────────────────────────────────────────────────
-function _pushUndo() {
-    if (_undoStack.length >= 20) _undoStack.shift();
-    _undoStack.push({
-        nBonds:   cpuSim.nBonds,
-        bondI:    new Int32Array(cpuSim.bondI    || []),
-        bondJ:    new Int32Array(cpuSim.bondJ    || []),
-        bondPid:  new Uint32Array(cpuSim.bondParamId || []),
-        bondPT:   (cpuSim.bondParamTable  || []).map(p => ({ ...p })),
-        nAngles:  cpuSim.nAngles,
-        angleI:   new Int32Array(cpuSim.angleI   || []),
-        angleJ:   new Int32Array(cpuSim.angleJ   || []),
-        angleK:   new Int32Array(cpuSim.angleKarr|| []),
-        anglePid: new Uint32Array(cpuSim.angleParamId || []),
-        anglePT:  (cpuSim.angleParamTable || []).map(p => ({ ...p })),
-        excl:     new Set(cpuSim.bondExclude),
-    });
+// ── Unified undo / redo ─────────────────────────────────────────────────────
+// One snapshot shape, one capture, one restore. A snapshot is a full deep copy
+// of the simulation: particles (N, positions, velocities, types, charge, molIds)
+// AND topology (bonds, angles, param tables, exclusions). Every mutating action
+// calls _checkpoint() *before* it mutates, which stores the pre-mutation state on
+// the undo stack and discards the redo stack. Undo pops the undo stack, banks the
+// current state on the redo stack, and applies the popped snapshot; redo mirrors
+// it. Because snapshots are always full, there is exactly one restore path —
+// _applyState — and no branching on "what kind of edit was this". Clear and Run
+// checkpoint too, so undo always steps back one action, including over a clear.
+
+// Build a full deep-copy snapshot of cpuSim. The single source of truth for
+// snapshot shape — _applyState reads exactly these fields back.
+function _snapState() {
+    const c = cpuSim;
+    return {
+        N:               c.N,
+        stepCount:       c.stepCount,
+        L:               c.L,
+        x:               new Float32Array(c.x),
+        y:               new Float32Array(c.y),
+        vx:              new Float32Array(c.vx),
+        vy:              new Float32Array(c.vy),
+        type:            new Int8Array(c.type),
+        charge:          c.charge ? new Float32Array(c.charge) : null,
+        molIdPerParticle:c.molIdPerParticle ? new Uint32Array(c.molIdPerParticle) : null,
+        nBonds:          c.nBonds,
+        bondI:           c.bondI       ? new Int32Array(c.bondI)       : null,
+        bondJ:           c.bondJ       ? new Int32Array(c.bondJ)       : null,
+        bondParamId:     c.bondParamId ? new Uint32Array(c.bondParamId): null,
+        bondParamTable:  (c.bondParamTable || []).map(p => ({ ...p })),
+        nAngles:         c.nAngles,
+        angleI:          c.angleI      ? new Int32Array(c.angleI)      : null,
+        angleJ:          c.angleJ      ? new Int32Array(c.angleJ)      : null,
+        angleKarr:       c.angleKarr   ? new Int32Array(c.angleKarr)   : null,
+        angleParamId:    c.angleParamId? new Uint32Array(c.angleParamId): null,
+        angleParamTable: (c.angleParamTable || []).map(p => ({ ...p })),
+        bondExclude:     c.bondExclude ? new Set(c.bondExclude) : new Set(),
+    };
+}
+
+// Restore a snapshot built by _snapState. The ONLY restore path. Must not push
+// any checkpoint itself (callers manage the stacks). Rebuilds exclusion CSR
+// arrays from the restored bondExclude set, then re-points/uploads to the engine.
+async function _applyState(s) {
+    await _prepareForEdit();   // sync GPU→cpuSim so the swap operates on settled state
+    const c = cpuSim;
+    c.N               = s.N;
+    c.stepCount       = s.stepCount;
+    c.L               = s.L; gpuSim.L = s.L;
+    c.x               = new Float32Array(s.x);
+    c.y               = new Float32Array(s.y);
+    c.vx              = new Float32Array(s.vx);
+    c.vy              = new Float32Array(s.vy);
+    c.type            = new Int8Array(s.type);
+    c.charge          = s.charge ? new Float32Array(s.charge) : new Float32Array(s.N);
+    c.molIdPerParticle= s.molIdPerParticle ? new Uint32Array(s.molIdPerParticle)
+                                           : new Uint32Array(s.N).fill(0xFFFFFFFF);
+    c.nBonds          = s.nBonds;
+    c.bondI           = s.bondI       ? new Int32Array(s.bondI)        : new Int32Array(1);
+    c.bondJ           = s.bondJ       ? new Int32Array(s.bondJ)        : new Int32Array(1);
+    c.bondParamId     = s.bondParamId ? new Uint32Array(s.bondParamId) : new Uint32Array(1);
+    c.bondParamTable  = s.bondParamTable.map(p => ({ ...p }));
+    c.nAngles         = s.nAngles;
+    c.angleI          = s.angleI      ? new Int32Array(s.angleI)       : new Int32Array(1);
+    c.angleJ          = s.angleJ      ? new Int32Array(s.angleJ)       : new Int32Array(1);
+    c.angleKarr       = s.angleKarr   ? new Int32Array(s.angleKarr)    : new Int32Array(1);
+    c.angleParamId    = s.angleParamId? new Uint32Array(s.angleParamId): new Uint32Array(1);
+    c.angleParamTable = s.angleParamTable.map(p => ({ ...p }));
+    c.bondExclude     = new Set(s.bondExclude);
+    _rebuildExcl(c);           // regenerate exclOffsets/exclList CSR from the set
+    c._setupCells();
+    _pdragAdj = null; _invalidateDragAdj();
+    _beA = -1; _beBondIdx = -1; _aeA = -1; _aeB = -1; _aeAngleIdx = -1;
+    // The cached selection transform is frozen against the pre-restore positions —
+    // its refX/refY and accumulated rotation/tx/ty would re-snap the restored beads
+    // to the undone pose on the next drag. Drop it so the next manipulation rebuilds
+    // a fresh frame from the restored coordinates. Keep the selection membership if
+    // it's still in range (so move→undo→move targets the same beads); otherwise the
+    // restore changed N (paste/delete/placement) and the old indices are stale.
+    _selectionFrame = null; _selGroupPrev = null;
+    _gestureArmed = false; _gestureChecked = false;
+    _rotBurstActive = false;
+    if (_rotBurstTimer) { clearTimeout(_rotBurstTimer); _rotBurstTimer = null; }
+    if (_selection) {
+        let valid = true;
+        for (const i of _selection) { if (i >= c.N) { valid = false; break; } }
+        if (!valid) { _selection = null; _selectionMode = null; }
+    }
+
+    if (currentEngine === 'gpu' && gpuSim.ready) {
+        gpuSim.uploadFromCPU(c);
+        gpuSim.x = c.x; gpuSim.y = c.y; gpuSim.vx = c.vx; gpuSim.vy = c.vy;
+        gpuSim.type = c.type; gpuSim.charge = c.charge; gpuSim.N = c.N;
+        gpuSim.nBonds = c.nBonds; gpuSim.bondI = c.bondI; gpuSim.bondJ = c.bondJ;
+        gpuSim.nAngles = c.nAngles; gpuSim.molIdPerParticle = c.molIdPerParticle;
+        sim = gpuSim;
+        if (c.N > 0 && gpuCanvas.style.display === 'none') {
+            gpuCanvas.style.display = 'block'; canvas.style.display = 'none';
+        }
+        _syncSelectionToGPU();
+        gpuSim.renderGPU(getColorMode(), parseFloat(document.getElementById('pr-n').value) || 0.45);
+    } else {
+        sim = c;
+        c._computeForces();
+        draw(sim, getColorMode(), parseFloat(document.getElementById('pr-n').value) || 0.45);
+    }
+    updateStats(sim);
+    updateRealizedPcts();
+    _updateInspectBar();
+    _drawSelectionOverlay();   // clears + delegates to the active mode's widget draw
+}
+
+// Capture the current (pre-mutation) state onto the undo stack. Called by every
+// mutating action before it mutates. Discards the redo stack — a new edit forks
+// history. Kept name `_pushUndo` as an alias so existing call sites are unchanged.
+function _checkpoint() {
+    _undoStack.push(_snapState());
+    if (_undoStack.length > _UNDO_DEPTH) _undoStack.shift();
+    _redoStack.length = 0;
+    _refreshUndoBtn();
+}
+const _pushUndo = _checkpoint;   // legacy alias used throughout edit handlers
+
+async function _undo() {
+    if (_undoStack.length === 0) return;
+    if (running) await stopLoop();             // never undo into a live loop
+    if (interactionMode === 'place') {         // drop any live ghost first
+        await _removeGhostParticles(); setMode('select');
+    }
+    _redoStack.push(_snapState());   // bank current so redo can return here
+    if (_redoStack.length > _UNDO_DEPTH) _redoStack.shift();
+    await _applyState(_undoStack.pop());
     _refreshUndoBtn();
 }
 
-async function _popUndo() {
-    if (_undoStack.length === 0) return;
-    await _prepareForEdit();   // sync GPU→cpuSim so positions survive the topology restore
-    const s = _undoStack.pop();
-    cpuSim.nBonds         = s.nBonds;
-    cpuSim.bondI          = s.bondI;   cpuSim.bondJ   = s.bondJ;
-    cpuSim.bondParamId    = s.bondPid; cpuSim.bondParamTable = s.bondPT;
-    cpuSim.nAngles        = s.nAngles ?? 0;
-    cpuSim.angleI         = s.angleI  ?? new Int32Array(1);
-    cpuSim.angleJ         = s.angleJ  ?? new Int32Array(1);
-    cpuSim.angleKarr      = s.angleK  ?? new Int32Array(1);
-    cpuSim.angleParamId   = s.anglePid?? new Uint32Array(1);
-    cpuSim.angleParamTable= s.anglePT ?? [];
-    cpuSim.bondExclude    = s.excl;
-    _pdragAdj  = null;
-    _beA = -1; _beBondIdx = -1;
-    _aeA = -1; _aeB = -1; _aeAngleIdx = -1;
-    // Rebuild CSR exclusion arrays from the restored topology — the snapshot only
-    // saves bondExclude (Set) but _finalizeEdit → uploadFromCPU needs exclOffsets/exclList.
-    _rebuildExcl(cpuSim);
-    _finalizeEdit();
+async function _redo() {
+    if (_redoStack.length === 0) return;
+    if (running) await stopLoop();
+    if (interactionMode === 'place') {
+        await _removeGhostParticles(); setMode('select');
+    }
+    _undoStack.push(_snapState());
+    if (_undoStack.length > _UNDO_DEPTH) _undoStack.shift();
+    await _applyState(_redoStack.pop());
     _refreshUndoBtn();
-    _updateInspectBar();
-    if (!running) renderFrame();
-    _drawEditOverlay();
-    _drawAngleOverlay();
 }
 
 function _refreshUndoBtn() {
-    const b = document.getElementById('bond-edit-undo');
-    if (b) b.disabled = (_undoStack.length === 0);
+    const u = document.getElementById('btn-undo');
+    if (u) { u.disabled = (_undoStack.length === 0); u.style.background = u.disabled ? '#888' : ''; }
+    const r = document.getElementById('btn-redo');
+    if (r) { r.disabled = (_redoStack.length === 0); r.style.background = r.disabled ? '#888' : ''; }
+    const rs = document.getElementById('btn-reset');
+    if (rs) { rs.disabled = (_resetBaseline === null); rs.style.background = rs.disabled ? '#888' : ''; }
+}
+
+// ── Reset baseline ──────────────────────────────────────────────────────────
+// The state the user "started from": the last loaded state file, or the initial
+// page-load fill if nothing has been loaded. Reset restores it. It is a normal
+// checkpointed restore, so a misclicked Reset is itself undoable, and the undo
+// history is preserved across loads (a misclicked Load can also be undone).
+let _resetBaseline = null;
+
+function _setResetBaseline() { _resetBaseline = _snapState(); _refreshUndoBtn(); }
+
+async function _resetToBaseline() {
+    if (!_resetBaseline) return;
+    if (running) await stopLoop();
+    if (interactionMode === 'place') { await _removeGhostParticles(); setMode('select'); }
+    _checkpoint();                       // current state stays undoable after Reset
+    await _applyState(_resetBaseline);
+    // Land in the neutral global state, exactly like a freshly loaded file: drop any
+    // edit mode and show the Global shortcut tab (rather than staying in, say, Angle).
+    _clearSelection();
+    interactionMode = 'camera';
+    const statEl = document.getElementById('s-mode');
+    if (statEl) { statEl.textContent = 'CAMERA'; statEl.style.color = ''; }
+    const globalTab = document.querySelector('.sc-tab[data-tab="global"]');
+    if (globalTab && !globalTab.classList.contains('active')) globalTab.click();
+    _updateCursor();
+    octx.clearRect(0, 0, 1000, 1000);   // clear any leftover bond/angle overlay
+    _updateInspectBar();
+    if (!running) renderFrame();
+    _refreshUndoBtn();
 }
 
 // ── Low-level topology helpers ────────────────────────────────────────────
@@ -5797,6 +5941,11 @@ function _scheduleLiveUpdate() {
 // Interactive-only state (ghost line, hover dot) is guarded to bond mode.
 function _drawEditOverlay(skipClear = false) {
     if (!skipClear) octx.clearRect(0,0,1000,1000);
+
+    // Widgets are only ever shown in their own edit mode — never composited into
+    // camera/select/run. Outside bond mode this is a no-op (the canvas is left as
+    // cleared by the caller, or untouched when skipClear).
+    if (interactionMode !== 'bond') return;
 
     // Nothing to draw — skip scale computation.
     if (_beBondIdx < 0 && _beA < 0 && _beHoverBead < 0) return;
@@ -6071,6 +6220,9 @@ canvasWrapper.addEventListener('mousemove', function _aeMoveHandler(e) {
 // Draws all angle arcs with directional arrows on the overlay canvas.
 function _drawAngleOverlay(skipClear = false) {
     if (!skipClear) octx.clearRect(0, 0, 1000, 1000);
+
+    // Widgets only ever shown in angle mode — never in camera/select/run.
+    if (interactionMode !== 'angle') return;
 
     if (_aeAngleIdx < 0 && _aeA < 0 && _aeHoverBead < 0 && !cpuSim.nAngles) return;
 
@@ -6876,16 +7028,13 @@ function _finalizeEdit() {
     updateStats(sim);
     _drawSelectionOverlay();
     updateRealizedPcts();   // particle set / molIds may have changed — refresh realized %
-    // Any deliberate edit (bond change, paste, placement, delete, undo) should
-    // become the new "Reset to last" checkpoint — not just pressing Run.
-    // startLoop() will snapshot again before the first step regardless.
-    if (!running) _savePreRunSnapshot();
 }
 
 // ── Paste ─────────────────────────────────────────────────────────────────────
 async function _pasteClipboard() {
     if (!_clipboard) return;
     await _prepareForEdit();
+    _checkpoint();   // pre-paste state is undoable
 
     const cb   = _clipboard, n = cb.xs.length, base = cpuSim.N, newN = base + n;
     const L    = cpuSim.L, pcx = camera.x, pcy = camera.y;
@@ -6966,6 +7115,7 @@ async function _pasteClipboard() {
 async function _deleteSelection() {
     if (!_selection || _selection.size === 0) return;
     await _prepareForEdit();
+    _checkpoint();   // pre-delete state is undoable
 
     const del     = _selection;
     const remap   = new Int32Array(cpuSim.N).fill(-1);
@@ -7199,6 +7349,12 @@ function _updateInspectBar() {
 document.addEventListener('keydown', async e => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
     const k = e.key.toLowerCase();
+    // Ctrl/Cmd+Z — undo;  Ctrl/Cmd+Shift+Z — redo.  Active in every mode.
+    if ((e.ctrlKey || e.metaKey) && k === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) await _redo(); else await _undo();
+        return;
+    }
     // Ctrl+C / Ctrl+V — active in select and particle modes
     if (e.ctrlKey && k === 'c') {
         if (interactionMode === 'select' || interactionMode === 'particle') {
@@ -7308,6 +7464,38 @@ const DRAG = Object.freeze({
 let dragState = DRAG.NONE;
 
 let _dragStart = { mx: 0, my: 0, cx: 0, cy: 0 };
+
+// ── Gesture-level undo coalescing ───────────────────────────────────────────
+// A move/rotate gesture should be ONE undo step, not one per mousemove or wheel
+// notch. We checkpoint lazily on the first effective change of a gesture and
+// suppress further checkpoints until the gesture ends.
+//   • Drag: armed at mousedown, fired on first move, disarmed at mouseup.
+//   • Scroll-rotate: no natural end, so a burst is "notches not separated by an
+//     idle gap"; the first notch checkpoints, an idle timer closes the burst.
+let _gestureArmed     = false;   // a drag gesture may still fire its checkpoint
+let _gestureChecked   = false;   // this drag gesture already checkpointed
+let _rotBurstActive   = false;   // a scroll-rotate burst is currently open
+let _rotBurstTimer    = null;    // idle timer that closes the burst
+const _ROT_BURST_IDLE = 400;     // ms of scroll silence that ends a rotation burst
+
+// Checkpoint once for the current drag gesture (called on first effective move).
+function _gestureCheckpoint() {
+    if (_gestureArmed && !_gestureChecked) { _checkpoint(); _gestureChecked = true; }
+}
+// Arm a fresh drag gesture; also closes any open scroll-rotate burst so a drag
+// and a preceding rotation never collapse into the same undo step.
+function _armGesture() {
+    _gestureArmed = true; _gestureChecked = false;
+    _rotBurstActive = false;
+    if (_rotBurstTimer) { clearTimeout(_rotBurstTimer); _rotBurstTimer = null; }
+}
+// Checkpoint at the start of a scroll-rotate burst; (re)arm the idle timer that
+// will close the burst so the next notch after a pause starts a fresh undo step.
+function _rotBurstCheckpoint() {
+    if (!_rotBurstActive) { _checkpoint(); _rotBurstActive = true; }
+    if (_rotBurstTimer) clearTimeout(_rotBurstTimer);
+    _rotBurstTimer = setTimeout(() => { _rotBurstActive = false; _rotBurstTimer = null; }, _ROT_BURST_IDLE);
+}
 
 // ── Particle / molecule drag payload ─────────────────────────────────────────
 let _pdragInds      = null;   // particle indices in grabbed molecule
@@ -7473,6 +7661,7 @@ async function _tryStartParticleDrag(e) {
             _pdragCentroid = _molCentroid(inds);
         }
         dragState = DRAG.PARTICLE; _pdragInds = inds; _pdragPrev = sp;
+        _armGesture();
         return;
     }
 
@@ -7490,6 +7679,7 @@ async function _tryStartParticleDrag(e) {
     dragState  = DRAG.PARTICLE;
     _pdragInds = inds;
     _pdragPrev = sp;
+    _armGesture();
 }
 
 canvasWrapper.addEventListener('mousedown', async (e) => {
@@ -7520,6 +7710,7 @@ canvasWrapper.addEventListener('mousedown', async (e) => {
         // Active selection in either mode → start group drag (translate, then rotate via scroll).
         if (_selection && _selection.size > 0) {
             dragState = DRAG.SEL_GROUP; _selGroupPrev = sp;
+            _armGesture();
             return;
         }
 
@@ -7556,11 +7747,13 @@ window.addEventListener('mousemove', (e) => {
             // Only apply rotation when mouse is meaningfully far from the centroid
             if (pvx*pvx + pvy*pvy > 0.04 && cvx*cvx + cvy*cvy > 0.04) {
                 const dtheta = Math.atan2(cvy, cvx) - Math.atan2(pvy, pvx);
+                _gestureCheckpoint();   // first real rotation of this drag → one undo step
                 _rotateMol(_pdragInds, cx, cy, dtheta);
             }
         } else {
             // Translate
             const ddx = sp.x - _pdragPrev.x, ddy = sp.y - _pdragPrev.y;
+            if (ddx !== 0 || ddy !== 0) _gestureCheckpoint();   // first real move → one undo step
             const L   = sim.L;
             for (const i of _pdragInds) {
                 sim.x[i] = ((sim.x[i] + ddx) % L + L) % L;
@@ -7589,6 +7782,7 @@ window.addEventListener('mousemove', (e) => {
         const rect = canvasWrapper.getBoundingClientRect();
         const sp   = _screenToSim(e.clientX - rect.left, e.clientY - rect.top);
         const ddx  = sp.x - _selGroupPrev.x, ddy = sp.y - _selGroupPrev.y;
+        if (ddx !== 0 || ddy !== 0) _gestureCheckpoint();   // first real move → one undo step
         if (!_selectionFrame) _selectionFrame = buildSelectionFrame([..._selection]);
         _selectionFrame.tx += ddx;
         _selectionFrame.ty += ddy;
@@ -7630,6 +7824,7 @@ window.addEventListener('mousemove', (e) => {
 });
 
 window.addEventListener('mouseup', () => {
+    _gestureArmed = false;   // close any drag gesture's one-shot checkpoint window
     if (dragState === DRAG.PARTICLE) {
         dragState = DRAG.NONE;
         if (_pdragInds) {
@@ -7807,6 +8002,7 @@ canvasWrapper.addEventListener('wheel', e => {
         if (notches !== 0) {
             const inds = [..._selection];
             if (!_selectionFrame) _selectionFrame = buildSelectionFrame(inds);
+            _rotBurstCheckpoint();   // one undo step per burst of rotation notches
             _selectionFrame.rotation += notches * STEP;
             applySelectionFrame(_selectionFrame);
             if (currentEngine === 'gpu') _gpuWriteXY(inds);
@@ -8499,7 +8695,12 @@ document.getElementById('chain-length-n').addEventListener('change', e => {
 const btnRun = document.getElementById('btn-run');
 const btnInit = document.getElementById('btn-init');
 const btnClear = document.getElementById('btn-clear');
-const btnResetLast = document.getElementById('btn-reset-last');
+const btnUndo = document.getElementById('btn-undo');
+const btnRedo = document.getElementById('btn-redo');
+if (btnUndo) btnUndo.addEventListener('click', _undo);
+if (btnRedo) btnRedo.addEventListener('click', _redo);
+const btnReset = document.getElementById('btn-reset');
+if (btnReset) btnReset.addEventListener('click', _resetToBaseline);
 const engineSelect = document.getElementById('engine-select');
 
 // Helper to completely reset all CPU/GPU topology data
@@ -8586,20 +8787,14 @@ function resetTopologyState(sim) {
 // ── clearSimulation — wipe all particles, reset to empty canvas ─────────────
 async function clearSimulation() {
 
-    stopLoop();
+    await stopLoop();        // await so GPU→CPU readback completes before we snapshot
+    if (cpuSim.N > 0) _checkpoint();   // make the pre-clear state undoable
     _invalidateDragAdj();
 
     _selection   = null;
     _ptSelection = null;
 
     octx.clearRect(0, 0, 1000, 1000);
-
-    _preRunSnapshot = null;
-
-    if (btnResetLast) {
-        btnResetLast.disabled = true;
-        btnResetLast.style.background = '#888';
-    }
 
     const newL = parseFloat(document.getElementById('L-n').value) || 50;
 
@@ -8710,90 +8905,6 @@ stateFileInput.addEventListener('change', e => {
     e.target.value = '';
 });
 
-// ── Pre-run snapshot — saved once each time Run is pressed from a stopped state ──
-let _preRunSnapshot = null;
-
-function _savePreRunSnapshot() {
-    const c = cpuSim;
-    _preRunSnapshot = {
-        N:              c.N,
-        stepCount:      c.stepCount,
-        x:              new Float32Array(c.x),
-        y:              new Float32Array(c.y),
-        vx:             new Float32Array(c.vx),
-        vy:             new Float32Array(c.vy),
-        type:           new Int8Array(c.type),
-        molIdPerParticle: c.molIdPerParticle ? new Uint32Array(c.molIdPerParticle) : null,
-        nBonds:         c.nBonds,
-        bondI:          c.bondI   ? new Int32Array(c.bondI)   : null,
-        bondJ:          c.bondJ   ? new Int32Array(c.bondJ)   : null,
-        bondParamId:    c.bondParamId ? new Uint32Array(c.bondParamId) : null,
-        bondParamTable: (c.bondParamTable || []).map(p => ({ ...p })),
-        nAngles:        c.nAngles,
-        angleI:         c.angleI    ? new Int32Array(c.angleI)    : null,
-        angleJ:         c.angleJ    ? new Int32Array(c.angleJ)    : null,
-        angleKarr:      c.angleKarr ? new Int32Array(c.angleKarr) : null,
-        angleParamId:   c.angleParamId ? new Uint32Array(c.angleParamId) : null,
-        angleParamTable:(c.angleParamTable || []).map(p => ({ ...p })),
-        exclOffsets:    c.exclOffsets ? new Uint32Array(c.exclOffsets) : null,
-        exclList:       c.exclList    ? new Uint32Array(c.exclList)    : null,
-        bondExclude:    c.bondExclude ? new Set(c.bondExclude) : new Set(),
-    };
-    if (btnResetLast) {
-        btnResetLast.disabled = false;
-        btnResetLast.style.background = '';  // restore default blue
-    }
-}
-
-async function _restorePreRunSnapshot() {
-    if (!_preRunSnapshot) return;
-    stopLoop();
-    const s = _preRunSnapshot, c = cpuSim;
-    c.N              = s.N;
-    c.stepCount      = s.stepCount;
-    c.x              = new Float32Array(s.x);
-    c.y              = new Float32Array(s.y);
-    c.vx             = new Float32Array(s.vx);
-    c.vy             = new Float32Array(s.vy);
-    c.type           = new Int8Array(s.type);
-    c.molIdPerParticle = s.molIdPerParticle ? new Uint32Array(s.molIdPerParticle) : new Uint32Array(c.N).fill(0xFFFFFFFF);
-    c.nBonds         = s.nBonds;
-    c.bondI          = s.bondI   ? new Int32Array(s.bondI)   : new Int32Array(1);
-    c.bondJ          = s.bondJ   ? new Int32Array(s.bondJ)   : new Int32Array(1);
-    c.bondParamId    = s.bondParamId ? new Uint32Array(s.bondParamId) : new Uint32Array(1);
-    c.bondParamTable = s.bondParamTable.map(p => ({ ...p }));
-    c.nAngles        = s.nAngles;
-    c.angleI         = s.angleI    ? new Int32Array(s.angleI)    : new Int32Array(1);
-    c.angleJ         = s.angleJ    ? new Int32Array(s.angleJ)    : new Int32Array(1);
-    c.angleKarr      = s.angleKarr ? new Int32Array(s.angleKarr) : new Int32Array(1);
-    c.angleParamId   = s.angleParamId ? new Uint32Array(s.angleParamId) : new Uint32Array(1);
-    c.angleParamTable= s.angleParamTable.map(p => ({ ...p }));
-    c.exclOffsets    = s.exclOffsets ? new Uint32Array(s.exclOffsets) : new Uint32Array(c.N + 1);
-    c.exclList       = s.exclList    ? new Uint32Array(s.exclList)    : new Uint32Array(1);
-    c.bondExclude    = new Set(s.bondExclude);
-    c._setupCells();
-    _invalidateDragAdj();
-
-    if (currentEngine === 'gpu' && gpuSim.ready) {
-        gpuSim.uploadFromCPU(c);
-        gpuSim.x = c.x; gpuSim.y = c.y; gpuSim.vx = c.vx; gpuSim.vy = c.vy;
-        gpuSim.type = c.type; gpuSim.N = c.N;
-        gpuSim.nBonds = c.nBonds; gpuSim.bondI = c.bondI; gpuSim.bondJ = c.bondJ;
-        gpuSim.nAngles = c.nAngles; gpuSim.molIdPerParticle = c.molIdPerParticle;
-        sim = gpuSim;
-        _syncSelectionToGPU();
-        gpuSim.renderGPU(getColorMode(), parseFloat(document.getElementById('pr-n').value) || 0.45);
-    } else {
-        sim = c;
-        c._computeForces();
-        draw(sim, getColorMode(), parseFloat(document.getElementById('pr-n').value) || 0.45);
-    }
-    updateStats(sim);
-    _drawSelectionOverlay();
-}
-
-if (btnResetLast) btnResetLast.addEventListener('click', _restorePreRunSnapshot);
-
 async function stopLoop() {
     running = false;
     if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
@@ -8818,13 +8929,14 @@ async function startLoop() {
     const ke = currentEngine === 'gpu' ? gpuSim.kineticEnergy() : cpuSim.kineticEnergy();
     if (ke < 1e-12 && cpuSim.N > 0) reinitializeVelocities();
 
-    // Snapshot current state before the simulation advances — used by "Reset to last".
-    // If on GPU, read back positions first so the CPU arrays are current.
+    // Checkpoint current state before the simulation advances, so the pre-run
+    // configuration is undoable. If on GPU, read back positions first so the CPU
+    // arrays are current.
     if (currentEngine === 'gpu' && gpuSim.ready) {
         await gpuSim._fullReadback();
         syncCPUfromGPU();
     }
-    _savePreRunSnapshot();
+    if (cpuSim.N > 0) _checkpoint();
 
     // Switch to camera mode before setting running=true so all edit modes
     // are cleanly exited (clears overlays, resets bond/angle picks, etc.).
@@ -8885,11 +8997,10 @@ btnRun.addEventListener('click', () => { if (running) stopLoop(); else startLoop
 // system.  (Previously the first init used Sim.initialize()'s own placer.)
 async function performFill() {
     const wasRunning = running; await stopLoop();   // await so GPU readback completes before we snapshot
+    if (cpuSim.N > 0) _checkpoint();   // top-up is undoable; first fill of empty box is not
     _invalidateDragAdj();
     _selection = null; _selectionMode = null;
     octx.clearRect(0, 0, 1000, 1000);
-    _preRunSnapshot = null;
-    if (btnResetLast) { btnResetLast.disabled = true; btnResetLast.style.background = '#888'; }
 
     // stopLoop() already synced GPU → CPU; snapshot directly.
 
@@ -9399,6 +9510,7 @@ engineSelect.addEventListener('change', async (e) => {
         }
     }
     updateStats(sim);
+    _setResetBaseline();   // initial fill is the reset baseline (overwritten if an autoload runs)
 
     // Auto-load state from ?autoload=<path> URL param
     // Runs here — inside the startup IIFE — so GPU is fully ready first.
