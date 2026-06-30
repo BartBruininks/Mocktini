@@ -327,6 +327,16 @@ footer {
     letter-spacing: 0.04em;
 }
 
+footer a {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+footer a:hover {
+    color: #fff;
+}
+
 /* .shortcut-legend, .shortcut-col, .shortcut-col-head removed — replaced by .shortcut-panel / .sc-tabs / .sc-pane */
 
 #engine-warning {
@@ -919,26 +929,26 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
             <div id="chain-types-container">
                 <!-- filled dynamically by buildChainTypeUI() -->
             </div>
-			<div class="control-row">
+            <div class="control-row">
                 <label>Bond k</label>
                 <input type="range" id="bond-k-s" min="1" max="500" step="1" value="100">
                 <input type="number" class="param-input" id="bond-k-n" value="100" step="1" min="1">
             </div>
-			<div class="control-row">
-				<label>Angle k</label>
-				<input type="range" id="angle-k-s" min="0" max="200" step="1" value="10">
-				<input type="number" class="param-input" id="angle-k-n" value="10" step="1" min="0">
-			</div>
-			<div class="control-row">
-				<label>Angle θ₀ (±alt)</label>
-				<input type="range" id="angle-theta-s" min="-180" max="180" step="1" value="180">
-				<input type="number" class="param-input" id="angle-theta-n" value="180" step="1" min="-180" max="180">
-			</div>
-			<div class="control-row">
-				<label>r₀ scale</label>
-				<input type="range" id="r0scale-s" min="0.5" max="2" step="0.05" value="0.9">
-				<input type="number" class="param-input" id="r0scale-n" value="0.9" step="0.05" min="0.1">
-			</div>
+            <div class="control-row">
+                <label>Angle k</label>
+                <input type="range" id="angle-k-s" min="0" max="200" step="1" value="10">
+                <input type="number" class="param-input" id="angle-k-n" value="10" step="1" min="0">
+            </div>
+            <div class="control-row">
+                <label>Angle θ₀ (±alt)</label>
+                <input type="range" id="angle-theta-s" min="-180" max="180" step="1" value="180">
+                <input type="number" class="param-input" id="angle-theta-n" value="180" step="1" min="-180" max="180">
+            </div>
+            <div class="control-row">
+                <label>r₀ scale</label>
+                <input type="range" id="r0scale-s" min="0.5" max="2" step="0.05" value="0.9">
+                <input type="number" class="param-input" id="r0scale-n" value="0.9" step="0.05" min="0.1">
+            </div>
 
             <div class="sub-header">Particle properties</div>
 
@@ -992,34 +1002,34 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
                 <span style="color:var(--red,#ff6b6b);font-size:0.66rem;line-height:1.3;">⚠ Neighbour-cell overflow on the GPU path — some pair forces are being dropped. Raise <b>Cell capacity</b> until this clears.</span>
             </div>
 
-			<div class="sub-header" style="border:none;margin:6px 0 4px;color:#aaa;font-size:0.64rem;">ε matrix</div>
-			<div class="eps-matrix">
-				<!-- Row 0 -->
-				<input type="number" id="eps00" value="1" step="0.1">
-				<input type="number" id="eps01" value="1" step="0.1">
-				<input type="number" id="eps02" value="1" step="0.1">
-				<input type="number" id="eps03" value="1" step="0.1">
+            <div class="sub-header" style="border:none;margin:6px 0 4px;color:#aaa;font-size:0.64rem;">ε matrix</div>
+            <div class="eps-matrix">
+                <!-- Row 0 -->
+                <input type="number" id="eps00" value="1" step="0.1">
+                <input type="number" id="eps01" value="1" step="0.1">
+                <input type="number" id="eps02" value="1" step="0.1">
+                <input type="number" id="eps03" value="1" step="0.1">
 
-				<!-- Row 1 -->
-				<input type="number" id="eps10" value="1" step="0.1">
-				<input type="number" id="eps11" value="1" step="0.1">
-				<input type="number" id="eps12" value="1" step="0.1">
-				<input type="number" id="eps13" value="1" step="0.1">
+                <!-- Row 1 -->
+                <input type="number" id="eps10" value="1" step="0.1">
+                <input type="number" id="eps11" value="1" step="0.1">
+                <input type="number" id="eps12" value="1" step="0.1">
+                <input type="number" id="eps13" value="1" step="0.1">
 
-				<!-- Row 2 -->
-				<input type="number" id="eps20" value="1" step="0.1">
-				<input type="number" id="eps21" value="1" step="0.1">
-				<input type="number" id="eps22" value="1" step="0.1">
-				<input type="number" id="eps23" value="1" step="0.1">
+                <!-- Row 2 -->
+                <input type="number" id="eps20" value="1" step="0.1">
+                <input type="number" id="eps21" value="1" step="0.1">
+                <input type="number" id="eps22" value="1" step="0.1">
+                <input type="number" id="eps23" value="1" step="0.1">
 
-				<!-- Row 3 -->
-				<input type="number" id="eps30" value="1" step="0.1">
-				<input type="number" id="eps31" value="1" step="0.1">
-				<input type="number" id="eps32" value="1" step="0.1">
-				<input type="number" id="eps33" value="1" step="0.1">
-			</div>
+                <!-- Row 3 -->
+                <input type="number" id="eps30" value="1" step="0.1">
+                <input type="number" id="eps31" value="1" step="0.1">
+                <input type="number" id="eps32" value="1" step="0.1">
+                <input type="number" id="eps33" value="1" step="0.1">
+            </div>
 
-			<div class="sub-header" style="border:none;margin:10px 0 4px;color:#aaa;font-size:0.64rem;">σ per particle type</div>
+            <div class="sub-header" style="border:none;margin:10px 0 4px;color:#aaa;font-size:0.64rem;">σ per particle type</div>
             <div class="control-row">
                 <label>σ₀</label>
                 <input type="number" class="param-input" id="sigma0" value="1" step="0.05" min="0.1">
@@ -1058,12 +1068,13 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
 
     </div>
 </div>
-<footer id="footer">Mocktini v1.2.2 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license · <a href="https://github.com/BartBruininks/Mocktini/blob/main/README.md">README</a></footer>
+
+<footer id="footer">Mocktini v1.2.3 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license · <a href="https://github.com/BartBruininks/Mocktini">GitHub</a></footer>
 
 <script>
 'use strict';
 // ════════════════════════════════════════════════════════════════════════════
-//  Mocktini - 2D Molecular Dynamics  —  v1.2.2
+//  Mocktini - 2D Molecular Dynamics  —  v1.2.3
 // ════════════════════════════════════════════════════════════════════════════
 //
 //  OVERVIEW
@@ -1112,9 +1123,16 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
 //  --------------------------------------------------
 //  • bondExclude keys are encoded as  min(i,j)*N + max(i,j).  N is baked in.
 //    Always call _rebuildExcl() before changing cpuSim.N.
-//  • uploadFromCPU() resets gpuSim.x/y/vx/vy to fresh empty Float32Arrays.
-//    Any caller that needs live position reads must re-point those refs
-//    (see _finalizeEdit).
+//  • After gpuSim.uploadFromCPU(c), gpuSim's JS array fields (x/y/vx/vy/...)
+//    still point at its own arrays, NOT c's. Any caller that needs live position
+//    reads must re-point them at c — call _gpuAdoptCpuArrays(c), the single
+//    source of truth for that re-point (used by restore, _finalizeEdit, load).
+//  • When changing cpuSim.N, ALL per-particle arrays must be resized to match —
+//    including the derived fx/fy/next, not just x/y/vx/vy/type/charge/molId.
+//    Leaving fx/fy/next at a stale (shorter) length silently drops every particle
+//    with index >= oldN from force/cell-list computation (out-of-bounds typed-
+//    array writes are no-ops). cpuSim._adoptArrays(src, N) is the single source of
+//    truth for this resize; restore, load, and syncCPUfromGPU all route through it.
 //  • _fullReadback() does NOT read force or PE from the GPU buffer.
 //    cpuSim.fx/fy will be stale until the next _computeForces() call.
 //    _finalizeEdit() guarantees this by calling _computeForces() (CPU path)
@@ -1950,7 +1968,7 @@ function _erfc(x) {
 //  CPU Engine
 // ════════════════════════════════════════════════════════════════════════════
 class MD2D_CPU {
-	constructor() {
+    constructor() {
     this.stepCount = 0;
     this.N = 1000; this.L = 50.0; this.T = 1.0; this.mass = 1.0; this.dt = 0.03;
     this.integratorType = 'vv';
@@ -2025,8 +2043,8 @@ class MD2D_CPU {
     this.charge       = null;
     this.coulombK     = 5.0;
     this.coulombAlpha = 1.0;
-	}
-	
+    }
+
     get rc() { return this.rcCut; }
 
     // Mie prefactor C(n,m) = (n/(n−m))·(n/m)^(m/(n−m)).  Guards n>m≥1; on a
@@ -2072,14 +2090,39 @@ class MD2D_CPU {
         );
     }
 
-	_alloc(N) {
-		this.x = new Float32Array(N); this.y = new Float32Array(N);
-		this.vx = new Float32Array(N); this.vy = new Float32Array(N);
-		this.fx = new Float32Array(N); this.fy = new Float32Array(N);
-		this.next = new Int32Array(N);
-		this.type = new Int8Array(N);
-		this.charge = new Float32Array(N);   // per-bead charge, default 0
-	}
+    _alloc(N) {
+        this.x = new Float32Array(N); this.y = new Float32Array(N);
+        this.vx = new Float32Array(N); this.vy = new Float32Array(N);
+        this.fx = new Float32Array(N); this.fy = new Float32Array(N);
+        this.next = new Int32Array(N);
+        this.type = new Int8Array(N);
+        this.charge = new Float32Array(N);   // per-bead charge, default 0
+    }
+
+    // Make every per-particle array consistent with a new particle count N,
+    // copying state arrays from `src` (a snapshot or another sim — anything with
+    // x/y/vx/vy/type/charge/molIdPerParticle). fx/fy/next are DERIVED, never
+    // carried: they are always reallocated fresh and zeroed, sized to N. This is
+    // the single source of truth for "resize the particle arrays" — restore,
+    // load, and GPU→CPU sync all route through it so none can silently leave a
+    // per-particle array at a stale length (the class of bug where indices >= old
+    // N are dropped by no-op out-of-bounds typed-array writes).
+    _adoptArrays(src, N) {
+        this.N      = N;
+        this.x      = new Float32Array(src.x);
+        this.y      = new Float32Array(src.y);
+        this.vx     = new Float32Array(src.vx);
+        this.vy     = new Float32Array(src.vy);
+        this.type   = new Int8Array(src.type);
+        this.charge = src.charge ? new Float32Array(src.charge) : new Float32Array(N);
+        this.molIdPerParticle = src.molIdPerParticle
+            ? new Uint32Array(src.molIdPerParticle)
+            : new Uint32Array(N).fill(0xFFFFFFFF);
+        // Derived working arrays — fresh and zeroed, never copied from src.
+        this.fx   = new Float32Array(N);
+        this.fy   = new Float32Array(N);
+        this.next = new Int32Array(N);
+    }
 
     _setupCells() {
         const rc = this.rc;
@@ -2090,7 +2133,7 @@ class MD2D_CPU {
         this.head = new Int32Array(this.nx * this.ny);
     }
 
-	initialize() {
+    initialize() {
         // Allocate an EMPTY particle system.  ALL particle placement now flows
         // through the unified Fill path (performFill); this routine only sets up
         // empty buffers + bonded-state shells for a fresh or cleared box.  The old
@@ -2114,129 +2157,129 @@ class MD2D_CPU {
         this.exclOffsets = new Uint32Array(1);
         this.exclList    = new Uint32Array(1);
     }
-	
-	_setupBonds() {
-		const N             = this.N;
-		const polymerRatios = this.polymerRatios || [0, 0, 0, 0];
-		const chainLengths  = this.chainLengths  || [2, 2, 2, 2];
-		this.bondR0         = Math.pow(2, 1/6) * Math.max(...this.sigmaPerType);
 
-		const WHL = Math.pow(2, 1/6);
-		for (const def of molDefTable) {
-			for (const b of def.bonds) {
-				if (b.r0 === null) {
-					const ti  = def.beadTypes[b.i] ?? 0;
-					const tj  = def.beadTypes[b.j] ?? 0;
-					const mix = (this.sigmaPerType[ti] + this.sigmaPerType[tj]) / 2;
-					b.sigmaMixForR0 = mix;
-					b.r0 = this.r0Scale * WHL * mix;
-				} else {
-					b.sigmaMixForR0 = b.sigmaMixForR0 ?? null;
-				}
-			}
-		}
+    _setupBonds() {
+        const N             = this.N;
+        const polymerRatios = this.polymerRatios || [0, 0, 0, 0];
+        const chainLengths  = this.chainLengths  || [2, 2, 2, 2];
+        this.bondR0         = Math.pow(2, 1/6) * Math.max(...this.sigmaPerType);
 
-		this.bondParamTable  = [];
-		this.angleParamTable = [];
-		const bondParamBase  = new Uint32Array(4);
-		const angleParamBase = new Uint32Array(4);
-		for (let pi = 0; pi < 4; pi++) {
-			bondParamBase[pi]  = this.bondParamTable.length;
-			angleParamBase[pi] = this.angleParamTable.length;
-			const def = molDefTable[pi];
-			for (const b of def.bonds)  this.bondParamTable .push({ k: b.k, r0: b.r0, sigmaMixForR0: b.sigmaMixForR0 ?? null });
-			for (const a of def.angles) this.angleParamTable.push({ k: a.kAngle, theta0: a.theta0 });
-		}
+        const WHL = Math.pow(2, 1/6);
+        for (const def of molDefTable) {
+            for (const b of def.bonds) {
+                if (b.r0 === null) {
+                    const ti  = def.beadTypes[b.i] ?? 0;
+                    const tj  = def.beadTypes[b.j] ?? 0;
+                    const mix = (this.sigmaPerType[ti] + this.sigmaPerType[tj]) / 2;
+                    b.sigmaMixForR0 = mix;
+                    b.r0 = this.r0Scale * WHL * mix;
+                } else {
+                    b.sigmaMixForR0 = b.sigmaMixForR0 ?? null;
+                }
+            }
+        }
 
-		const nChainsByPoly = polymerRatios.map((r, pi) => {
-			const cl = Math.max(1, molDefTable[pi].nBeads || chainLengths[pi]);
-			return r > 0 ? Math.floor(N * r / cl) : 0;
-		});
+        this.bondParamTable  = [];
+        this.angleParamTable = [];
+        const bondParamBase  = new Uint32Array(4);
+        const angleParamBase = new Uint32Array(4);
+        for (let pi = 0; pi < 4; pi++) {
+            bondParamBase[pi]  = this.bondParamTable.length;
+            angleParamBase[pi] = this.angleParamTable.length;
+            const def = molDefTable[pi];
+            for (const b of def.bonds)  this.bondParamTable .push({ k: b.k, r0: b.r0, sigmaMixForR0: b.sigmaMixForR0 ?? null });
+            for (const a of def.angles) this.angleParamTable.push({ k: a.kAngle, theta0: a.theta0 });
+        }
 
-		let totalBonds  = 0;
-		let totalAngles = 0;
-		for (let pi = 0; pi < 4; pi++) {
-			const def = molDefTable[pi];
-			totalBonds  += nChainsByPoly[pi] * def.bonds.length;
-			totalAngles += nChainsByPoly[pi] * def.angles.length;
-		}
-		this.nBonds  = totalBonds;
-		this.nAngles = totalAngles;
+        const nChainsByPoly = polymerRatios.map((r, pi) => {
+            const cl = Math.max(1, molDefTable[pi].nBeads || chainLengths[pi]);
+            return r > 0 ? Math.floor(N * r / cl) : 0;
+        });
 
-		this.bondI        = new Int32Array(Math.max(1, totalBonds));
-		this.bondJ        = new Int32Array(Math.max(1, totalBonds));
-		this.bondParamId  = new Uint32Array(Math.max(1, totalBonds));
-		this.angleI       = new Int32Array(Math.max(1, totalAngles));
-		this.angleJ       = new Int32Array(Math.max(1, totalAngles));
-		this.angleKarr    = new Int32Array(Math.max(1, totalAngles));
-		this.angleParamId = new Uint32Array(Math.max(1, totalAngles));
+        let totalBonds  = 0;
+        let totalAngles = 0;
+        for (let pi = 0; pi < 4; pi++) {
+            const def = molDefTable[pi];
+            totalBonds  += nChainsByPoly[pi] * def.bonds.length;
+            totalAngles += nChainsByPoly[pi] * def.angles.length;
+        }
+        this.nBonds  = totalBonds;
+        this.nAngles = totalAngles;
 
-		this.molIdPerParticle = new Uint32Array(N).fill(0xFFFFFFFF);
+        this.bondI        = new Int32Array(Math.max(1, totalBonds));
+        this.bondJ        = new Int32Array(Math.max(1, totalBonds));
+        this.bondParamId  = new Uint32Array(Math.max(1, totalBonds));
+        this.angleI       = new Int32Array(Math.max(1, totalAngles));
+        this.angleJ       = new Int32Array(Math.max(1, totalAngles));
+        this.angleKarr    = new Int32Array(Math.max(1, totalAngles));
+        this.angleParamId = new Uint32Array(Math.max(1, totalAngles));
 
-		const exclDegree = new Uint32Array(N);
-		let bIdx = 0, aIdx = 0, beadOff = 0;
+        this.molIdPerParticle = new Uint32Array(N).fill(0xFFFFFFFF);
 
-		for (let pi = 0; pi < 4; pi++) {
-			const def = molDefTable[pi];
-			const cl  = Math.max(1, def.nBeads || chainLengths[pi]);
-			const nc  = nChainsByPoly[pi];
+        const exclDegree = new Uint32Array(N);
+        let bIdx = 0, aIdx = 0, beadOff = 0;
 
-			for (let c = 0; c < nc; c++) {
-				const off = beadOff + c * cl;
+        for (let pi = 0; pi < 4; pi++) {
+            const def = molDefTable[pi];
+            const cl  = Math.max(1, def.nBeads || chainLengths[pi]);
+            const nc  = nChainsByPoly[pi];
 
-				for (let bi = 0; bi < def.bonds.length; bi++) {
-					const bond = def.bonds[bi];
-					this.bondI[bIdx]       = off + bond.i;
-					this.bondJ[bIdx]       = off + bond.j;
-					this.bondParamId[bIdx] = bondParamBase[pi] + bi;
-					bIdx++;
-				}
-				for (let ai = 0; ai < def.angles.length; ai++) {
-					const ang = def.angles[ai];
-					this.angleI[aIdx]       = off + ang.i;
-					this.angleJ[aIdx]       = off + ang.j;
-					this.angleKarr[aIdx]    = off + ang.k;
-					this.angleParamId[aIdx] = angleParamBase[pi] + ai;
-					aIdx++;
-				}
-				for (const ex of def.exclusions) {
-					exclDegree[off + ex.i]++;
-					exclDegree[off + ex.j]++;
-				}
-				for (let b = 0; b < cl; b++) this.molIdPerParticle[off + b] = pi;
-			}
-			beadOff += nc * cl;
-		}
+            for (let c = 0; c < nc; c++) {
+                const off = beadOff + c * cl;
 
-		this.exclOffsets = new Uint32Array(N + 1);
-		for (let i = 0; i < N; i++) this.exclOffsets[i + 1] = this.exclOffsets[i] + exclDegree[i];
-		this.exclList   = new Uint32Array(Math.max(1, this.exclOffsets[N]));
-		const exclCursor = new Uint32Array(N);
+                for (let bi = 0; bi < def.bonds.length; bi++) {
+                    const bond = def.bonds[bi];
+                    this.bondI[bIdx]       = off + bond.i;
+                    this.bondJ[bIdx]       = off + bond.j;
+                    this.bondParamId[bIdx] = bondParamBase[pi] + bi;
+                    bIdx++;
+                }
+                for (let ai = 0; ai < def.angles.length; ai++) {
+                    const ang = def.angles[ai];
+                    this.angleI[aIdx]       = off + ang.i;
+                    this.angleJ[aIdx]       = off + ang.j;
+                    this.angleKarr[aIdx]    = off + ang.k;
+                    this.angleParamId[aIdx] = angleParamBase[pi] + ai;
+                    aIdx++;
+                }
+                for (const ex of def.exclusions) {
+                    exclDegree[off + ex.i]++;
+                    exclDegree[off + ex.j]++;
+                }
+                for (let b = 0; b < cl; b++) this.molIdPerParticle[off + b] = pi;
+            }
+            beadOff += nc * cl;
+        }
 
-		beadOff = 0;
-		for (let pi = 0; pi < 4; pi++) {
-			const def = molDefTable[pi];
-			const cl  = Math.max(1, def.nBeads || chainLengths[pi]);
-			const nc  = nChainsByPoly[pi];
-			for (let c = 0; c < nc; c++) {
-				const off = beadOff + c * cl;
-				for (const ex of def.exclusions) {
-					const gi = off + ex.i, gj = off + ex.j;
-					this.exclList[this.exclOffsets[gi] + exclCursor[gi]++] = gj;
-					this.exclList[this.exclOffsets[gj] + exclCursor[gj]++] = gi;
-				}
-			}
-			beadOff += nc * cl;
-		}
+        this.exclOffsets = new Uint32Array(N + 1);
+        for (let i = 0; i < N; i++) this.exclOffsets[i + 1] = this.exclOffsets[i] + exclDegree[i];
+        this.exclList   = new Uint32Array(Math.max(1, this.exclOffsets[N]));
+        const exclCursor = new Uint32Array(N);
 
-		this.bondExclude = new Set();
-		for (let i = 0; i < N; i++) {
-			for (let e = this.exclOffsets[i]; e < this.exclOffsets[i + 1]; e++) {
-				const j = this.exclList[e];
-				if (i < j) this.bondExclude.add(i * N + j);
-			}
-		}
-	}
+        beadOff = 0;
+        for (let pi = 0; pi < 4; pi++) {
+            const def = molDefTable[pi];
+            const cl  = Math.max(1, def.nBeads || chainLengths[pi]);
+            const nc  = nChainsByPoly[pi];
+            for (let c = 0; c < nc; c++) {
+                const off = beadOff + c * cl;
+                for (const ex of def.exclusions) {
+                    const gi = off + ex.i, gj = off + ex.j;
+                    this.exclList[this.exclOffsets[gi] + exclCursor[gi]++] = gj;
+                    this.exclList[this.exclOffsets[gj] + exclCursor[gj]++] = gi;
+                }
+            }
+            beadOff += nc * cl;
+        }
+
+        this.bondExclude = new Set();
+        for (let i = 0; i < N; i++) {
+            for (let e = this.exclOffsets[i]; e < this.exclOffsets[i + 1]; e++) {
+                const j = this.exclList[e];
+                if (i < j) this.bondExclude.add(i * N + j);
+            }
+        }
+    }
 
     _gaussian() {
         let u, v; do { u = Math.random(); } while (u === 0); do { v = Math.random(); } while (v === 0);
@@ -2422,76 +2465,76 @@ class MD2D_CPU {
         this._computeBondForces();
         this._computeAngleForces();
     }
-	
-	_computeBondForces() {
-		let bondPot = 0;
-		for (let d = 0; d < this.nBonds; d++) {
-			const param = this.bondParamTable[this.bondParamId[d]];
-			const k     = param.k;
-			const r0    = param.r0;
-			const i     = this.bondI[d];
-			const j     = this.bondJ[d];
-			const dx    = this._pbc (this.x[i] - this.x[j]);
-			const dy    = this._pbcY(this.y[i] - this.y[j]);
-			const r     = Math.sqrt(dx * dx + dy * dy);
-			if (r < 1e-12) continue;
-			const dr   = r - r0;
-			const fmag = -k * dr / r;
-			this.fx[i] += fmag * dx; this.fy[i] += fmag * dy;
-			this.fx[j] -= fmag * dx; this.fy[j] -= fmag * dy;
-			bondPot += 0.5 * k * dr * dr;
-			this._virial += fmag * (dx * dx + dy * dy);  // bond virial contribution
-		}
-		this.potentialEnergy += bondPot;
-	}
-		
-	_computeAngleForces() {
-		// Signed-angle harmonic: U = k/2 * (θ - θ₀)²
-		// θ = atan2(d1×d2, d1·d2)  ∈ (-π, π]   (full 2π discrimination)
-		// Forces from ∂θ/∂r using the atan2 gradient:
-		//   ∂θ/∂ri = (c·rotCW(d2) − s·d2) / (r1²·r2²)
-		//   ∂θ/∂rk = (c·rotCCW(d1) − s·d1) / (r1²·r2²)
-		//   ∂θ/∂rj = −(∂θ/∂ri + ∂θ/∂rk)
-		// where d1 = ri−rj, d2 = rk−rj, s = d1×d2 (2D cross), c = d1·d2
-		let anglePot = 0;
-		for (let a = 0; a < this.nAngles; a++) {
-			const param  = this.angleParamTable[this.angleParamId[a]];
-			const k      = param.k;
-			if (k === 0) continue;
-			const theta0 = param.theta0;
-			const i      = this.angleI[a];
-			const j      = this.angleJ[a];
-			const kidx   = this.angleKarr[a];
-			const dx1 = this._pbc (this.x[i]    - this.x[j]);
-			const dy1 = this._pbcY(this.y[i]    - this.y[j]);
-			const dx2 = this._pbc (this.x[kidx] - this.x[j]);
-			const dy2 = this._pbcY(this.y[kidx] - this.y[j]);
-			const r1sq = dx1*dx1 + dy1*dy1;
-			const r2sq = dx2*dx2 + dy2*dy2;
-			if (r1sq < 1e-12 || r2sq < 1e-12) continue;
-			// 2D signed angle via atan2
-			const s    = dx1*dy2 - dy1*dx2;   // d1 × d2  (z-component of 3D cross)
-			const c    = dx1*dx2 + dy1*dy2;   // d1 · d2
-			const theta = Math.atan2(s, c);
-			// Wrap delta to (−π, π] to avoid discontinuity artefacts at ±π
-			let dtheta = theta - theta0;
-			if (dtheta >  Math.PI) dtheta -= 2 * Math.PI;
-			if (dtheta < -Math.PI) dtheta += 2 * Math.PI;
-			anglePot += 0.5 * k * dtheta * dtheta;
-			const pref  = -k * dtheta;                  // −dU/dθ prefactor
-			const denom = r1sq * r2sq;
-			// ∂θ/∂ri  —  rotCW(d2) = (dy2, -dx2)
-			const gix = (c * dy2 - s * dx2) / denom;
-			const giy = (c * (-dx2) - s * dy2) / denom;
-			// ∂θ/∂rk  —  rotCCW(d1) = (-dy1, dx1)
-			const gkx = (c * (-dy1) - s * dx1) / denom;
-			const gky = (c * dx1  - s * dy1) / denom;
-			this.fx[i]    += pref * gix;             this.fy[i]    += pref * giy;
-			this.fx[kidx] += pref * gkx;             this.fy[kidx] += pref * gky;
-			this.fx[j]    -= pref * (gix + gkx);     this.fy[j]    -= pref * (giy + gky);
-		}
-		this.potentialEnergy += anglePot;
-	}
+
+    _computeBondForces() {
+        let bondPot = 0;
+        for (let d = 0; d < this.nBonds; d++) {
+            const param = this.bondParamTable[this.bondParamId[d]];
+            const k     = param.k;
+            const r0    = param.r0;
+            const i     = this.bondI[d];
+            const j     = this.bondJ[d];
+            const dx    = this._pbc (this.x[i] - this.x[j]);
+            const dy    = this._pbcY(this.y[i] - this.y[j]);
+            const r     = Math.sqrt(dx * dx + dy * dy);
+            if (r < 1e-12) continue;
+            const dr   = r - r0;
+            const fmag = -k * dr / r;
+            this.fx[i] += fmag * dx; this.fy[i] += fmag * dy;
+            this.fx[j] -= fmag * dx; this.fy[j] -= fmag * dy;
+            bondPot += 0.5 * k * dr * dr;
+            this._virial += fmag * (dx * dx + dy * dy);  // bond virial contribution
+        }
+        this.potentialEnergy += bondPot;
+    }
+
+    _computeAngleForces() {
+        // Signed-angle harmonic: U = k/2 * (θ - θ₀)²
+        // θ = atan2(d1×d2, d1·d2)  ∈ (-π, π]   (full 2π discrimination)
+        // Forces from ∂θ/∂r using the atan2 gradient:
+        //   ∂θ/∂ri = (c·rotCW(d2) − s·d2) / (r1²·r2²)
+        //   ∂θ/∂rk = (c·rotCCW(d1) − s·d1) / (r1²·r2²)
+        //   ∂θ/∂rj = −(∂θ/∂ri + ∂θ/∂rk)
+        // where d1 = ri−rj, d2 = rk−rj, s = d1×d2 (2D cross), c = d1·d2
+        let anglePot = 0;
+        for (let a = 0; a < this.nAngles; a++) {
+            const param  = this.angleParamTable[this.angleParamId[a]];
+            const k      = param.k;
+            if (k === 0) continue;
+            const theta0 = param.theta0;
+            const i      = this.angleI[a];
+            const j      = this.angleJ[a];
+            const kidx   = this.angleKarr[a];
+            const dx1 = this._pbc (this.x[i]    - this.x[j]);
+            const dy1 = this._pbcY(this.y[i]    - this.y[j]);
+            const dx2 = this._pbc (this.x[kidx] - this.x[j]);
+            const dy2 = this._pbcY(this.y[kidx] - this.y[j]);
+            const r1sq = dx1*dx1 + dy1*dy1;
+            const r2sq = dx2*dx2 + dy2*dy2;
+            if (r1sq < 1e-12 || r2sq < 1e-12) continue;
+            // 2D signed angle via atan2
+            const s    = dx1*dy2 - dy1*dx2;   // d1 × d2  (z-component of 3D cross)
+            const c    = dx1*dx2 + dy1*dy2;   // d1 · d2
+            const theta = Math.atan2(s, c);
+            // Wrap delta to (−π, π] to avoid discontinuity artefacts at ±π
+            let dtheta = theta - theta0;
+            if (dtheta >  Math.PI) dtheta -= 2 * Math.PI;
+            if (dtheta < -Math.PI) dtheta += 2 * Math.PI;
+            anglePot += 0.5 * k * dtheta * dtheta;
+            const pref  = -k * dtheta;                  // −dU/dθ prefactor
+            const denom = r1sq * r2sq;
+            // ∂θ/∂ri  —  rotCW(d2) = (dy2, -dx2)
+            const gix = (c * dy2 - s * dx2) / denom;
+            const giy = (c * (-dx2) - s * dy2) / denom;
+            // ∂θ/∂rk  —  rotCCW(d1) = (-dy1, dx1)
+            const gkx = (c * (-dy1) - s * dx1) / denom;
+            const gky = (c * dx1  - s * dy1) / denom;
+            this.fx[i]    += pref * gix;             this.fy[i]    += pref * giy;
+            this.fx[kidx] += pref * gkx;             this.fy[kidx] += pref * gky;
+            this.fx[j]    -= pref * (gix + gkx);     this.fy[j]    -= pref * (giy + gky);
+        }
+        this.potentialEnergy += anglePot;
+    }
 
     _ornsteinUhlenbeck() {
         const mpt   = this.massPerType || [this.mass, this.mass, this.mass, this.mass];
@@ -2904,7 +2947,7 @@ fn fs_bond(in: VO) -> @location(0) vec4<f32> { return in.color; }
 `;
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  Compute shader 
+//  Compute shader
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const wgslCode = `
@@ -4427,7 +4470,7 @@ const ctx = canvas.getContext('2d');
 let currentEngine = 'cpu';
 const cpuSim = new MD2D_CPU();
 const gpuSim = new MD2D_WebGPU();
-let sim = cpuSim; 
+let sim = cpuSim;
 let running = false;
 let rafId = null;
 
@@ -4823,12 +4866,7 @@ async function loadSimState(json) {
     // ── 5. Upload to GPU and render ────────────────────────────────────────
     if (currentEngine === 'gpu' && gpuSim.ready) {
         gpuSim.uploadFromCPU(cpuSim);
-        gpuSim.x = cpuSim.x; gpuSim.y = cpuSim.y;
-        gpuSim.vx = cpuSim.vx; gpuSim.vy = cpuSim.vy;
-        gpuSim.type = cpuSim.type; gpuSim.N = cpuSim.N;
-        gpuSim.charge = cpuSim.charge;
-        gpuSim.nBonds = cpuSim.nBonds; gpuSim.bondI = cpuSim.bondI; gpuSim.bondJ = cpuSim.bondJ;
-        gpuSim.nAngles = cpuSim.nAngles; gpuSim.molIdPerParticle = cpuSim.molIdPerParticle;
+        _gpuAdoptCpuArrays(cpuSim);   // re-point gpuSim's arrays at cpuSim's live ones
         sim = gpuSim;
         if (N > 0) {
             gpuCanvas.style.display = 'block';
@@ -4886,8 +4924,7 @@ async function importMoleculeFile(file) {
     if (nameField) nameField.value = entry.name;
 
     // Add to speciesTable. ratio = target molecule count (molar ratio).
-    // Default 1 mol; user can raise/lower. Bead cost (nBeads) shown read-only in the UI.
-    const importNBeads = entry.positions ? entry.positions.length : 1;
+    // Default 1 mol; user can raise/lower.
     speciesTable.push({ name: entry.name, kind: 'custom', source: 'import',
                         customIdx: customMolDefs.length - 1, ratio: 1, color });
 
@@ -5063,68 +5100,6 @@ async function _saveSelectionAsAssembly() {
     speciesTable.push({ name, kind: 'custom', source: 'assembly',
                         customIdx: customMolDefs.length - 1, ratio: 1, color });
     buildSpeciesTableUI();
-}
-
-// Delete all particles whose molIdPerParticle matches targetMolId.
-async function _deleteByMolId(targetMolId) {
-    await _prepareForEdit();
-    const del = new Set();
-    for (let i = 0; i < cpuSim.N; i++) {
-        if (cpuSim.molIdPerParticle && cpuSim.molIdPerParticle[i] === targetMolId) del.add(i);
-    }
-    if (del.size === 0) { _finalizeEdit(); return; }
-    // Reuse _deleteSelection logic inline
-    const remap = new Int32Array(cpuSim.N).fill(-1);
-    let newIdx = 0;
-    for (let i = 0; i < cpuSim.N; i++) if (!del.has(i)) remap[i] = newIdx++;
-    const newN = newIdx;
-    const nx  = new Float32Array(newN), ny  = new Float32Array(newN);
-    const nvx = new Float32Array(newN), nvy = new Float32Array(newN);
-    const nfx = new Float32Array(newN), nfy = new Float32Array(newN);
-    const nt  = new Int8Array(newN);
-    const nq  = new Float32Array(newN);   // charge follows type through reindex
-    const nm  = cpuSim.molIdPerParticle ? new Uint32Array(newN).fill(0xFFFFFFFF) : null;
-    for (let i = 0; i < cpuSim.N; i++) {
-        if (del.has(i)) continue;
-        const ni = remap[i];
-        nx[ni] = cpuSim.x[i]; ny[ni] = cpuSim.y[i];
-        nvx[ni]= cpuSim.vx[i]; nvy[ni]= cpuSim.vy[i];
-        nt[ni] = cpuSim.type ? cpuSim.type[i] : 0;
-        nq[ni] = cpuSim.charge ? cpuSim.charge[i] : 0;
-        if (nm && cpuSim.molIdPerParticle) nm[ni] = cpuSim.molIdPerParticle[i];
-    }
-    cpuSim.N = newN; cpuSim.x = nx; cpuSim.y = ny; cpuSim.vx = nvx; cpuSim.vy = nvy;
-    cpuSim.fx = nfx; cpuSim.fy = nfy; cpuSim.next = new Int32Array(newN);
-    cpuSim.type = nt; cpuSim.charge = nq; if (nm) cpuSim.molIdPerParticle = nm;
-    const newBonds = [], newBPids = [];
-    for (let b = 0; b < (cpuSim.nBonds || 0); b++) {
-        const bi = remap[cpuSim.bondI[b]], bj = remap[cpuSim.bondJ[b]];
-        if (bi >= 0 && bj >= 0) { newBonds.push([bi, bj]); newBPids.push(cpuSim.bondParamId ? cpuSim.bondParamId[b] : 0); }
-    }
-    cpuSim.nBonds = newBonds.length;
-    cpuSim.bondI  = new Int32Array(Math.max(1, cpuSim.nBonds));
-    cpuSim.bondJ  = new Int32Array(Math.max(1, cpuSim.nBonds));
-    cpuSim.bondParamId = new Uint32Array(Math.max(1, cpuSim.nBonds));
-    for (let b = 0; b < newBonds.length; b++) {
-        cpuSim.bondI[b] = newBonds[b][0]; cpuSim.bondJ[b] = newBonds[b][1]; cpuSim.bondParamId[b] = newBPids[b];
-    }
-    const newAngles = [], newAPids = [];
-    for (let a = 0; a < (cpuSim.nAngles || 0); a++) {
-        const ai = remap[cpuSim.angleI[a]], aj = remap[cpuSim.angleJ[a]], ak = remap[cpuSim.angleKarr[a]];
-        if (ai >= 0 && aj >= 0 && ak >= 0) { newAngles.push([ai, aj, ak]); newAPids.push(cpuSim.angleParamId ? cpuSim.angleParamId[a] : 0); }
-    }
-    cpuSim.nAngles = newAngles.length;
-    cpuSim.angleI  = new Int32Array(Math.max(1, cpuSim.nAngles));
-    cpuSim.angleJ  = new Int32Array(Math.max(1, cpuSim.nAngles));
-    cpuSim.angleKarr   = new Int32Array(Math.max(1, cpuSim.nAngles));
-    cpuSim.angleParamId = new Uint32Array(Math.max(1, cpuSim.nAngles));
-    for (let a = 0; a < newAngles.length; a++) {
-        cpuSim.angleI[a] = newAngles[a][0]; cpuSim.angleJ[a] = newAngles[a][1];
-        cpuSim.angleKarr[a] = newAngles[a][2]; cpuSim.angleParamId[a] = newAPids[a];
-    }
-    _rebuildExcl(cpuSim);
-    _selection = null; _selectionMode = null;
-    _finalizeEdit();
 }
 
 
@@ -5535,23 +5510,12 @@ let _beBondIdx    = -1;    // selected bond index
 let _beHoverBead  = -1;    // bead under pointer
 let _beHoverBond  = -1;    // bond under pointer
 let _beMouseSim   = null;  // pointer position in sim-space
-// ── Unified undo/redo: full-state snapshots, two-stack model (see below) ────
+// ── Unified undo/redo: full-state snapshots, two-stack model ────────────────
+// See the History object and capture()/restore() below. The stacks live inside
+// History; only the shared depth limit is declared here.
 const _UNDO_DEPTH = 5;     // max snapshots kept per stack
-let _undoStack    = [];    // pre-mutation states we can step back to
-let _redoStack    = [];    // states we can step forward to (cleared on new edit)
 
 // ── Enter / exit ──────────────────────────────────────────────────────────
-async function _enterBondEdit() {
-    if (running) return;
-    // Ensure CPU positions are fresh on GPU path
-    if (currentEngine === 'gpu' && gpuSim.ready) await gpuSim._fullReadback();
-    _beA        = -1; _beBondIdx = -1;
-    _beHoverBead = -1; _beHoverBond = -1;
-    setMode('bond');
-    _updateInspectBar();
-    _drawEditOverlay();
-}
-
 function _exitBondEdit() {
     _beA = -1; _beBondIdx = -1;
     const ib=document.getElementById('inspect-bar'); if(ib) ib.style.display='none';
@@ -5564,18 +5528,106 @@ function _exitBondEdit() {
 // One snapshot shape, one capture, one restore. A snapshot is a full deep copy
 // of the simulation: particles (N, positions, velocities, types, charge, molIds)
 // AND topology (bonds, angles, param tables, exclusions). Every mutating action
-// calls _checkpoint() *before* it mutates, which stores the pre-mutation state on
-// the undo stack and discards the redo stack. Undo pops the undo stack, banks the
-// current state on the redo stack, and applies the popped snapshot; redo mirrors
-// it. Because snapshots are always full, there is exactly one restore path —
-// _applyState — and no branching on "what kind of edit was this". Clear and Run
-// checkpoint too, so undo always steps back one action, including over a clear.
+// calls History.checkpoint() (via _checkpoint/_pushUndo) *before* it mutates,
+// banking the pre-mutation state and discarding the redo stack. History.undo/redo
+// step between banked states via restore(). Because snapshots are always full,
+// there is exactly one restore path — restore() — and no branching on "what kind
+// of edit was this". Clear and Run checkpoint too, so undo always steps back one
+// action, including over a clear.
+//
+// The pieces, each with a single responsibility:
+//   capture()              → opaque snapshot of the whole world
+//   restore(snap)          → make the world equal a snapshot (owns quiescing)
+//   History                → the two stacks; checkpoint/undo/redo only
+//   _quiesceForRestore()   → settle the live UI before a swap
+//   cpuSim._adoptArrays()  → resize all per-particle arrays to a target N
+//   _gpuAdoptCpuArrays()   → re-point gpuSim's arrays at cpuSim's after upload
 
-// Build a full deep-copy snapshot of cpuSim. The single source of truth for
-// snapshot shape — _applyState reads exactly these fields back.
-function _snapState() {
+// Deep-clone a MolDef structurally (NOT via toJSON round-trip, which is lossy:
+// toJSON drops bond.sigmaMixForR0 and quantises angles). Preserves every field
+// so a customMolDef restored from a snapshot is byte-identical to the original.
+function _cloneMolDef(def) {
+    const d = new MolDef({
+        name:        def.name,
+        nBeads:      def.nBeads,
+        beadTypes:   Array.from(def.beadTypes || []),
+        beadCharges: Array.from(def.beadCharges || []),
+    });
+    d.bonds      = (def.bonds      || []).map(b => ({ ...b }));
+    d.angles     = (def.angles     || []).map(a => ({ ...a }));
+    d.exclusions = (def.exclusions || []).map(e => ({ ...e }));
+    return d;
+}
+
+// Capture the "world envelope": everything a load restores that lives OUTSIDE
+// cpuSim — UI inputs, species ratios, polymer defs, custom molecules, camera.
+// Mirrors loadSimState's restore set so undo across a load reverts the whole
+// world (B back to A's tail), not just the particle arrays. Uses structural
+// clones of live objects (not file JSON) so nothing is lossy or aliased.
+function _snapWorld() {
+    const ui = {};
+    for (const { id, type } of URL_PARAMS) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        ui[id] = (type === 'checkbox') ? el.checked : el.value;
+    }
+    return {
+        ui,
+        species: speciesTable.slice(0, 8).map(s => ({ ratio: s.ratio })),
+        polymers: polymerData.map(pd => ({
+            ratio:       pd.ratio,
+            chainLength: pd.chainLength,
+            bondK:       pd.bondK,
+            angleK:      pd.angleK,
+            theta0:      pd.theta0,                  // radians, kept exact
+            chainTypes:   pd.chainTypes.slice(),
+            chainCharges: pd.chainCharges.slice(),
+            chainAngles:  pd.chainAngles.slice(),
+        })),
+        customMolDefs: customMolDefs.map(e => ({
+            name:      e.name,
+            molId:     e.molId,
+            source:    e.source,
+            color:     e.color,
+            positions: e.positions ? e.positions.map(p => ({ ...p })) : e.positions,
+            molDef:    _cloneMolDef(e.molDef),
+        })),
+        nextMolId: _nextMolId,
+        camera:    { x: camera.x, y: camera.y, zoom: camera.zoom },
+    };
+}
+
+// Build a full deep-copy snapshot of cpuSim PLUS the world envelope. The single
+// source of truth for snapshot shape — restore() reads exactly these fields
+// back. withBaseline:true nests a core-only snapshot (no further baseline) under
+// .resetBaseline so undo across a load also reverts the Reset target. The flag
+// terminates that self-reference at depth 1.
+//
+// A snapshot is an OPAQUE VALUE: nothing outside capture()/restore() reads or
+// writes its fields. capture() makes one; restore() makes the world equal one.
+function capture({ withBaseline = true } = {}) {
     const c = cpuSim;
     return {
+        world:           _snapWorld(),
+        resetBaseline:   withBaseline ? capture({ withBaseline: false }) : null,
+        // Physics scalar params that Run/_setupCells/_buildSigmaMatrices depend on.
+        // Snapshotting them makes a state self-contained: restore is pure data
+        // assignment, with no re-derivation from the live DOM (which caused stale
+        // cell-grid / sigma state when undoing across a load).
+        params: {
+            T: c.T, mass: c.mass, dt: c.dt,
+            massPerType:  c.massPerType  ? [...c.massPerType]  : null,
+            sigmaPerType: c.sigmaPerType ? [...c.sigmaPerType] : null,
+            epsMatrix:    c.epsMatrix    ? c.epsMatrix.map(r => [...r]) : null,
+            rcCut: c.rcCut, maxPerCell: c.maxPerCell, spacingFactor: c.spacingFactor,
+            r0Scale: c.r0Scale,
+            gravityOn: c.gravityOn, gravity: c.gravity,
+            coulombK: c.coulombK, coulombAlpha: c.coulombAlpha,
+            potentialType: c.potentialType,
+            mieM: c.mieM, mieN: c.mieN, mieC: c.mieC,
+            wfRwell: c.wfRwell, wfSigma: c.wfSigma, wfMu: c.wfMu, wfNu: c.wfNu,
+            integratorType: c.integratorType, tauT: c.tauT, gamma: c.gamma,
+        },
         N:               c.N,
         stepCount:       c.stepCount,
         L:               c.L,
@@ -5601,23 +5653,110 @@ function _snapState() {
     };
 }
 
-// Restore a snapshot built by _snapState. The ONLY restore path. Must not push
-// any checkpoint itself (callers manage the stacks). Rebuilds exclusion CSR
-// arrays from the restored bondExclude set, then re-points/uploads to the engine.
-async function _applyState(s) {
+// Restore the world envelope captured by _snapWorld. Mirrors loadSimState's
+// UI/species/polymer/customMolDef/camera restore + the same sync chain, so
+// undoing across a load rebuilds the whole world, not just cpuSim. Must run
+// before the engine upload in restore() (the sync chain reads UI back into cpuSim).
+function _applyWorld(w) {
+    if (!w) return;
+    // 1. UI inputs (+ mirror to paired -s sliders, as loadSimState does)
+    for (const { id, type } of URL_PARAMS) {
+        const v = w.ui[id];
+        if (v === undefined || v === null) continue;
+        const el = document.getElementById(id);
+        if (!el) continue;
+        if (type === 'checkbox') el.checked = !!v;
+        else {
+            el.value = v;
+            const slider = document.getElementById(id.replace(/-n$/, '-s'));
+            if (slider) slider.value = v;
+        }
+    }
+    // 2. Species ratios (built-in slots 0-7)
+    (w.species || []).forEach((s, i) => {
+        if (i < 8 && speciesTable[i]) speciesTable[i].ratio = s.ratio ?? 0;
+    });
+    // 3. polymerData
+    (w.polymers || []).forEach((src, pi) => {
+        if (pi >= 4) return;
+        const pd = polymerData[pi];
+        pd.ratio       = src.ratio       ?? 0;
+        pd.chainLength = src.chainLength ?? 2;
+        pd.bondK       = src.bondK       ?? 100;
+        pd.angleK      = src.angleK      ?? 10;
+        pd.theta0      = src.theta0      ?? Math.PI;   // stored as radians
+        if (src.chainTypes)   src.chainTypes.forEach((v, i)   => { pd.chainTypes[i]   = v; });
+        if (src.chainCharges) src.chainCharges.forEach((v, i) => { pd.chainCharges[i] = v; });
+        if (src.chainAngles)  src.chainAngles.forEach((v, i)  => { pd.chainAngles[i]  = v; });
+    });
+    // 4. Custom molecule defs — rebuild speciesTable slots 8+ from the snapshot
+    speciesTable.splice(8, speciesTable.length - 8);
+    customMolDefs.length = 0;
+    (w.customMolDefs || []).forEach(e => {
+        const entry = { name: e.name, molDef: _cloneMolDef(e.molDef),
+                        positions: e.positions ? e.positions.map(p => ({ ...p })) : e.positions,
+                        molId: e.molId, color: e.color, source: e.source };
+        customMolDefs.push(entry);
+        speciesTable.push({ name: e.name, kind: 'custom', source: e.source,
+                            customIdx: customMolDefs.length - 1, ratio: 0, color: e.color });
+    });
+    _nextMolId = w.nextMolId ?? _nextMolId;
+    buildSpeciesTableUI();
+    // 5. Sync chain — identical to loadSimState's
+    for (let pi = 0; pi < 4; pi++) syncPolymerToMolDef(pi);
+    syncPolymerDataToVisible();
+    applyIntegratorPanels();
+    applyIntegratorParams();
+    syncPotentialPanels();
+    // 6. Camera
+    if (w.camera) {
+        camera.x = w.camera.x ?? camera.x;
+        camera.y = w.camera.y ?? camera.y;
+        camera.zoom = w.camera.zoom ?? camera.zoom;
+    }
+}
+
+// Make the world equal a snapshot built by capture(). The ONLY restore path.
+// Quiesces the live UI first (stop loop, drop ghost), then applies the snapshot
+// as pure data. Must NOT touch the undo/redo stacks — callers (History) manage
+// those.
+async function restore(s, { adoptBaseline = true } = {}) {
+    await _quiesceForRestore();   // stop the loop + drop any live ghost before the swap
     await _prepareForEdit();   // sync GPU→cpuSim so the swap operates on settled state
+    // Restore the world envelope (UI/species/polymer/customMolDef/camera) first so the
+    // DOM reflects the restored state and the Reset target follows the load boundary.
+    // resetBaseline is null for core-only (baseline) snapshots.
+    _applyWorld(s.world);
+    // Adopt the snapshot's stored Reset target only on the undo/redo path, where
+    // crossing a load boundary must move the baseline with it. The reset path passes
+    // adoptBaseline:false and applies a core-only baseline (resetBaseline:null) —
+    // adopting that would wipe the baseline we just reset onto.
+    if (adoptBaseline && s.resetBaseline !== undefined) _resetBaseline = s.resetBaseline;
     const c = cpuSim;
-    c.N               = s.N;
+    // Restore physics scalar params from the snapshot (NOT from the DOM). This is
+    // what makes a restore self-contained and order-independent: _setupCells and
+    // _buildSigmaMatrices below read these off cpuSim, not the live inputs.
+    const pr = s.params;
+    if (pr) {
+        c.T = pr.T; c.mass = pr.mass; c.dt = pr.dt;
+        if (pr.massPerType)  c.massPerType  = [...pr.massPerType];
+        if (pr.sigmaPerType) c.sigmaPerType = [...pr.sigmaPerType];
+        if (pr.epsMatrix)    c.epsMatrix    = pr.epsMatrix.map(r => [...r]);
+        c.rcCut = pr.rcCut; c.maxPerCell = pr.maxPerCell; c.spacingFactor = pr.spacingFactor;
+        c.r0Scale = pr.r0Scale;
+        c.gravityOn = pr.gravityOn; c.gravity = pr.gravity;
+        c.coulombK = pr.coulombK; c.coulombAlpha = pr.coulombAlpha;
+        c.potentialType = pr.potentialType;
+        c.mieM = pr.mieM; c.mieN = pr.mieN; c.mieC = pr.mieC;
+        c.wfRwell = pr.wfRwell; c.wfSigma = pr.wfSigma; c.wfMu = pr.wfMu; c.wfNu = pr.wfNu;
+        c.integratorType = pr.integratorType; c.tauT = pr.tauT; c.gamma = pr.gamma;
+        dtTarget = pr.dt;
+    }
     c.stepCount       = s.stepCount;
     c.L               = s.L; gpuSim.L = s.L;
-    c.x               = new Float32Array(s.x);
-    c.y               = new Float32Array(s.y);
-    c.vx              = new Float32Array(s.vx);
-    c.vy              = new Float32Array(s.vy);
-    c.type            = new Int8Array(s.type);
-    c.charge          = s.charge ? new Float32Array(s.charge) : new Float32Array(s.N);
-    c.molIdPerParticle= s.molIdPerParticle ? new Uint32Array(s.molIdPerParticle)
-                                           : new Uint32Array(s.N).fill(0xFFFFFFFF);
+    // Particle arrays (incl. the derived fx/fy/next, always freshly sized to N).
+    // Single source of truth for the resize — see MD2D_CPU._adoptArrays.
+    c._adoptArrays(s, s.N);
     c.nBonds          = s.nBonds;
     c.bondI           = s.bondI       ? new Int32Array(s.bondI)        : new Int32Array(1);
     c.bondJ           = s.bondJ       ? new Int32Array(s.bondJ)        : new Int32Array(1);
@@ -5631,7 +5770,9 @@ async function _applyState(s) {
     c.angleParamTable = s.angleParamTable.map(p => ({ ...p }));
     c.bondExclude     = new Set(s.bondExclude);
     _rebuildExcl(c);           // regenerate exclOffsets/exclList CSR from the set
+    c._buildSigmaMatrices();   // rebuild sigmaSqMix/wfAlphaMix from restored params
     c._setupCells();
+    c._computeForces();
     _pdragAdj = null; _invalidateDragAdj();
     _beA = -1; _beBondIdx = -1; _aeA = -1; _aeB = -1; _aeAngleIdx = -1;
     // The cached selection transform is frozen against the pre-restore positions —
@@ -5652,10 +5793,7 @@ async function _applyState(s) {
 
     if (currentEngine === 'gpu' && gpuSim.ready) {
         gpuSim.uploadFromCPU(c);
-        gpuSim.x = c.x; gpuSim.y = c.y; gpuSim.vx = c.vx; gpuSim.vy = c.vy;
-        gpuSim.type = c.type; gpuSim.charge = c.charge; gpuSim.N = c.N;
-        gpuSim.nBonds = c.nBonds; gpuSim.bondI = c.bondI; gpuSim.bondJ = c.bondJ;
-        gpuSim.nAngles = c.nAngles; gpuSim.molIdPerParticle = c.molIdPerParticle;
+        _gpuAdoptCpuArrays(c);   // re-point gpuSim's arrays at cpuSim's live ones
         sim = gpuSim;
         if (c.N > 0 && gpuCanvas.style.display === 'none') {
             gpuCanvas.style.display = 'block'; canvas.style.display = 'none';
@@ -5673,46 +5811,74 @@ async function _applyState(s) {
     _drawSelectionOverlay();   // clears + delegates to the active mode's widget draw
 }
 
-// Capture the current (pre-mutation) state onto the undo stack. Called by every
-// mutating action before it mutates. Discards the redo stack — a new edit forks
-// history. Kept name `_pushUndo` as an alias so existing call sites are unchanged.
-function _checkpoint() {
-    _undoStack.push(_snapState());
-    if (_undoStack.length > _UNDO_DEPTH) _undoStack.shift();
-    _redoStack.length = 0;
-    _refreshUndoBtn();
-}
-const _pushUndo = _checkpoint;   // legacy alias used throughout edit handlers
-
-async function _undo() {
-    if (_undoStack.length === 0) return;
-    if (running) await stopLoop();             // never undo into a live loop
-    if (interactionMode === 'place') {         // drop any live ghost first
-        await _removeGhostParticles(); setMode('select');
-    }
-    _redoStack.push(_snapState());   // bank current so redo can return here
-    if (_redoStack.length > _UNDO_DEPTH) _redoStack.shift();
-    await _applyState(_undoStack.pop());
-    _refreshUndoBtn();
-}
-
-async function _redo() {
-    if (_redoStack.length === 0) return;
+// ── Quiescing ────────────────────────────────────────────────────────────────
+// Settle the live UI before the world is read or swapped: stop a running loop
+// (which also reads GPU positions back into cpuSim) and drop any in-progress
+// placement ghost. Idempotent — safe to call more than once per operation; the
+// second call is a no-op. undo/redo/reset call it BEFORE capture() so the banked
+// "current state" reflects settled positions (not stale mid-run cpuSim arrays),
+// and restore() calls it again so any standalone restore is also safe.
+async function _quiesceForRestore() {
     if (running) await stopLoop();
-    if (interactionMode === 'place') {
-        await _removeGhostParticles(); setMode('select');
-    }
-    _undoStack.push(_snapState());
-    if (_undoStack.length > _UNDO_DEPTH) _undoStack.shift();
-    await _applyState(_redoStack.pop());
-    _refreshUndoBtn();
+    if (interactionMode === 'place') { await _removeGhostParticles(); setMode('select'); }
 }
+
+// ── History ──────────────────────────────────────────────────────────────────
+// The two-stack undo/redo model, sealed behind three operations. No code outside
+// this object touches a stack: depth-clamp, redo-clear, and button refresh all
+// live in here. checkpoint() banks the current state before a mutation; undo()/
+// redo() settle, bank the current state, then step to a banked state via
+// restore(). The stacks hold opaque snapshots from capture(); History never
+// inspects them.
+const History = {
+    _undo: [],
+    _redo: [],
+
+    _push(stack, snap) {
+        stack.push(snap);
+        if (stack.length > _UNDO_DEPTH) stack.shift();
+    },
+
+    // Bank the current (pre-mutation) state; a new edit forks history, so the
+    // redo stack is discarded.
+    checkpoint() {
+        this._push(this._undo, capture());
+        this._redo.length = 0;
+        _refreshUndoBtn();
+    },
+
+    async undo() {
+        if (this._undo.length === 0) return;
+        await _quiesceForRestore();           // settle BEFORE capturing current state
+        this._push(this._redo, capture());    // bank current so redo can return here
+        await restore(this._undo.pop());
+        _refreshUndoBtn();
+    },
+
+    async redo() {
+        if (this._redo.length === 0) return;
+        await _quiesceForRestore();           // settle BEFORE capturing current state
+        this._push(this._undo, capture());
+        await restore(this._redo.pop());
+        _refreshUndoBtn();
+    },
+
+    get canUndo() { return this._undo.length > 0; },
+    get canRedo() { return this._redo.length > 0; },
+};
+
+// Thin wrappers so the ~20 edit-handler call sites and the button/key bindings
+// stay unchanged. _checkpoint/_pushUndo are the historical names for the same op.
+const _checkpoint = () => History.checkpoint();
+const _pushUndo   = _checkpoint;
+const _undo       = () => History.undo();
+const _redo       = () => History.redo();
 
 function _refreshUndoBtn() {
     const u = document.getElementById('btn-undo');
-    if (u) { u.disabled = (_undoStack.length === 0); u.style.background = u.disabled ? '#888' : ''; }
+    if (u) { u.disabled = !History.canUndo; u.style.background = u.disabled ? '#888' : ''; }
     const r = document.getElementById('btn-redo');
-    if (r) { r.disabled = (_redoStack.length === 0); r.style.background = r.disabled ? '#888' : ''; }
+    if (r) { r.disabled = !History.canRedo; r.style.background = r.disabled ? '#888' : ''; }
     const rs = document.getElementById('btn-reset');
     if (rs) { rs.disabled = (_resetBaseline === null); rs.style.background = rs.disabled ? '#888' : ''; }
 }
@@ -5724,14 +5890,13 @@ function _refreshUndoBtn() {
 // history is preserved across loads (a misclicked Load can also be undone).
 let _resetBaseline = null;
 
-function _setResetBaseline() { _resetBaseline = _snapState(); _refreshUndoBtn(); }
+function _setResetBaseline() { _resetBaseline = capture({ withBaseline: false }); _refreshUndoBtn(); }
 
 async function _resetToBaseline() {
     if (!_resetBaseline) return;
-    if (running) await stopLoop();
-    if (interactionMode === 'place') { await _removeGhostParticles(); setMode('select'); }
-    _checkpoint();                       // current state stays undoable after Reset
-    await _applyState(_resetBaseline);
+    await _quiesceForRestore();                 // settle BEFORE capturing current state
+    History.checkpoint();                       // current state stays undoable after Reset
+    await restore(_resetBaseline, { adoptBaseline: false });
     // Land in the neutral global state, exactly like a freshly loaded file: drop any
     // edit mode and show the Global shortcut tab (rather than staying in, say, Angle).
     _clearSelection();
@@ -5753,12 +5918,6 @@ function _findBond(i, j) {
         if ((cpuSim.bondI[b]===i && cpuSim.bondJ[b]===j) ||
             (cpuSim.bondI[b]===j && cpuSim.bondJ[b]===i)) return b;
     return -1;
-}
-function _bondsOfBead(idx) {
-    const r=[];
-    for (let b=0;b<cpuSim.nBonds;b++)
-        if (cpuSim.bondI[b]===idx||cpuSim.bondJ[b]===idx) r.push(b);
-    return r;
 }
 
 function _simDist(i,j) {
@@ -5884,33 +6043,6 @@ function _beNearestBead(sx,sy) {
         if(d2<pr2&&d2<bestD2){bestD2=d2;bestI=i;}
     }
     return bestI;
-}
-function _beNearestBond(sx,sy) {
-    if(cpuSim.nBonds===0) return -1;
-    const W=1000, scale=W/cpuSim.L*camera.zoom;
-    const pr_val = parseFloat(document.getElementById('pr-n').value)||2;
-    const baseR  = 2 * pr_val * camera.zoom;
-    const spt    = cpuSim.sigmaPerType||[1,1,1,1];
-    let bestB=-1, bestD=Infinity;
-    for(let b=0;b<cpuSim.nBonds;b++) {
-        const i=cpuSim.bondI[b],j=cpuSim.bondJ[b];
-        const sigAvg = ((spt[(cpuSim.type?cpuSim.type[i]:0)&3]||1)+(spt[(cpuSim.type?cpuSim.type[j]:0)&3]||1))*0.5;
-        // Pick threshold = rendered bond half-width (2*pr*zoom*sigAvg) + generous margin,
-        // then convert from canvas-px back to sim units.
-        const threshPx  = Math.max(6, 2 * baseR * sigAvg);
-        const thresh    = threshPx / scale;
-        const L=cpuSim.L,h=L/2;
-        const xi=sim.x[i],yi=sim.y[i];
-        let dx=sim.x[j]-xi,dy=sim.y[j]-yi;
-        if(dx>h)dx-=L;if(dx<-h)dx+=L;if(dy>h)dy-=L;if(dy<-h)dy+=L;
-        const ex=sx-xi,ey=sy-yi;
-        const len2=dx*dx+dy*dy;
-        let t=len2>0?(ex*dx+ey*dy)/len2:0;
-        t=Math.max(0,Math.min(1,t));
-        const d=Math.sqrt((ex-t*dx)**2+(ey-t*dy)**2);
-        if(d<thresh&&d<bestD){bestD=d;bestB=b;}
-    }
-    return bestB;
 }
 
 let _liveUpdateTimer=null;
@@ -6038,15 +6170,6 @@ let _aeHoverBead = -1;    // bead under pointer
 let _aeMouseSim  = null;  // pointer position in sim-space
 
 // ── Enter / exit ──────────────────────────────────────────────────────────
-async function _enterAngleEdit() {
-    if (running) return;
-    if (currentEngine === 'gpu' && gpuSim.ready) await gpuSim._fullReadback();
-    _aeA = -1; _aeB = -1; _aeAngleIdx = -1; _aeHoverBead = -1;
-    setMode('angle');
-    _updateInspectBar();
-    _drawAngleOverlay();
-}
-
 function _exitAngleEdit() {
     _aeA = -1; _aeB = -1; _aeAngleIdx = -1;
     const ib = document.getElementById('inspect-bar'); if (ib) ib.style.display = 'none';
@@ -6855,16 +6978,6 @@ async function _handleBondEditClick(e) {
     _updateInspectBar(); _drawEditOverlay();
 }
 
-function _selBBox() {
-    if (!_selection || _selection.size === 0) return null;
-    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-    for (const i of _selection) {
-        if (sim.x[i] < x0) x0 = sim.x[i]; if (sim.x[i] > x1) x1 = sim.x[i];
-        if (sim.y[i] < y0) y0 = sim.y[i]; if (sim.y[i] > y1) y1 = sim.y[i];
-    }
-    return { x0, x1, y0, y1 };
-}
-
 // ── Copy ──────────────────────────────────────────────────────────────────────
 function _copySelection() {
     if (!_selection || _selection.size === 0) return;
@@ -6951,19 +7064,12 @@ function _rebuildExcl(s) {
 
 // ── GPU → CPU state copy ──────────────────────────────────────────────────────
 // Copies every simulation array from gpuSim into cpuSim after a _fullReadback().
-// Add new arrays here if the GPU sim gains new per-particle fields.
+// Per-particle arrays go through _adoptArrays (the single resize path); topology,
+// exclusions, and scalars are copied here. Add new per-particle fields to
+// _adoptArrays; add new topology/scalar fields here.
 function syncCPUfromGPU() {
     const g = gpuSim, c = cpuSim;
-    c.N            = g.N;
-    c.x            = new Float32Array(g.x);
-    c.y            = new Float32Array(g.y);
-    c.vx           = new Float32Array(g.vx);
-    c.vy           = new Float32Array(g.vy);
-    c.fx           = new Float32Array(g.N);
-    c.fy           = new Float32Array(g.N);
-    c.next         = new Int32Array(g.N);
-    c.type         = new Int8Array(g.type);
-    c.charge       = g.charge ? new Float32Array(g.charge) : new Float32Array(g.N);
+    c._adoptArrays(g, g.N);   // x/y/vx/vy/type/charge/molId + fresh fx/fy/next, sized to N
     c.coulombK     = g.coulombK     ?? c.coulombK     ?? 1.0;
     c.coulombAlpha = g.coulombAlpha ?? c.coulombAlpha ?? 1.0;
     c.nBonds       = g.nBonds;
@@ -6978,14 +7084,26 @@ function syncCPUfromGPU() {
     c.exclOffsets  = g.exclOffsets  ? new Uint32Array(g.exclOffsets) : new Uint32Array(g.N + 1);
     c.exclList     = g.exclList     ? new Uint32Array(g.exclList)    : new Uint32Array(1);
     c.bondExclude  = g.bondExclude  ? new Set(g.bondExclude)         : new Set();
-    c.molIdPerParticle = g.molIdPerParticle
-        ? new Uint32Array(g.molIdPerParticle) : new Uint32Array(g.N).fill(0xFFFFFFFF);
     c.stepCount        = g.stepCount;
     c.bondParamTable   = g.bondParamTable  || [];
     c.angleParamTable  = g.angleParamTable || [];
 }
 
 // ── Prepare / finalise edit (handles CPU↔GPU sync) ────────────────────────────
+
+// After gpuSim.uploadFromCPU(c), the GPU buffers hold c's data but gpuSim's JS
+// array fields still point at its own (now-empty) arrays. Re-point them at c's
+// live arrays so the overlay, group-drag, and selection logic can read positions
+// via sim.x/y. Single source of truth for this re-point — used by every path
+// that uploads cpuSim → GPU (restore, finalize-edit, load). Adding a new
+// per-particle field means adding it here once, not in three places.
+function _gpuAdoptCpuArrays(c) {
+    gpuSim.x = c.x; gpuSim.y = c.y; gpuSim.vx = c.vx; gpuSim.vy = c.vy;
+    gpuSim.type = c.type; gpuSim.charge = c.charge; gpuSim.N = c.N;
+    gpuSim.nBonds = c.nBonds; gpuSim.bondI = c.bondI; gpuSim.bondJ = c.bondJ;
+    gpuSim.nAngles = c.nAngles; gpuSim.molIdPerParticle = c.molIdPerParticle;
+}
+
 async function _prepareForEdit() {
     if (running) stopLoop();
     // Only read back GPU state when gpuSim is actually the authoritative sim.
@@ -7002,14 +7120,7 @@ function _finalizeEdit() {
     cpuSim._setupCells();
     if (currentEngine === 'gpu' && gpuSim.ready) {
         gpuSim.uploadFromCPU(cpuSim);
-        // uploadFromCPU resets gpuSim.x/y/vx/vy to empty arrays; re-point them at cpuSim
-        // so the overlay and group-drag logic can read live positions via sim.x/y.
-        gpuSim.x   = cpuSim.x;   gpuSim.y    = cpuSim.y;
-        gpuSim.vx  = cpuSim.vx;  gpuSim.vy   = cpuSim.vy;
-        gpuSim.type = cpuSim.type; gpuSim.N   = cpuSim.N;
-        gpuSim.charge = cpuSim.charge;
-        gpuSim.nBonds = cpuSim.nBonds;   gpuSim.bondI = cpuSim.bondI; gpuSim.bondJ = cpuSim.bondJ;
-        gpuSim.nAngles = cpuSim.nAngles; gpuSim.molIdPerParticle = cpuSim.molIdPerParticle;
+        _gpuAdoptCpuArrays(cpuSim);   // re-point gpuSim's arrays at cpuSim's live ones
         sim = gpuSim;
         // After an N=0 init the CPU canvas was shown; switch back to GPU canvas when
         // the first particle is placed so the render is actually visible.
@@ -7514,23 +7625,6 @@ function _buildDragAdj(simObj) {
     return adj;
 }
 
-function _molMembersFrom(simObj, start, adj) {
-    if (!simObj.nBonds) return [start];
-    const visited = new Uint8Array(simObj.N);
-    visited[start] = 1;
-    const queue = [start];
-    for (let qi = 0; qi < queue.length; qi++)
-        for (const nb of adj[queue[qi]])
-            if (!visited[nb]) { visited[nb] = 1; queue.push(nb); }
-    return queue;
-}
-
-// PBC-safe centroid of a set of particle indices
-function _molCentroid(inds) {
-    const { x, y } = pbcCentroid(pbcUnwrapBFS(inds, sim));
-    return { x, y };
-}
-
 // Rotate all particles in inds around (cx,cy) by dtheta radians
 function _rotateMol(inds, cx, cy, dtheta) {
     const cos = Math.cos(dtheta), sin = Math.sin(dtheta);
@@ -7548,19 +7642,6 @@ function _screenToSim(mx, my) {
     const W = 1000, scale = W / sim.L * camera.zoom;
     const r = W / _csw;   // CSS px → internal canvas px ratio
     return { x: camera.x + (mx*r - W/2) / scale, y: camera.y + (my*r - W/2) / scale };
-}
-
-function _nearestParticle(sx, sy) {
-    const L = sim.L, half = L / 2;
-    const pickR2 = (2.0 * Math.max(...(sim.sigmaPerType || [1]))) ** 2;
-    let bestI = -1, bestD2 = Infinity;
-    for (let i = 0; i < sim.N; i++) {
-        let dx = sim.x[i] - sx; if (dx >  half) dx -= L; if (dx < -half) dx += L;
-        let dy = sim.y[i] - sy; if (dy >  half) dy -= L; if (dy < -half) dy += L;
-        const d2 = dx*dx + dy*dy;
-        if (d2 < pickR2 && d2 < bestD2) { bestD2 = d2; bestI = i; }
-    }
-    return bestI;
 }
 
 // GPU helpers: particle buffer stride = 8 × f32 = 32 bytes  [x,y,vx,vy,fx,fy,pad,type]
@@ -7640,45 +7721,6 @@ function reinitializeVelocities() {
     if (currentEngine === 'gpu') _gpuBulkWriteVelocities();
     if (!running) renderFrame();
     updateStats(sim);
-}
-
-// Shared logic: start a particle drag after positions are known to be fresh
-async function _tryStartParticleDrag(e) {
-    if (currentEngine === 'gpu' && gpuSim.ready) {
-        canvasWrapper.style.cursor = 'wait';
-        await gpuSim._fullReadback();
-        _updateCursor();
-    }
-    const rect = canvasWrapper.getBoundingClientRect();
-    const sp   = _screenToSim(e.clientX - rect.left, e.clientY - rect.top);
-
-    // If a selection is active, operate on the whole selection group
-    if (_selection && _selection.size > 0) {
-        const inds = [..._selection];
-        if (interactionMode === 'rotate') {
-            if (inds.length < 2) return;
-            _pdragCentroid = _molCentroid(inds);
-        }
-        dragState = DRAG.PARTICLE; _pdragInds = inds; _pdragPrev = sp;
-        _armGesture();
-        return;
-    }
-
-    if (!_pdragAdj) _pdragAdj = _buildDragAdj(sim);
-    const hit = _nearestParticle(sp.x, sp.y);
-    if (hit < 0) return;
-
-    const inds = _molMembersFrom(sim, hit, _pdragAdj);
-
-    if (interactionMode === 'rotate') {
-        if (inds.length < 2) return;   // nothing to rotate for a monomer
-        _pdragCentroid = _molCentroid(inds);
-    }
-
-    dragState  = DRAG.PARTICLE;
-    _pdragInds = inds;
-    _pdragPrev = sp;
-    _armGesture();
 }
 
 canvasWrapper.addEventListener('mousedown', async (e) => {
@@ -8963,11 +9005,11 @@ async function startLoop() {
         advanceEaseDt();
 
         if (currentEngine === 'cpu') {
-			for (let s = 0; s < spf; s++) {
-				sim.step();
-				if (thOn && sim.stepCount % thInt === 0) sim.rescaleVelocities();
-			}
-			draw(sim, colorSpd, radius);
+            for (let s = 0; s < spf; s++) {
+                sim.step();
+                if (thOn && sim.stepCount % thInt === 0) sim.rescaleVelocities();
+            }
+            draw(sim, colorSpd, radius);
         } else {
             await sim.step(spf, thOn ? { enabled: true, interval: thInt } : null);
             sim.renderGPU(colorSpd, radius);
@@ -9014,7 +9056,6 @@ async function performFill() {
     // ── Shared setup: spacing, cell-list, custom-mol targets ─────────────
     // All of this runs for both the empty-box and fill-mode paths.
 
-    const FILL_REBUILD_STRIDE = 200; // eslint-disable-line no-unused-vars
     const WHL     = Math.pow(2, 1/6);
     const sigMax  = Math.max(...cpuSim.sigmaPerType);
     const spacing = (cpuSim.spacingFactor || 1.0) * WHL * sigMax;
@@ -9414,10 +9455,10 @@ engineSelect.addEventListener('change', async (e) => {
     const wasRunning = running; await stopLoop();
     _invalidateDragAdj();
     currentEngine = e.target.value;
-    
+
     if (currentEngine === 'gpu') {
         if (!gpuSim.ready) {
-            try { 
+            try {
                 await gpuSim.initDevice();
                 await gpuSim.initRender(gpuCanvas);
             } catch(err) {
@@ -9428,7 +9469,7 @@ engineSelect.addEventListener('change', async (e) => {
             }
         }
         document.getElementById('engine-warning').style.display = 'none';
-        
+
         cpuSim.N = sim.N; cpuSim.L = sim.L; cpuSim.x = sim.x; cpuSim.y = sim.y; cpuSim.vx = sim.vx; cpuSim.vy = sim.vy;
         gpuSim.uploadFromCPU(cpuSim);
         sim = gpuSim;
