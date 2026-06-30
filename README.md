@@ -272,7 +272,6 @@ Current version: **v1.2.3**
 
 Mocktini was built by Dr. Bart MH Bruininks as a passion project during his appointment at the Univeristy of Groningen (2026). It is a single-file, self-contained educational tool for exploring 2D soft matter physics interactively in the browser available under the MIT License.
 
-AI was heavily used in this project and therefore I think it is in place to make some shoutouts to projects that no doubt have influenced this software:
-GROMACS, OpenMM, CHARMM, OpenMD, AMBER, LAMMPS, NAMD, ESPResSo and many more. It should be clear that this project sits on the shoulder of giants.
+AI was heavily used in this project and therefore I think it is in place to make some shoutouts to projects that no doubt have influenced this software: [Interactive MD](https://physics.weber.edu/schroeder/md/), [GROMACS](https://www.gromacs.org/), [OpenMM](https://openmm.org/), [CHARMM](https://www.charmm.org/), [OpenMD](https://openmd.org/), [AMBER](https://ambermd.org), [LAMMPS](https://www.lammps.org/), [NAMD](https://www.ks.uiuc.edu/Research/namd/), [ESPResSo](https://espressomd.org/) and many more. It should be clear that this project sits on the shoulders of giants.
 
 Special thanks to SJ Marrink, AH de Vries, MSSH Westendorp, M Bzoflu and the rest of the MD group for supporting me during the development of this program - you are the best!
