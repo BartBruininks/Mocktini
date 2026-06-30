@@ -94,7 +94,7 @@ Mocktini supports three ways to build molecules:
 
 **Built-in Polymer Editor** — configure linear polymer chains with controls for chain length, per-bead types, per-bead charge, bond stiffness *k*, rest length *r*₀, bending stiffness, and equilibrium angle *θ*₀ (which can vary per bead for non-uniform chains).
 
-**Interactive Assembly** — use Bond Edit and Angle Edit modes to connect individual particles already in the simulation into custom structures by clicking, then export the result as a molecule file.
+**Interactive Assembly** — use Bond Edit and Angle Edit modes to connect individual particles already in the simulation into custom structures by clicking, then export the result as a molecule file. When a group of particles is selected, both modes also expose a **batch panel**: write a rest length / stiffness to every bond (or angle) in the selection at once, snap them all to the current geometry, or use **Autobond** / **Autoangle** to generate topology automatically — Autobond bonds every selected pair within the chosen distance, and Autoangle creates an angle across every bonded triple inside the selection. This makes it practical to wire up a large assembly in a few clicks rather than bond-by-bond.
 
 **Import from file** — load a molecule definition from a JSON file. Imported molecules appear in the species list and can be placed, mixed with other species, edited, and copied.
 
@@ -151,7 +151,8 @@ The GPU path uses the same force expressions as the CPU path — results are phy
 ### Simulation Settings
 - **Fill** — populate the box with particles on a regular grid at the current N and species ratios (no retries)
 - **Clear** — remove all particles from the box and set the box size
-- **Reset to Last** — undo the last Run by reverting particle positions and velocities to what they were before you hit Run, or made any topology/position changes; useful for restarting when the system explodes
+- **Undo / Redo** — step backwards and forwards through your last actions (up to 5), using the **Undo** / **Redo** buttons or **Ctrl+Z** / **Ctrl+Shift+Z**. History covers edits, placements, moves, Clear, Load, and Run, so you can always step back one action — including undoing a run that exploded, or a misclicked Load.
+- **Reset** — return to the starting point: the last loaded state file, or the initial fill if nothing was loaded. Reset is itself undoable, so a misclicked Reset can be stepped back like any other action.
 - **Steps per frame** — how many MD steps to compute before redrawing
 - **Integrator** — choose Velocity Verlet or Stochastic Dynamics
 - **T (target temperature)** — the temperature the thermostat aims for
@@ -194,6 +195,10 @@ Mocktini has several mouse interaction modes, switchable via the mode bar or wit
 | **Particle** | Rubber-band select individual beads; set their **type** or **charge** via the inspect bar (or quick-set type with keys 0–3) |
 
 Selected bonds and angles display their current length or angle in real time, and you can snap the value to the current geometry with the **⌖ snap** button. In Particle mode the inspect bar shows the selected beads' type and charge, which you can edit directly with the **Apply** and **Set** buttons.
+
+When you enter Bond Edit or Angle Edit mode with a *selection* held (rather than clicking a single pair/triple), the inspect bar switches to a **batch panel** that acts on the whole selection: write a rest length or stiffness to every bond/angle at once (commit with **Enter**), snap them all to the current geometry, or run **Autobond** / **Autoangle** to create new topology across the selection in one step. It's the fastest way to turn a cluster of placed particles into a bonded molecule.
+
+> 📖 [Wiki: Building molecules interactively](wiki/Interactive-Assembly.md)
 
 ---
 
@@ -251,7 +256,7 @@ Mocktini uses semantic versioning (`MAJOR.MINOR.PATCH`):
 - **MINOR** — new user-visible feature
 - **PATCH** — bug fix, performance improvement, or annotation
 
-Current version: **v1.2.1**
+Current version: **v1.2.3**
 
 ---
 
