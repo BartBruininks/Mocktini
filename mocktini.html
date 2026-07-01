@@ -25,14 +25,8 @@ body {
     margin: 0 auto;
     background: #fafafa;
     color: #222;
-}
-
-h2 {
-    margin: 16px 0 0;
-    font-size: 1.15rem;
-    font-weight: 700;
-    color: #333;
-    letter-spacing: 0.02em;
+    box-sizing: border-box;
+    padding-bottom: 28px;   /* clearance for the fixed footer bar */
 }
 
 .main-container {
@@ -41,25 +35,47 @@ h2 {
     align-items: flex-start;
     width: 100%;
     padding: 16px 20px 20px;
+    box-sizing: border-box;
+    /* One screenful minus the footer, so the whole app + footer fit without a
+       page scrollbar. dvh excludes browser chrome (plain vh overshoots on many
+       browsers). The left column fills this height; the canvas gives up space. */
+    height: calc(100dvh - 52px);
 }
 
-.left-section { display: flex; flex-direction: column; gap: 12px; }
+/* Left column fills the container height; the below-canvas UI (stats/inspect/
+   shortcuts) keeps its natural height and the canvas flexes to whatever height
+   is left, staying square via aspect-ratio. No hardcoded vertical budget. */
+.left-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    height: 100%;
+    min-height: 0;   /* allow the flex children to shrink below content size */
+}
 
 /* ── Canvas wrapper (stacks CPU and GPU canvases) ──────────────────── */
 /*
-   Responsive sizing: fit the largest square that leaves room for
-   ─ right panel (340 px) + gap (20 px) + body padding (40 px) = 400 px width budget
-   ─ h2 title (~46 px) + top padding (16 px) + stats bar (~52 px)
-     + inspect row (~46 px) + shortcut panel (~112 px) + column gaps (36 px) = ~308 px height budget
-   Clamped to [400 px, 1400 px] so the canvas never gets unusably tiny or oversized.
+   The canvas is the flexible element: it shrinks to fill the height left over
+   after the stats bar, inspect row and shortcut panel take their natural size.
+   aspect-ratio:1 keeps it square; max-width caps it against the column width
+   (body is max-width:1200px, minus the 340px panel + gaps ≈ 800px available),
+   and a min keeps it usable on tiny screens (a page scrollbar returns only when
+   the viewport is too short to fit a min-size canvas plus the panels + footer).
 */
 .canvas-wrapper {
     position: relative;
-    flex-shrink: 0;
+    flex: 1 1 auto;
+    min-height: 360px;
+    /* On very tall/narrow windows the flexed height could exceed the column
+       width and make the square overflow horizontally; cap height to the width
+       budget (body max 1200px − 340px panel − gaps/padding ≈ 800px, but use the
+       live viewport too) so the square is always limited by the smaller axis. */
+    max-height: min(calc(100vw - 400px), 800px);
+    aspect-ratio: 1 / 1;
+    max-width: 100%;
+    align-self: center;
     border: 1px solid #ccc;
     background: #fafafa;
-    width:  clamp(400px, min(calc(100vw - 400px), calc(100vh - 312px)), 1400px);
-    height: clamp(400px, min(calc(100vw - 400px), calc(100vh - 312px)), 1400px);
 }
 .canvas-wrapper canvas {
     position: absolute;
@@ -154,7 +170,10 @@ h2 {
     display: flex;
     flex-direction: column;
     gap: 12px;
-    max-height: calc(100vh - 80px);
+    /* Reserve top padding (16px) + footer (~34px) + a little slack, using dvh so
+       browser chrome is excluded — keeps the panel's scroll area inside the
+       viewport and stops it from driving the page taller than the fold. */
+    max-height: calc(100dvh - 70px);
     overflow-y: auto;
     overflow-x: hidden;
     padding-right: 4px;
@@ -321,10 +340,19 @@ select.param-input:focus {
 input[type="checkbox"] { accent-color: var(--blue); }
 
 footer {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 100;
     font-size: 0.7rem;
     color: #bbb;
-    padding: 6px 0 18px;
+    padding: 6px 0 8px;
     letter-spacing: 0.04em;
+    text-align: center;
+    background: #fafafa;
+    border-top: 1px solid #eee;
+    pointer-events: auto;
 }
 
 footer a {
@@ -519,8 +547,6 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
 </style>
 </head>
 <body>
-
-<h2>Mocktini</h2>
 
 <div class="main-container">
 
@@ -886,6 +912,22 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
             </div>
         </div>
 
+        <!-- ── Autoremove (Place mode: clears overlapping molecules on drop) ── -->
+        <div class="control-group">
+            <h3>Autoremove</h3>
+            <div class="control-row checkbox-row"
+                title="When placing an assembly (Place mode), any existing molecule with a bead within the cutoff distance of a newly-dropped bead is deleted in full.">
+                <label>Remove overlapping on place</label>
+                <input type="checkbox" id="autoremove-cb" checked>
+            </div>
+            <div class="control-row"
+                title="Distance used for the overlap check. Clamped to the non-bonded cutoff (rc) so the existing cell list can be reused safely — values above rc are capped at rc.">
+                <label>Cutoff distance</label>
+                <input type="range" id="autoremove-s" min="0.1" max="8.0" step="0.1" value="1.0">
+                <input type="number" class="param-input" id="autoremove-n" value="1.0" step="0.1" min="0">
+            </div>
+        </div>
+
         <!-- ── Rendering (moved above Particles & Polymers) ────────────────── -->
         <div class="control-group">
             <h3>Rendering</h3>
@@ -1069,12 +1111,12 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
     </div>
 </div>
 
-<footer id="footer">Mocktini v1.2.3 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license · <a href="https://github.com/BartBruininks/Mocktini">GitHub</a></footer>
+<footer id="footer">Mocktini v1.3.0 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license · <a href="https://github.com/BartBruininks/Mocktini">GitHub</a></footer>
 
 <script>
 'use strict';
 // ════════════════════════════════════════════════════════════════════════════
-//  Mocktini - 2D Molecular Dynamics  —  v1.2.3
+//  Mocktini - 2D Molecular Dynamics  —  v1.3.0
 // ════════════════════════════════════════════════════════════════════════════
 //
 //  OVERVIEW
@@ -1177,7 +1219,8 @@ const URL_PARAMS = [
     {id:'coulombAlpha-n',type:'number'},
     {id:'colormode-select',type:'string'},
     {id:'integrator-select', type:'string'},
-    {id:'tauT-n', type:'number'}
+    {id:'tauT-n', type:'number'},
+    {id:'autoremove-cb', type:'checkbox'}, {id:'autoremove-n', type:'number'},
 ];
 
 const polymerData = Array.from({length: 4}, () => ({
@@ -1288,6 +1331,10 @@ let _ghostCount     = 0;     // number of ghost particles; live range is [_ghost
 // and persists across stamps so each newly spawned ghost keeps the running angle.
 // Reset to 0 when leaving placement mode (see _removeGhostParticles).
 let _placementRotation = 0;
+// Live set of particle indices that autoremove would delete if the current ghost
+// were dropped now. Recomputed as the ghost moves/rotates (see _refreshGhostVictims),
+// rendered greyed + red-tinted in both engines. null/empty = nothing doomed.
+let _ghostVictims = null;
 
 // Returns the CSS colour for a mol ID, or null if it's a free monomer.
 // Callers should fall back to the bead type colour when null is returned.
@@ -2770,10 +2817,16 @@ fn vs_main(@builtin(vertex_index) idx: u32, @builtin(instance_index) instance: u
     } else if (mode == 3u) { finalColor = chargeColor(charges[instance]);
     } else                 { finalColor = typeColor(pType); }
 
-    // Desaturate non-selected particles (selBuf < 0.5 means dimmed)
+    // Desaturate non-selected particles (selBuf < 0.5 means dimmed).
+    // A negative selBuf marks an autoremove victim: grey it out as usual, then
+    // blend toward red so it reads clearly as "will be removed on drop".
     if (selBuf[instance] < 0.5) {
         let lum = dot(finalColor.rgb, vec3<f32>(0.299, 0.587, 0.114));
-        finalColor = vec4<f32>(mix(finalColor.rgb, vec3<f32>(lum), 0.85), finalColor.a);
+        var dimmed = mix(finalColor.rgb, vec3<f32>(lum), 0.85);
+        if (selBuf[instance] < -0.5) {
+            dimmed = mix(dimmed, vec3<f32>(0.85, 0.15, 0.15), 0.55);
+        }
+        finalColor = vec4<f32>(dimmed, finalColor.a);
     }
 
     let sigma_i   = params.sigmaPerType[pType];
@@ -2880,7 +2933,11 @@ fn particleColor(idx: u32) -> vec4<f32> {
     } else                        { col = typeColor(u32(p.pType)); }
     if (selBuf[idx] < 0.5) {
         let lum = dot(col.rgb, vec3<f32>(0.299, 0.587, 0.114));
-        col = vec4<f32>(mix(col.rgb, vec3<f32>(lum), 0.85), col.a);
+        var dimmed = mix(col.rgb, vec3<f32>(lum), 0.85);
+        if (selBuf[idx] < -0.5) {
+            dimmed = mix(dimmed, vec3<f32>(0.85, 0.15, 0.15), 0.55);
+        }
+        col = vec4<f32>(dimmed, col.a);
     }
     return col;
 }
@@ -4151,7 +4208,10 @@ class MD2D_WebGPU {
     }
 
     // selectionSet: Set<int> of selected indices, or null (= no selection active = all full colour)
-    updateSelectionBuffer(selectionSet) {
+    // victimSet: optional Set<int> of autoremove-doomed indices, encoded as -1.0
+    // (a negative sentinel the shader reads as "grey + red tint"). Victims are
+    // always outside selectionSet, so the two never collide.
+    updateSelectionBuffer(selectionSet, victimSet = null) {
         if (!this.ready || !this.selectionBuffer) return;
         const data = new Float32Array(this.N);
         if (!selectionSet) {
@@ -4160,6 +4220,11 @@ class MD2D_WebGPU {
             // 0.0 for all by default; mark selected as 1.0
             for (const i of selectionSet) {
                 if (i >= 0 && i < this.N) data[i] = 1.0;
+            }
+        }
+        if (victimSet) {
+            for (const i of victimSet) {
+                if (i >= 0 && i < this.N) data[i] = -1.0;
             }
         }
         this.device.queue.writeBuffer(this.selectionBuffer, 0, data);
@@ -4938,10 +5003,9 @@ async function importMoleculeFile(file) {
 // movement and rotation reuses the existing _selectionFrame path (GPU, fast).
 async function enterPlacementMode(molEntry) {
     await _removeGhostParticles();        // clean up any previous ghost
-    _checkpoint();                        // pre-placement state is undoable (ghost not yet added)
     _placementMol = molEntry;
     _placementRotation = 0;               // fresh molecule starts unrotated
-    await _addGhostParticles(camera.x, camera.y);
+    await _addGhostParticles(camera.x, camera.y);   // checkpoints the pre-ghost state
     setMode('place');
     renderFrame();
 }
@@ -4956,6 +5020,15 @@ async function enterPlacementMode(molEntry) {
 async function _addGhostParticles(cx, cy) {
     if (!_placementMol) return;
     await _prepareForEdit();
+
+    // Checkpoint the settled pre-ghost state. This is the single undo boundary
+    // for a stamp: because a fresh ghost is spawned on entry AND after every
+    // confirm, this fires exactly once per stamp, capturing the world as it was
+    // before this stamp's ghost existed — so one undo reverts both the placed
+    // molecule and anything autoremove swept away, as a single unit. The ghost
+    // itself is never banked (this runs before the array growth below), and
+    // ghost teardown / autoremove are deliberately non-checkpointing.
+    _checkpoint();
 
     const cm   = _placementMol;
     const n    = cm.positions.length;
@@ -5041,40 +5114,12 @@ async function _addGhostParticles(cx, cy) {
     applySelectionFrame(_selectionFrame);
     _syncSelectionToGPU();
     if (currentEngine === 'gpu') _gpuWriteXY(_selectionFrame.indices);
+    _refreshGhostVictims();   // show the red-tint preview for the new ghost's spawn position
 }
 
-// Remove the live ghost particles from the sim (called on Escape or mode exit).
-async function _removeGhostParticles() {
-    if (_ghostBaseIndex === null) return;
-    const base  = _ghostBaseIndex;
-    const count = _ghostCount;
-    _ghostBaseIndex = null;
-    _ghostCount     = 0;
-    _placementMol   = null;
-    _placementRotation = 0;   // leaving placement mode resets the rotation tracker
-    _selection      = null;
-    _selectionFrame = null;
-    _syncSelectionToGPU();
-    await _deleteByIndexRange(base, count);
-}
-
-// Confirm current ghost placement: ghost becomes permanent, a fresh ghost is
-// added at the same position so the user can drop multiple copies.
-async function _confirmPlacement(simX, simY) {
-    if (!_placementMol || _ghostBaseIndex === null || !_selectionFrame) return;
-    // _placementRotation is the cumulative orientation and is already current
-    // (kept in sync by the scroll handler) — no need to re-derive it from the
-    // frame, whose .rotation only holds the delta since the last rebuild.
-    // The ghost particles already carry the canonical molId — nothing to rewrite.
-    // Just clear the ghost tracking so they are considered permanent.
-    _ghostBaseIndex = null;
-    _ghostCount     = 0;
-    _selection  = null; _selectionFrame = null;
-    _syncSelectionToGPU();
-    // Add a fresh ghost at the confirmed click position, keeping the cumulative rotation.
-    await _addGhostParticles(simX, simY);
-    renderFrame();
-}
+// _removeGhostParticles / _confirmPlacement now live further below, next to
+// _findAutoremoveVictims — _confirmPlacement needs that helper, so both moved
+// together rather than splitting the placement lifecycle across two spots.
 
 // Save the current selection as a named assembly entry for re-placement.
 async function _saveSelectionAsAssembly() {
@@ -5103,66 +5148,203 @@ async function _saveSelectionAsAssembly() {
 }
 
 
-// Delete a contiguous range of particles [base, base+count) by index.
-// Used by _removeGhostParticles; faster and more explicit than scanning by molId.
-async function _deleteByIndexRange(base, count) {
-    if (count <= 0) return;
-    await _prepareForEdit();
-    const end = base + count;
-    const remap = new Int32Array(cpuSim.N).fill(-1);
-    let newIdx = 0;
-    for (let i = 0; i < cpuSim.N; i++) {
-        if (i >= base && i < end) continue;
-        remap[i] = newIdx++;
-    }
+// Pure array surgery: remap every particle array (+ bonds/angles/exclusions)
+// to drop the indices in `delSet`. No side effects (no checkpoint, no
+// _prepareForEdit/_finalizeEdit, no UI) — callers own those. Returns the
+// old-index -> new-index remap (-1 for removed indices) in case a caller
+// needs it, though nothing currently does.
+function _compactByIndexSet(delSet) {
+    const c = cpuSim;
+    const remap  = new Int32Array(c.N).fill(-1);
+    let   newIdx = 0;
+    for (let i = 0; i < c.N; i++) if (!delSet.has(i)) remap[i] = newIdx++;
     const newN = newIdx;
+
     const nx  = new Float32Array(newN), ny  = new Float32Array(newN);
     const nvx = new Float32Array(newN), nvy = new Float32Array(newN);
     const nfx = new Float32Array(newN), nfy = new Float32Array(newN);
     const nt  = new Int8Array(newN);
     const nq  = new Float32Array(newN);   // charge follows type through reindex
-    const nm  = cpuSim.molIdPerParticle ? new Uint32Array(newN).fill(0xFFFFFFFF) : null;
-    for (let i = 0; i < cpuSim.N; i++) {
-        if (i >= base && i < end) continue;
+    const nm  = c.molIdPerParticle ? new Uint32Array(newN).fill(0xFFFFFFFF) : null;
+    for (let i = 0; i < c.N; i++) {
+        if (delSet.has(i)) continue;
         const ni = remap[i];
-        nx[ni] = cpuSim.x[i]; ny[ni] = cpuSim.y[i];
-        nvx[ni]= cpuSim.vx[i]; nvy[ni]= cpuSim.vy[i];
-        nt[ni] = cpuSim.type ? cpuSim.type[i] : 0;
-        nq[ni] = cpuSim.charge ? cpuSim.charge[i] : 0;
-        if (nm && cpuSim.molIdPerParticle) nm[ni] = cpuSim.molIdPerParticle[i];
+        nx[ni] = c.x[i]; ny[ni] = c.y[i];
+        nvx[ni]= c.vx[i]; nvy[ni]= c.vy[i];
+        nt[ni] = c.type ? c.type[i] : 0;
+        nq[ni] = c.charge ? c.charge[i] : 0;
+        if (nm && c.molIdPerParticle) nm[ni] = c.molIdPerParticle[i];
     }
-    cpuSim.N = newN; cpuSim.x = nx; cpuSim.y = ny; cpuSim.vx = nvx; cpuSim.vy = nvy;
-    cpuSim.fx = nfx; cpuSim.fy = nfy; cpuSim.next = new Int32Array(newN);
-    cpuSim.type = nt; cpuSim.charge = nq; if (nm) cpuSim.molIdPerParticle = nm;
+    c.N = newN; c.x = nx; c.y = ny; c.vx = nvx; c.vy = nvy;
+    c.fx = nfx; c.fy = nfy; c.next = new Int32Array(newN);
+    c.type = nt; c.charge = nq; if (nm) c.molIdPerParticle = nm;
+
     const newBonds = [], newBPids = [];
-    for (let b = 0; b < (cpuSim.nBonds || 0); b++) {
-        const bi = remap[cpuSim.bondI[b]], bj = remap[cpuSim.bondJ[b]];
-        if (bi >= 0 && bj >= 0) { newBonds.push([bi, bj]); newBPids.push(cpuSim.bondParamId ? cpuSim.bondParamId[b] : 0); }
+    for (let b = 0; b < (c.nBonds || 0); b++) {
+        const bi = remap[c.bondI[b]], bj = remap[c.bondJ[b]];
+        if (bi >= 0 && bj >= 0) { newBonds.push([bi, bj]); newBPids.push(c.bondParamId ? c.bondParamId[b] : 0); }
     }
-    cpuSim.nBonds = newBonds.length;
-    cpuSim.bondI  = new Int32Array(Math.max(1, cpuSim.nBonds));
-    cpuSim.bondJ  = new Int32Array(Math.max(1, cpuSim.nBonds));
-    cpuSim.bondParamId = new Uint32Array(Math.max(1, cpuSim.nBonds));
+    c.nBonds = newBonds.length;
+    c.bondI  = new Int32Array(Math.max(1, c.nBonds));
+    c.bondJ  = new Int32Array(Math.max(1, c.nBonds));
+    c.bondParamId = new Uint32Array(Math.max(1, c.nBonds));
     for (let b = 0; b < newBonds.length; b++) {
-        cpuSim.bondI[b] = newBonds[b][0]; cpuSim.bondJ[b] = newBonds[b][1]; cpuSim.bondParamId[b] = newBPids[b];
+        c.bondI[b] = newBonds[b][0]; c.bondJ[b] = newBonds[b][1]; c.bondParamId[b] = newBPids[b];
     }
+
     const newAngles = [], newAPids = [];
-    for (let a = 0; a < (cpuSim.nAngles || 0); a++) {
-        const ai = remap[cpuSim.angleI[a]], aj = remap[cpuSim.angleJ[a]], ak = remap[cpuSim.angleKarr[a]];
-        if (ai >= 0 && aj >= 0 && ak >= 0) { newAngles.push([ai, aj, ak]); newAPids.push(cpuSim.angleParamId ? cpuSim.angleParamId[a] : 0); }
+    for (let a = 0; a < (c.nAngles || 0); a++) {
+        const ai = remap[c.angleI[a]], aj = remap[c.angleJ[a]], ak = remap[c.angleKarr[a]];
+        if (ai >= 0 && aj >= 0 && ak >= 0) { newAngles.push([ai, aj, ak]); newAPids.push(c.angleParamId ? c.angleParamId[a] : 0); }
     }
-    cpuSim.nAngles = newAngles.length;
-    cpuSim.angleI  = new Int32Array(Math.max(1, cpuSim.nAngles));
-    cpuSim.angleJ  = new Int32Array(Math.max(1, cpuSim.nAngles));
-    cpuSim.angleKarr    = new Int32Array(Math.max(1, cpuSim.nAngles));
-    cpuSim.angleParamId = new Uint32Array(Math.max(1, cpuSim.nAngles));
+    c.nAngles = newAngles.length;
+    c.angleI  = new Int32Array(Math.max(1, c.nAngles));
+    c.angleJ  = new Int32Array(Math.max(1, c.nAngles));
+    c.angleKarr    = new Int32Array(Math.max(1, c.nAngles));
+    c.angleParamId = new Uint32Array(Math.max(1, c.nAngles));
     for (let a = 0; a < newAngles.length; a++) {
-        cpuSim.angleI[a] = newAngles[a][0]; cpuSim.angleJ[a] = newAngles[a][1];
-        cpuSim.angleKarr[a] = newAngles[a][2]; cpuSim.angleParamId[a] = newAPids[a];
+        c.angleI[a] = newAngles[a][0]; c.angleJ[a] = newAngles[a][1];
+        c.angleKarr[a] = newAngles[a][2]; c.angleParamId[a] = newAPids[a];
     }
-    _rebuildExcl(cpuSim);
-    _selection = null; _selectionMode = null;
+
+    _rebuildExcl(c);
+    return remap;
+}
+
+// Single entry point for "delete this set of particle indices". Wraps the
+// pure compaction above with the GPU-sync / undo bookkeeping every caller
+// needs. checkpoint:false is used for edits that shouldn't be independently
+// undoable on their own (ghost cleanup on Escape, autoremove deletions that
+// are folded into the enclosing placement-stamp checkpoint).
+async function _deleteIndexSet(delSet, { checkpoint = true } = {}) {
+    if (!delSet || delSet.size === 0) return null;
+    await _prepareForEdit();
+    if (checkpoint) _checkpoint();
+    const remap = _compactByIndexSet(delSet);
     _finalizeEdit();
+    return remap;
+}
+
+// Find, PBC-aware, every pre-existing particle within `cutoff` of any of the
+// `count` freshly-placed beads at [base, base+count), then expand each hit to
+// its full bonded molecule (molecular completion) so a partial overlap always
+// removes the whole molecule, never a lone bead.
+//
+// CONTRACT: cutoff is clamped to cpuSim.rcCut. This lets the query reuse the
+// real physics cell list (cpuSim.head/next, cell size >= rcCut) as-is via the
+// same 3x3 neighbour-cell ring _computeForces uses — a cutoff any larger than
+// rcCut could miss violators one cell further out, which the ring wouldn't
+// reach. Ghost beads are always appended at the tail (index >= base), so
+// skipping j >= base both excludes the stamp's own beads and any newer ghost
+// with no extra bookkeeping.
+function _findAutoremoveVictims(base, count, rawCutoff) {
+    const seeds = new Set();
+    const c = cpuSim;
+    const cutoff = Math.max(0, Math.min(rawCutoff, c.rcCut));
+    if (count <= 0 || cutoff <= 0) return seeds;
+
+    c._buildCells();   // fresh head/next for the current (post-stamp) N
+    const cut2 = cutoff * cutoff;
+    const nx = c.nx, ny = c.ny, cellSize = c.cellSize;
+
+    for (let bi = 0; bi < count; bi++) {
+        const i  = base + bi;
+        const cx = Math.floor(c.x[i] / cellSize);
+        const cy = Math.floor(c.y[i] / cellSize);
+        for (let dcx = -1; dcx <= 1; dcx++) {
+            const ncx = ((cx + dcx) % nx + nx) % nx;
+            for (let dcy = -1; dcy <= 1; dcy++) {
+                const ncy = ((cy + dcy) % ny + ny) % ny;
+                for (let j = c.head[ncx + ncy * nx]; j !== -1; j = c.next[j]) {
+                    if (j >= base) continue;   // own beads / any newer ghost
+                    const dx = c._pbc (c.x[i] - c.x[j]);
+                    const dy = c._pbcY(c.y[i] - c.y[j]);
+                    if (dx * dx + dy * dy < cut2) seeds.add(j);
+                }
+            }
+        }
+    }
+    return seeds.size ? _expandByBonds(seeds, _buildDragAdj(c)) : seeds;
+}
+
+// Recompute the live autoremove-victim preview for the current ghost position
+// and push it to the GPU buffer. Cheap enough to call on every ghost move: it
+// runs one cell-list pass over the ghost's beads (same query as the drop-time
+// check). No-op (and clears any stale highlight) when there's no ghost or
+// autoremove is off. Returns true if the victim set changed, so callers can
+// skip a redundant re-render.
+function _refreshGhostVictims() {
+    const prev = _ghostVictims;
+    let next = null;
+    if (_ghostBaseIndex !== null &&
+        document.getElementById('autoremove-cb')?.checked) {
+        const rawCutoff = parseFloat(document.getElementById('autoremove-n').value) || 0;
+        const v = _findAutoremoveVictims(_ghostBaseIndex, _ghostCount, rawCutoff);
+        next = v.size ? v : null;
+    }
+    // Cheap equality: same reference-null, or same size with every member shared.
+    const same = (prev === next) ||
+        (prev && next && prev.size === next.size && [...next].every(i => prev.has(i)));
+    _ghostVictims = next;
+    if (!same) _syncSelectionToGPU();
+    return !same;
+}
+
+// Remove the live ghost particles from the sim (called on Escape or mode exit).
+// A tracked ghost here is by definition UNCONFIRMED — _confirmPlacement clears
+// the tracking as it promotes a ghost, so anything still tracked was never
+// dropped. Its spawn banked a pre-ghost checkpoint (see _addGhostParticles);
+// since that ghost is now being thrown away, that checkpoint is a dead
+// duplicate of the current state and must be discarded, or it surfaces as a
+// no-op undo (the "first undo does nothing" bug).
+async function _removeGhostParticles() {
+    if (_ghostBaseIndex === null) return;
+    const base  = _ghostBaseIndex;
+    const count = _ghostCount;
+    _ghostBaseIndex = null;
+    _ghostCount     = 0;
+    _placementMol   = null;
+    _placementRotation = 0;
+    _selection      = null;
+    _selectionMode  = null;
+    _selectionFrame = null;
+    _ghostVictims   = null;   // drop any red-tint preview
+    _syncSelectionToGPU();
+    const range = new Set();
+    for (let i = base; i < base + count; i++) range.add(i);
+    await _deleteIndexSet(range, { checkpoint: false });   // ghost cleanup is never its own undo step
+    _discardLastCheckpoint();   // drop this ghost's now-dead spawn checkpoint
+}
+
+// Confirm current ghost placement: ghost becomes permanent, the previewed
+// autoremove victims (if any) are swept up, then a fresh ghost is added at the
+// same position so the user can drop multiple copies. No checkpoint here — the
+// undo boundary for a stamp is banked by _addGhostParticles when the ghost is
+// created (pre-ghost state), so one undo reverts both the placed molecule and
+// whatever autoremove removed, as a single unit.
+async function _confirmPlacement(simX, simY) {
+    if (!_placementMol || _ghostBaseIndex === null || !_selectionFrame) return;
+    // _placementRotation is the cumulative orientation and is already current
+    // (kept in sync by the scroll handler) — no need to re-derive it from the
+    // frame, whose .rotation only holds the delta since the last rebuild.
+    // The ghost particles already carry the canonical molId — nothing to rewrite.
+    // Just clear the ghost tracking so they are considered permanent.
+    _ghostBaseIndex = null;
+    _ghostCount     = 0;
+    _selection  = null; _selectionFrame = null;
+
+    // Delete exactly what the preview highlighted, so what the user saw greyed-
+    // red is precisely what gets removed. _ghostVictims was kept live by the
+    // move/rotate handlers; snapshot and clear it before compaction (its indices
+    // become stale once arrays are reindexed).
+    const victims = _ghostVictims;
+    _ghostVictims = null;
+    _syncSelectionToGPU();
+    if (victims && victims.size > 0) await _deleteIndexSet(victims, { checkpoint: false });
+
+    // Add a fresh ghost at the confirmed click position, keeping the cumulative rotation.
+    await _addGhostParticles(simX, simY);
+    renderFrame();
 }
 
 // ── Overlay canvas (rubber-band rect + grey-out, always on top) ───────────────
@@ -5462,18 +5644,27 @@ function _getParticlesInRect(x0, y0, x1, y1) {
     return out;
 }
 
-function _expandSelToMols(seeds) {
-    if (!_pdragAdj) _pdragAdj = _buildDragAdj(sim);
-    const vis   = new Set(seeds);
+// BFS-expand a seed index set outward along bond connectivity in `adj`
+// (an adjacency list as built by _buildDragAdj). Shared by the rubber-band
+// select-to-molecules expansion and the Place-mode autoremove check — both
+// want "grab everything bonded to this seed", just with different seeds
+// and different adjacency-list lifetimes.
+function _expandByBonds(seeds, adj) {
+    const out   = new Set(seeds);
     const queue = [...seeds];
     for (let qi = 0; qi < queue.length; qi++)
-        for (const nb of (_pdragAdj[queue[qi]] || []))
-            if (!vis.has(nb)) { vis.add(nb); queue.push(nb); }
-    return vis;
+        for (const nb of (adj[queue[qi]] || []))
+            if (!out.has(nb)) { out.add(nb); queue.push(nb); }
+    return out;
+}
+
+function _expandSelToMols(seeds) {
+    if (!_pdragAdj) _pdragAdj = _buildDragAdj(sim);
+    return _expandByBonds(seeds, _pdragAdj);
 }
 
 function _syncSelectionToGPU() {
-    if (currentEngine === 'gpu' && gpuSim.ready) gpuSim.updateSelectionBuffer(_selection);
+    if (currentEngine === 'gpu' && gpuSim.ready) gpuSim.updateSelectionBuffer(_selection, _ghostVictims);
 }
 
 function _clearSelection() {
@@ -5847,6 +6038,17 @@ const History = {
         _refreshUndoBtn();
     },
 
+    // Drop the most recent undo checkpoint without restoring it. Used when a
+    // checkpoint was banked speculatively for an action that was then abandoned,
+    // so the banked state is identical to the current one and would otherwise
+    // surface as a no-op undo. Placement uses this: every ghost spawn banks a
+    // pre-ghost checkpoint, but the trailing (never-confirmed) ghost of a
+    // session is discarded, making its checkpoint a dead duplicate of the
+    // current state — this pops exactly that.
+    discardLast() {
+        if (this._undo.length > 0) { this._undo.pop(); _refreshUndoBtn(); }
+    },
+
     async undo() {
         if (this._undo.length === 0) return;
         await _quiesceForRestore();           // settle BEFORE capturing current state
@@ -5871,6 +6073,7 @@ const History = {
 // stay unchanged. _checkpoint/_pushUndo are the historical names for the same op.
 const _checkpoint = () => History.checkpoint();
 const _pushUndo   = _checkpoint;
+const _discardLastCheckpoint = () => History.discardLast();
 const _undo       = () => History.undo();
 const _redo       = () => History.redo();
 
@@ -7224,66 +7427,8 @@ async function _pasteClipboard() {
 // ── Delete ────────────────────────────────────────────────────────────────────
 async function _deleteSelection() {
     if (!_selection || _selection.size === 0) return;
-    await _prepareForEdit();
-    _checkpoint();   // pre-delete state is undoable
-
-    const del     = _selection;
-    const remap   = new Int32Array(cpuSim.N).fill(-1);
-    let   newIdx  = 0;
-    for (let i = 0; i < cpuSim.N; i++) if (!del.has(i)) remap[i] = newIdx++;
-    const newN = newIdx;
-
-    const nx  = new Float32Array(newN), ny  = new Float32Array(newN);
-    const nvx = new Float32Array(newN), nvy = new Float32Array(newN);
-    const nfx = new Float32Array(newN), nfy = new Float32Array(newN);
-    const nt  = new Int8Array(newN);
-    const nq  = new Float32Array(newN);   // charge follows type through reindex
-    const nm  = cpuSim.molIdPerParticle ? new Uint32Array(newN).fill(0xFFFFFFFF) : null;
-    for (let i = 0; i < cpuSim.N; i++) {
-        if (del.has(i)) continue;
-        const ni = remap[i];
-        nx[ni] = cpuSim.x[i]; ny[ni] = cpuSim.y[i];
-        nvx[ni]= cpuSim.vx[i]; nvy[ni]= cpuSim.vy[i];
-        nt[ni] = cpuSim.type ? cpuSim.type[i] : 0;
-        nq[ni] = cpuSim.charge ? cpuSim.charge[i] : 0;
-        if (nm && cpuSim.molIdPerParticle) nm[ni] = cpuSim.molIdPerParticle[i];
-    }
-    cpuSim.N = newN; cpuSim.x = nx; cpuSim.y = ny; cpuSim.vx = nvx; cpuSim.vy = nvy;
-    cpuSim.fx = nfx; cpuSim.fy = nfy; cpuSim.next = new Int32Array(newN);
-    cpuSim.type = nt; cpuSim.charge = nq; if (nm) cpuSim.molIdPerParticle = nm;
-
-    const newBonds = [], newBPids = [];
-    for (let b = 0; b < (cpuSim.nBonds || 0); b++) {
-        const bi = remap[cpuSim.bondI[b]], bj = remap[cpuSim.bondJ[b]];
-        if (bi >= 0 && bj >= 0) { newBonds.push([bi, bj]); newBPids.push(cpuSim.bondParamId ? cpuSim.bondParamId[b] : 0); }
-    }
-    cpuSim.nBonds     = newBonds.length;
-    cpuSim.bondI      = new Int32Array(Math.max(1, cpuSim.nBonds));
-    cpuSim.bondJ      = new Int32Array(Math.max(1, cpuSim.nBonds));
-    cpuSim.bondParamId= new Uint32Array(Math.max(1, cpuSim.nBonds));
-    for (let b = 0; b < newBonds.length; b++) {
-        cpuSim.bondI[b] = newBonds[b][0]; cpuSim.bondJ[b] = newBonds[b][1];
-        cpuSim.bondParamId[b] = newBPids[b];
-    }
-
-    const newAngles = [], newAPids = [];
-    for (let a = 0; a < (cpuSim.nAngles || 0); a++) {
-        const ai = remap[cpuSim.angleI[a]], aj = remap[cpuSim.angleJ[a]], ak = remap[cpuSim.angleKarr[a]];
-        if (ai >= 0 && aj >= 0 && ak >= 0) { newAngles.push([ai, aj, ak]); newAPids.push(cpuSim.angleParamId ? cpuSim.angleParamId[a] : 0); }
-    }
-    cpuSim.nAngles     = newAngles.length;
-    cpuSim.angleI      = new Int32Array(Math.max(1, cpuSim.nAngles));
-    cpuSim.angleJ      = new Int32Array(Math.max(1, cpuSim.nAngles));
-    cpuSim.angleKarr   = new Int32Array(Math.max(1, cpuSim.nAngles));
-    cpuSim.angleParamId= new Uint32Array(Math.max(1, cpuSim.nAngles));
-    for (let a = 0; a < newAngles.length; a++) {
-        cpuSim.angleI[a] = newAngles[a][0]; cpuSim.angleJ[a] = newAngles[a][1];
-        cpuSim.angleKarr[a] = newAngles[a][2]; cpuSim.angleParamId[a] = newAPids[a];
-    }
-
-    _rebuildExcl(cpuSim);
+    await _deleteIndexSet(_selection);   // checkpoint defaults true — pre-delete state is undoable
     _selection = null; _selectionMode = null; _selectionFrame = null;
-    _finalizeEdit();
     // Refresh the mode stat label — it may still say "SEL N" from before the delete.
     setMode(interactionMode);
     _refreshSaveMolBtn();
@@ -7843,6 +7988,7 @@ window.addEventListener('mousemove', (e) => {
         _selectionFrame.ty = sp.y - _selectionFrame.corY;
         applySelectionFrame(_selectionFrame);
         if (currentEngine === 'gpu') _gpuWriteXY(_selectionFrame.indices);
+        _refreshGhostVictims();   // update which molecules would be swept at the new position
         renderFrame();
         return;
     }
@@ -8032,6 +8178,7 @@ canvasWrapper.addEventListener('wheel', e => {
             _selectionFrame.rotation = _placementRotation;
             applySelectionFrame(_selectionFrame);
             if (currentEngine === 'gpu') _gpuWriteXY(_selectionFrame.indices);
+            _refreshGhostVictims();   // rotation can change which molecules overlap
             renderFrame();
         }
         return;
@@ -8099,9 +8246,20 @@ setMode('camera');
 
 // Molecule color mode constants are defined in the palette section above.
 
+// Blend a desaturated (grey) CSS colour toward red — the CPU twin of the
+// shader's victim tint. Input is any 'rgb(r,g,b)' or '#rrggbb' string.
+function _victimTintCss(css) {
+    let r, g, b;
+    const m = css.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+    if (m) { r = +m[1]; g = +m[2]; b = +m[3]; }
+    else   { r = parseInt(css.slice(1,3),16); g = parseInt(css.slice(3,5),16); b = parseInt(css.slice(5,7),16); }
+    const RT = 217, GT = 38, BT = 38, t = 0.55;   // toward (0.85,0.15,0.15) at 55%
+    return `rgb(${Math.round(r+(RT-r)*t)},${Math.round(g+(GT-g)*t)},${Math.round(b+(BT-b)*t)})`;
+}
+
 // Returns the CSS color for particle i matching the GPU shader logic exactly.
 // Must be called after spd/maxSpd are computed if colorMode === 'vel'.
-function _cpuParticleColor(engine, i, colorMode, sel, spd, maxSpd) {
+function _cpuParticleColor(engine, i, colorMode, sel, spd, maxSpd, victims) {
     const ti    = (engine.type ? engine.type[i] : 0) & 3;
     const desat = sel && !sel.has(i);
     let css;
@@ -8115,6 +8273,7 @@ function _cpuParticleColor(engine, i, colorMode, sel, spd, maxSpd) {
     } else {
         css = _TYPE_COLORS[ti];
     }
+    if (victims && victims.has(i)) return _victimTintCss(_desatCssColor(css));
     return desat ? _desatCssColor(css) : css;
 }
 
@@ -8167,8 +8326,8 @@ function draw(engine, colorMode = 'type', radius = 2) {
                     if (dy >  0.5*L) dy -= L; if (dy < -0.5*L) dy += L;
                     const xj = xi + dx * scale, yj = yi + dy * scale;
 
-                    const colI = _cpuParticleColor(engine, i, colorMode, _selection, spd, maxSpd);
-                    const colJ = _cpuParticleColor(engine, j, colorMode, _selection, spd, maxSpd);
+                    const colI = _cpuParticleColor(engine, i, colorMode, _selection, spd, maxSpd, _ghostVictims);
+                    const colJ = _cpuParticleColor(engine, j, colorMode, _selection, spd, maxSpd, _ghostVictims);
                     if (colI === colJ) {
                         ctx.strokeStyle = colI;
                     } else {
@@ -8184,27 +8343,10 @@ function draw(engine, colorMode = 'type', radius = 2) {
             for (let i = 0; i < N; i++) {
                 const ti      = (engine.type ? engine.type[i] : 0) & 3;
                 const sigma_i = spt[ti] || 1;
-                const desat   = _selection && !_selection.has(i);
                 ctx.beginPath();
                 ctx.arc(engine.x[i] * scale + offX, engine.y[i] * scale + offY,
                         baseRadius * sigma_i, 0, 6.2832);
-                if (colorMode === 'vel') {
-                    const raw = speedColor(spd[i] / maxSpd);
-                    ctx.fillStyle = desat ? _desatCssColor(raw) : raw;
-                } else if (colorMode === 'charge') {
-                    const raw = chargeColorCss(engine.charge ? engine.charge[i] : 0);
-                    ctx.fillStyle = desat ? _desatCssColor(raw) : raw;
-                } else if (colorMode === 'mol') {
-                    const molId  = engine.molIdPerParticle ? engine.molIdPerParticle[i] : 0xFFFFFFFF;
-                    const molCss = getMolColorCSS(molId);
-                    if (molCss !== null) {
-                        ctx.fillStyle = desat ? getMolColorDesat(molId) : molCss;
-                    } else {
-                        ctx.fillStyle = desat ? _TYPE_COLORS_DES[ti] : _TYPE_COLORS[ti];
-                    }
-                } else {
-                    ctx.fillStyle = desat ? _TYPE_COLORS_DES[ti] : _TYPE_COLORS[ti];
-                }
+                ctx.fillStyle = _cpuParticleColor(engine, i, colorMode, _selection, spd, maxSpd, _ghostVictims);
                 ctx.fill();
             }
         }
@@ -8488,6 +8630,15 @@ wire('rc-s', 'rc-n', v => {
     }
     triggerEase();
 });
+
+// ── Autoremove (Place mode) ─────────────────────────────────────────────────
+// Cutoff must stay <= rcCut so the existing rc-sized cell list (cpuSim.head/
+// next) is guaranteed to catch every pair within cutoff via the normal 3x3
+// neighbour-cell ring — no separate spatial structure needed. Clamp defensively
+// here (not just via the UI) so a later reduction of rc can't silently break
+// the guarantee. See _findAutoremoveVictims for the query itself.
+document.getElementById('autoremove-cb').addEventListener('change', saveToURL);
+wire('autoremove-s', 'autoremove-n', null);
 
 // ── Non-bonded potential selection + Mie exponents ──────────────────────────
 // syncPotentialPanels() shows the mie/wf parameter block that matches the
