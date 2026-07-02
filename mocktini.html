@@ -14,6 +14,22 @@
     --blue:      #4da6ff;
     --blue-dark: #2a88e0;
     --blue-pale: #d6ecff;   /* slider track fill, focus ring tint */
+
+    /* ── Layout spacing — single source of truth for all vertical rhythm ──
+       --gap is the uniform spacing used everywhere: between the canvas and the
+       stats/inspect bars, between control groups, and (crucially) the clearance
+       reserved above the fixed footer. --footer-h is the footer's measured
+       height (set from JS on load / resize so it tracks the real rendered
+       height instead of a guessed magic number). The app's usable height is
+       therefore 100dvh − (top gap) − (footer height) − (bottom gap), and every
+       panel's max-height derives from that same expression — no dead zone,
+       nothing cut short at a mismatched height. */
+    --gap: 12px;
+    --footer-h: 30px;   /* fallback; overwritten by JS once measured */
+    /* Reserved height of the inspect bar slot (bond/angle/particle params). The
+       bar is always in layout at this height; JS only ever grows it (never
+       shrinks) if a realized state proves taller, so the canvas never jitters. */
+    --inspect-h: 40px;
 }
 
 body {
@@ -21,59 +37,82 @@ body {
     flex-direction: column;
     align-items: center;
     font-family: Arial, sans-serif;
-    max-width: 1200px;
+    max-width: 1800px;
     margin: 0 auto;
     background: #fafafa;
     color: #222;
     box-sizing: border-box;
-    padding-bottom: 28px;   /* clearance for the fixed footer bar */
+    /* Clearance for the fixed footer: its own height plus one standard gap, so
+       the space between the last panel and the footer matches every other gap. */
+    padding-bottom: calc(var(--footer-h) + var(--gap));
 }
 
+/* CSS Grid, not flex: the left column's width is a track size (1fr of the
+   space left after the fixed-width controls column), never derived from the
+   width of whatever happens to be inside it. That's what guarantees the
+   canvas frame and stats bar are always exactly the same width as each other,
+   regardless of how much text is in the stats bar or how the canvas is sized
+   vertically. Grid items stretch to fill their track by default, so
+   .left-section needs no manual width/flex-basis bookkeeping. */
 .main-container {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
+    grid-template-rows: 1fr;
     gap: 20px;
-    align-items: flex-start;
     width: 100%;
-    padding: 16px 20px 20px;
+    /* Uniform --gap on top and bottom; horizontal padding unchanged. */
+    padding: var(--gap) 20px 0;
     box-sizing: border-box;
-    /* One screenful minus the footer, so the whole app + footer fit without a
-       page scrollbar. dvh excludes browser chrome (plain vh overshoots on many
-       browsers). The left column fills this height; the canvas gives up space. */
-    height: calc(100dvh - 52px);
+    /* Full viewport minus: top gap (padding-top) + footer height + bottom gap
+       (the body's padding-bottom). dvh excludes browser chrome (plain vh
+       overshoots on many browsers). The left column fills this height; the
+       canvas gives up space. Everything below derives from these same vars, so
+       there's no leftover dead zone above the footer. */
+    height: calc(100dvh - var(--gap) - var(--footer-h) - var(--gap));
 }
 
 /* Left column fills the container height; the below-canvas UI (stats/inspect/
-   shortcuts) keeps its natural height and the canvas flexes to whatever height
-   is left, staying square via aspect-ratio. No hardcoded vertical budget. */
+   shortcuts) keeps its natural height and the canvas frame flexes to whatever
+   height is left. min-width:0 is required on grid children so they can
+   shrink below their content's intrinsic width instead of overflowing. */
 .left-section {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--gap);
     height: 100%;
-    min-height: 0;   /* allow the flex children to shrink below content size */
+    min-height: 0;
+    min-width: 0;
+    width: 100%;
 }
 
-/* ── Canvas wrapper (stacks CPU and GPU canvases) ──────────────────── */
-/*
-   The canvas is the flexible element: it shrinks to fill the height left over
-   after the stats bar, inspect row and shortcut panel take their natural size.
-   aspect-ratio:1 keeps it square; max-width caps it against the column width
-   (body is max-width:1200px, minus the 340px panel + gaps ≈ 800px available),
-   and a min keeps it usable on tiny screens (a page scrollbar returns only when
-   the viewport is too short to fit a min-size canvas plus the panels + footer).
-*/
+/* ── Canvas frame (full column width, always) ───────────────────────
+   This element — not the canvas itself — is what claims the column's
+   horizontal space, exactly like the stats bar below it. It centers the
+   actual square canvas within whatever vertical space is left over, sized
+   in JS to the largest square that fits (see _sizeCanvasSquare). This is
+   what decouples the canvas's size from the stats bar's content: neither
+   one dictates the other's width anymore, both just fill the track. */
+.canvas-frame {
+    flex: 1 1 auto;
+    min-height: 300px;
+    width: 100%;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+/* ── Canvas wrapper (stacks CPU and GPU canvases) ────────────────────
+   Fills .canvas-frame completely — width and height both 100%, no forced
+   1:1 aspect ratio. The renderer (see _camXform / _resizeCanvases in the
+   script) treats height as the reference axis and uses the same px-per-unit
+   scale for x and y, so nothing is stretched; a wide frame just shows more
+   of the periodic lattice horizontally via the existing PBC tiling. */
 .canvas-wrapper {
     position: relative;
-    flex: 1 1 auto;
-    min-height: 360px;
-    /* On very tall/narrow windows the flexed height could exceed the column
-       width and make the square overflow horizontally; cap height to the width
-       budget (body max 1200px − 340px panel − gaps/padding ≈ 800px, but use the
-       live viewport too) so the square is always limited by the smaller axis. */
-    max-height: min(calc(100vw - 400px), 800px);
-    aspect-ratio: 1 / 1;
-    max-width: 100%;
-    align-self: center;
+    width: 100%;
+    height: 100%;
     border: 1px solid #ccc;
     background: #fafafa;
 }
@@ -86,7 +125,11 @@ body {
 
 /* ── Shortcut panel (tabbed, replaces old .shortcut-legend) ────────── */
 .shortcut-panel {
-    border-top: 1px solid #e8e8e8;
+    background: #f5f5f5;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    overflow: hidden;   /* keep the tab strip's bottom border inside the rounded corners */
 }
 .sc-tabs {
     display: flex;
@@ -112,7 +155,19 @@ body {
 .sc-tab:focus { outline: none; box-shadow: none; }
 .sc-tab:hover  { color: #888; background: transparent; }
 .sc-tab.active { color: var(--blue); border-bottom-color: var(--blue); background: transparent; }
+/* All panes are stacked into a single grid cell (grid-area:1/1). CSS grid sizes
+   an auto row to its TALLEST item — including the ones currently hidden via
+   visibility — so .sc-panes always reserves exactly the height of the tallest
+   pane, whichever mode is active. No scrollbar, no magic-number height, and
+   switching modes (or the window re-wrapping long entries at a new width) never
+   changes the panel's height or nudges the canvas above it. Hidden panes use
+   visibility (not display:none) precisely so they still contribute to that row
+   height. */
+.sc-panes {
+    display: grid;
+}
 .sc-pane {
+    grid-area: 1 / 1;
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 3px 20px;
@@ -120,8 +175,10 @@ body {
     font-size: 0.685rem;
     color: #888;
     line-height: 1.6;
-    min-height: 80px; /* reserve height for the tallest pane so layout stays stable */
+    visibility: hidden;
+    pointer-events: none;
 }
+.sc-pane.active { visibility: visible; pointer-events: auto; }
 .sc-pane em  { font-style: normal; color: #bbb; }
 .sc-pane kbd {
     display: inline-block;
@@ -137,17 +194,24 @@ body {
 }
 
 /* ── Stats bar ─────────────────────────────────────────────────────── */
+/* Grid, not flex-wrap: track widths are computed once from the container
+   width (via minmax), not from each item's current content. A flex-wrap bar
+   lets every item take its own intrinsic width, so "CAMERA" -> "PARTICLES" or
+   "9.0" -> "10.0" reflows that item and shoves every later item sideways —
+   that's the flicker. Grid columns stay put; only the text inside a cell
+   might shift within its own reserved space. */
 .stats-bar {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
     gap: 4px 16px;
     background: #f5f5f5;
     border: 1px solid #ddd;
     border-radius: 6px;
     padding: 8px 14px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
-.stat-item { display: flex; flex-direction: column; gap: 1px; }
+.stat-item { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 
 .stat-key {
     font-size: 0.62rem;
@@ -161,19 +225,33 @@ body {
     font-size: 0.82rem;
     color: #222;
     font-family: monospace;
+    /* tabular-nums + a reserved minimum width stop a digit appearing (9.0 ->
+       10.0) or a longer word appearing (CAMERA -> PARTICLE) from nudging
+       anything else in the bar. */
+    font-variant-numeric: tabular-nums;
+    display: inline-block;
+    min-width: 5ch;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
+/* Mode can read "SEL 1234" or "PARTICLE" — needs more headroom than the
+   numeric fields. */
+#s-mode { min-width: 8ch; }
 
 /* ── Right panel ───────────────────────────────────────────────────── */
 .controls-container {
-    flex: 0 0 340px;
-    width: 340px;
+    width: 100%;
+    min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    /* Reserve top padding (16px) + footer (~34px) + a little slack, using dvh so
-       browser chrome is excluded — keeps the panel's scroll area inside the
-       viewport and stops it from driving the page taller than the fold. */
-    max-height: calc(100dvh - 70px);
+    gap: var(--gap);
+    /* The grid cell is already sized to the correct usable height by
+       .main-container, so just fill it — no separate dvh math to drift out of
+       sync. When the controls overflow this height they scroll internally; the
+       page itself never grows past the fold. */
+    height: 100%;
+    min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
     padding-right: 4px;
@@ -449,10 +527,48 @@ footer a:hover {
 
 .eps-matrix {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    /* 5 columns: a leading label column for the row dots, then 4 data columns.
+       The header row (dots) and each data row are laid out on this same grid so
+       column dots sit directly above their column and row dots beside their row. */
+    grid-template-columns: 16px repeat(4, 1fr);
     gap: 4px;
+    align-items: center;
     width: 100%;
     max-width: 100%;
+}
+
+/* Reusable coloured particle-type indicator dot. Used beside the ε-matrix rows,
+   above its columns, and beside the σ/mass rows so a bead type is visually the
+   same token everywhere. Made interactive (cursor + hover ring) in a later
+   pass that wires up click-to-recolour. */
+.type-dot {
+    width: 11px; height: 11px;
+    border-radius: 50%;
+    border: 1px solid rgba(0,0,0,0.22);
+    box-sizing: border-box;
+    justify-self: center;
+}
+
+/* One row of the σ/mass block: [dot] σ [field] m [field].
+   Fields are fixed at ~6 characters; the trailing 1fr soaks up leftover width so
+   the fields stay compact instead of stretching across the panel. */
+.sm-row {
+    display: grid;
+    grid-template-columns: 16px auto 7ch auto 7ch 1fr;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 4px;
+}
+.sm-row .sm-lbl { font-size: 0.72rem; color: #666; text-align: right; }
+.sm-row input {
+    width: 7ch; min-width: 0;
+    box-sizing: border-box;
+    padding: 2px 5px;
+    font-size: 0.72rem;
+    text-align: right;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-family: monospace;
 }
 
 
@@ -479,6 +595,17 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
 
 
 /* ── Inspect bar (below stats, bond/angle edit) ───────────────────── */
+/* The bar is ALWAYS in layout — it toggles visibility, not display — and
+   reserves a stable height whether or not anything is being inspected, so
+   showing/hiding it (or swapping between bond/angle/particle content) never
+   resizes the canvas above it. --inspect-h is bumped up from JS if any realized
+   state turns out taller than this default (e.g. a panel that wraps to two rows
+   on a narrow window), and never shrinks back, so the reserved height is the
+   max the bar has ever needed and the layout stays perfectly still thereafter. */
+.inspect-slot {
+    min-height: var(--inspect-h, 40px);
+    display: flex;
+}
 .inspect-bar {
     display: flex;
     flex-wrap: wrap;
@@ -489,7 +616,12 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
     border-radius: 6px;
     padding: 7px 14px;
     font-size: 0.78rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    width: 100%;
+    box-sizing: border-box;
+    align-content: center;
 }
+.inspect-bar.is-hidden { visibility: hidden; }
 .inspect-bar .stat-key {
     color: var(--blue-dark);
     font-weight: 700;
@@ -551,9 +683,11 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
 <div class="main-container">
 
     <div class="left-section">
-        <div class="canvas-wrapper">
-            <canvas id="simCanvas" width="1000" height="1000"></canvas>
-            <canvas id="gpuCanvas" width="1000" height="1000" style="display:none"></canvas>
+        <div class="canvas-frame">
+            <div class="canvas-wrapper">
+                <canvas id="simCanvas" width="1000" height="1000"></canvas>
+                <canvas id="gpuCanvas" width="1000" height="1000" style="display:none"></canvas>
+            </div>
         </div>
         <div class="stats-bar">
             <div class="stat-item">
@@ -606,7 +740,8 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
             </div>
         </div>
 
-        <div class="inspect-bar" id="inspect-bar" style="display:none">
+        <div class="inspect-slot">
+        <div class="inspect-bar is-hidden" id="inspect-bar">
             <!-- Bond inspect -->
             <div id="ib-bond" style="display:contents">
                 <span class="stat-key">BOND</span>
@@ -673,8 +808,7 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
                 <button id="iba-remove" class="btn-danger" title="Delete every angle fully inside the selection (all three beads selected). 1-3 exclusions are rebuilt.">Delete</button>
             </div>
         </div>
-        <!-- Spacer: always reserves inspect-bar height so canvas size stays stable -->
-        <div id="inspect-placeholder" style="height:0"></div>
+        </div>
 
         <!-- ── Shortcut panel (tabbed) ─────────────────────────────────────── -->
         <div class="shortcut-panel">
@@ -688,8 +822,9 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
                 <button class="sc-tab"        data-tab="particle">Particle</button>
             </div>
 
+            <div class="sc-panes">
             <!-- Global — mode switching, always relevant -->
-            <div class="sc-pane" id="sc-global">
+            <div class="sc-pane active" id="sc-global">
                 <div><kbd>C</kbd> — Switch to Camera mode</div>
                 <div><kbd>S</kbd> — Switch to Select mode</div>
                 <div><kbd>B</kbd> — Switch to Bond Edit</div>
@@ -701,7 +836,7 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
             </div>
 
             <!-- Camera mode -->
-            <div class="sc-pane" id="sc-camera" style="display:none">
+            <div class="sc-pane" id="sc-camera">
                 <div>Drag — Pan viewport</div>
                 <div>Scroll — Zoom in / out</div>
                 <div>Dbl-click — Reset view <em>(no selection)</em></div>
@@ -709,7 +844,7 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
             </div>
 
             <!-- Select mode -->
-            <div class="sc-pane" id="sc-select" style="display:none">
+            <div class="sc-pane" id="sc-select">
                 <div>Drag — Rubber-band select</div>
                 <div>Scroll — Rotate selection</div>
                 <div><kbd>S</kbd> — Clear selection</div>
@@ -720,14 +855,14 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
             </div>
 
             <!-- Place mode -->
-            <div class="sc-pane" id="sc-place" style="display:none">
+            <div class="sc-pane" id="sc-place">
                 <div>Click — Drop molecule here</div>
                 <div>Scroll — Rotate ghost</div>
                 <div>RMB <em>or</em> <kbd>Esc</kbd> — Cancel placement</div>
             </div>
 
             <!-- Bond Edit mode -->
-            <div class="sc-pane" id="sc-bond" style="display:none">
+            <div class="sc-pane" id="sc-bond">
                 <div>Click bead — Set anchor</div>
                 <div>Click anchor again — Deselect anchor</div>
                 <div>Click other bead — Create / select bond</div>
@@ -736,7 +871,7 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
             </div>
 
             <!-- Angle Edit mode -->
-            <div class="sc-pane" id="sc-angle" style="display:none">
+            <div class="sc-pane" id="sc-angle">
                 <div>Click bead — Set first end (i)</div>
                 <div>Click bonded bead — Set center (j)</div>
                 <div>Click bonded bead — Create / select angle</div>
@@ -746,7 +881,7 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
             </div>
 
             <!-- Particle Type mode -->
-            <div class="sc-pane" id="sc-particle" style="display:none">
+            <div class="sc-pane" id="sc-particle">
                 <div>Drag — Rubber-band select beads (bead-level, no mol expansion)</div>
                 <div>Drag selection — Translate selected beads</div>
                 <div>Scroll — Rotate selection around its centroid (5° steps)</div>
@@ -755,6 +890,7 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
                 <div><kbd>Ctrl</kbd><kbd>C</kbd> / <kbd>Ctrl</kbd><kbd>V</kbd> — Copy / Paste (PBC-unwrapped)</div>
                 <div><kbd>Del</kbd> / <kbd>⌫</kbd> — Delete selected beads</div>
                 <div>RMB or <kbd>P</kbd> — Clear selection, re-select</div>
+            </div>
             </div>
         </div>
     </div>
@@ -765,7 +901,7 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
             <h3>Simulation</h3>
             <div class="button-group">
                 <button id="btn-init"
-                    title="Adds N new particles to the current box. Box size (L) is only changed by Clear or a first fill of an empty canvas. Molecules/Assemblies with a ratio > 0 are randomly placed first; polymer and monomer grid placement follows. Grid spacing must be ≤ cutoff rc for the distance check to be reliable.">Fill</button>
+                    title="Adds N new particles to the current box. Box size (L) is only changed by Clear or a first fill of an empty canvas. Molecules/Assemblies with a ratio > 0 are randomly placed first; atom grid placement follows. Grid spacing must be ≤ cutoff rc for the distance check to be reliable.">Fill</button>
                 <button id="btn-run">Run</button>
             </div>
             <div class="button-group" style="margin-top:6px">
@@ -815,8 +951,36 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
                 </select>
             </div>
             <div id="engine-warning">WebGPU not supported on this browser.</div>
+        </div>
 
-            <div class="sub-header">Steps per frame</div>
+        <!-- ── Rendering (directly under Simulation) ────────────────── -->
+        <div class="control-group">
+            <h3>Rendering</h3>
+            <div class="control-row">
+                <label>Colour mode</label>
+                <select id="colormode-select" class="param-input" style="flex:0 0 100px;width:100px">
+                    <option value="type"     selected>Type</option>
+                    <option value="mol"             >Molecule</option>
+                    <option value="vel"             >Velocity</option>
+                    <option value="charge"          >Charge</option>
+                </select>
+            </div>
+            <div class="control-row">
+                <label>Particle radius</label>
+                <input type="range" id="pr-s" min="0.05" max="1.5" step="0.05" value="0.45">
+                <input type="number" class="param-input" id="pr-n" value="0.45">
+            </div>
+            <div class="control-row checkbox-row">
+                <label for="boxgrid-check" title="Draw the simulation box as a dashed square, repeated across every visible periodic copy — makes the PBC tiling visible when zoomed out.">Box grid</label>
+                <input type="checkbox" id="boxgrid-check" checked>
+            </div>
+        </div>
+
+        <!-- ── Simulation Settings (split out of Simulation after Compute Engine) ── -->
+        <div class="control-group">
+            <h3>Simulation Settings</h3>
+
+            <div class="sub-header" style="margin-top:0">Steps per frame</div>
             <div class="control-row">
                 <label>Steps / frame</label>
                 <input type="range" id="spf-s" min="1" max="50" step="1" value="5">
@@ -889,111 +1053,8 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
                 <input type="range" id="coulombAlpha-s" min="0" max="5" step="0.05" value="1">
                 <input type="number" class="param-input" id="coulombAlpha-n" value="1" step="0.05" min="0">
             </div>
-        </div>
 
-        <!-- ── Initial Grid (separate group, below electrostatics) ─────────── -->
-        <div class="control-group">
-            <h3>Initial Grid</h3>
-            <div class="control-row"
-                title="Grid spacing for initial placement (× rₘᵢₙ). Keep ≤ cutoff rc so the distance check covers exactly 1 cell radius — sparser grids may leave gaps the check cannot catch.">
-                <label>Spacing × rₘᵢₙ</label>
-                <input type="range" id="spacing-s" min="1" max="3" step="0.1" value="1">
-                <input type="number" class="param-input" id="spacing-n" value="1" step="0.1">
-            </div>
-            <div class="control-row">
-                <label>N particles</label>
-                <input type="range" id="N-s" min="0" max="10000" step="50" value="1000">
-                <input type="number" class="param-input" id="N-n" value="1000">
-            </div>
-            <div class="control-row">
-                <label>Box L</label>
-                <input type="range" id="L-s" min="10" max="250" step="1" value="50">
-                <input type="number" class="param-input" id="L-n" value="50">
-            </div>
-        </div>
-
-        <!-- ── Autoremove (Place mode: clears overlapping molecules on drop) ── -->
-        <div class="control-group">
-            <h3>Autoremove</h3>
-            <div class="control-row checkbox-row"
-                title="When placing an assembly (Place mode), any existing molecule with a bead within the cutoff distance of a newly-dropped bead is deleted in full.">
-                <label>Remove overlapping on place</label>
-                <input type="checkbox" id="autoremove-cb" checked>
-            </div>
-            <div class="control-row"
-                title="Distance used for the overlap check. Clamped to the non-bonded cutoff (rc) so the existing cell list can be reused safely — values above rc are capped at rc.">
-                <label>Cutoff distance</label>
-                <input type="range" id="autoremove-s" min="0.1" max="8.0" step="0.1" value="1.0">
-                <input type="number" class="param-input" id="autoremove-n" value="1.0" step="0.1" min="0">
-            </div>
-        </div>
-
-        <!-- ── Rendering (moved above Particles & Polymers) ────────────────── -->
-        <div class="control-group">
-            <h3>Rendering</h3>
-            <div class="control-row">
-                <label>Colour mode</label>
-                <select id="colormode-select" class="param-input" style="flex:0 0 100px;width:100px">
-                    <option value="type"     selected>Type</option>
-                    <option value="mol"             >Molecule</option>
-                    <option value="vel"             >Velocity</option>
-                    <option value="charge"          >Charge</option>
-                </select>
-            </div>
-            <div class="control-row">
-                <label>Particle radius</label>
-                <input type="range" id="pr-s" min="0.05" max="1.5" step="0.05" value="0.45">
-                <input type="number" class="param-input" id="pr-n" value="0.45">
-            </div>
-        </div>
-
-        <div class="control-group">
-            <h3>Particles &amp; Polymers</h3>
-            <div class="sub-header">Species &amp; Composition</div>
-            <div id="species-table-container">
-                <!-- built dynamically by buildSpeciesTableUI() -->
-            </div>
-
-            <div class="sub-header">Polymer Editor</div>
-            <div class="control-row">
-                <label>Editing</label>
-                <select id="polymer-select" class="param-input" style="width:80px">
-                    <option value="0">Polymer 0</option>
-                    <option value="1">Polymer 1</option>
-                    <option value="2">Polymer 2</option>
-                    <option value="3">Polymer 3</option>
-                </select>
-            </div>
-            <div class="control-row">
-                <label>Chain length</label>
-                <input type="number" class="param-input" id="chain-length-n" value="2" step="1" min="1" max="200" style="flex:0 0 60px">
-            </div>
-            <div id="chain-types-container">
-                <!-- filled dynamically by buildChainTypeUI() -->
-            </div>
-            <div class="control-row">
-                <label>Bond k</label>
-                <input type="range" id="bond-k-s" min="1" max="500" step="1" value="100">
-                <input type="number" class="param-input" id="bond-k-n" value="100" step="1" min="1">
-            </div>
-            <div class="control-row">
-                <label>Angle k</label>
-                <input type="range" id="angle-k-s" min="0" max="200" step="1" value="10">
-                <input type="number" class="param-input" id="angle-k-n" value="10" step="1" min="0">
-            </div>
-            <div class="control-row">
-                <label>Angle θ₀ (±alt)</label>
-                <input type="range" id="angle-theta-s" min="-180" max="180" step="1" value="180">
-                <input type="number" class="param-input" id="angle-theta-n" value="180" step="1" min="-180" max="180">
-            </div>
-            <div class="control-row">
-                <label>r₀ scale</label>
-                <input type="range" id="r0scale-s" min="0.5" max="2" step="0.05" value="0.9">
-                <input type="number" class="param-input" id="r0scale-n" value="0.9" step="0.05" min="0.1">
-            </div>
-
-            <div class="sub-header">Particle properties</div>
-
+            <div class="sub-header">Non-bonded potential</div>
             <div class="control-row" title="Non-bonded pair potential. Mie: U(r)=Cε[(σ/r)ⁿ−(σ/r)ᵐ], energy-shifted to 0 at rc. Wang-Frenkel: finite-range U=εα[(σ/r)^{2μ}−1][(rc/r)^{2μ}−1]^{2ν}, with U(rc)=F(rc)=0 by construction (no shift/cutoff artifact).">
                 <label>Potential</label>
                 <select id="potential-select" class="param-input" style="flex:0 0 110px;width:110px">
@@ -1043,69 +1104,121 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
             <div class="control-row" id="neighbor-overflow-warn" style="display:none;background:rgba(255,107,107,0.15);border:1px solid var(--red,#ff6b6b);border-radius:4px;padding:5px 7px;">
                 <span style="color:var(--red,#ff6b6b);font-size:0.66rem;line-height:1.3;">⚠ Neighbour-cell overflow on the GPU path — some pair forces are being dropped. Raise <b>Cell capacity</b> until this clears.</span>
             </div>
+        </div>
+
+        <!-- ── Particle Properties (moved out of Particles & Polymers) ─────── -->
+        <div class="control-group">
+            <h3>Particle Properties</h3>
 
             <div class="sub-header" style="border:none;margin:6px 0 4px;color:#aaa;font-size:0.64rem;">ε matrix</div>
             <div class="eps-matrix">
+                <!-- Header row: corner + one column dot per type -->
+                <span></span>
+                <span class="type-dot" data-type="0" title="Type 0"></span>
+                <span class="type-dot" data-type="1" title="Type 1"></span>
+                <span class="type-dot" data-type="2" title="Type 2"></span>
+                <span class="type-dot" data-type="3" title="Type 3"></span>
+
                 <!-- Row 0 -->
+                <span class="type-dot" data-type="0" title="Type 0"></span>
                 <input type="number" id="eps00" value="1" step="0.1">
                 <input type="number" id="eps01" value="1" step="0.1">
                 <input type="number" id="eps02" value="1" step="0.1">
                 <input type="number" id="eps03" value="1" step="0.1">
 
                 <!-- Row 1 -->
+                <span class="type-dot" data-type="1" title="Type 1"></span>
                 <input type="number" id="eps10" value="1" step="0.1">
                 <input type="number" id="eps11" value="1" step="0.1">
                 <input type="number" id="eps12" value="1" step="0.1">
                 <input type="number" id="eps13" value="1" step="0.1">
 
                 <!-- Row 2 -->
+                <span class="type-dot" data-type="2" title="Type 2"></span>
                 <input type="number" id="eps20" value="1" step="0.1">
                 <input type="number" id="eps21" value="1" step="0.1">
                 <input type="number" id="eps22" value="1" step="0.1">
                 <input type="number" id="eps23" value="1" step="0.1">
 
                 <!-- Row 3 -->
+                <span class="type-dot" data-type="3" title="Type 3"></span>
                 <input type="number" id="eps30" value="1" step="0.1">
                 <input type="number" id="eps31" value="1" step="0.1">
                 <input type="number" id="eps32" value="1" step="0.1">
                 <input type="number" id="eps33" value="1" step="0.1">
             </div>
 
-            <div class="sub-header" style="border:none;margin:10px 0 4px;color:#aaa;font-size:0.64rem;">σ per particle type</div>
-            <div class="control-row">
-                <label>σ₀</label>
-                <input type="number" class="param-input" id="sigma0" value="1" step="0.05" min="0.1">
+            <div class="sub-header" style="border:none;margin:10px 0 4px;color:#aaa;font-size:0.64rem;">σ &amp; mass per particle type</div>
+            <div class="sm-row">
+                <span class="type-dot" data-type="0" title="Type 0"></span>
+                <span class="sm-lbl">σ</span>
+                <input type="number" id="sigma0" value="1" step="0.05" min="0.1">
+                <span class="sm-lbl">m</span>
+                <input type="number" id="mass0" value="1" step="0.1" min="0.01">
+            </div>
+            <div class="sm-row">
+                <span class="type-dot" data-type="1" title="Type 1"></span>
+                <span class="sm-lbl">σ</span>
+                <input type="number" id="sigma1" value="1" step="0.05" min="0.1">
+                <span class="sm-lbl">m</span>
+                <input type="number" id="mass1" value="1" step="0.1" min="0.01">
+            </div>
+            <div class="sm-row">
+                <span class="type-dot" data-type="2" title="Type 2"></span>
+                <span class="sm-lbl">σ</span>
+                <input type="number" id="sigma2" value="1" step="0.05" min="0.1">
+                <span class="sm-lbl">m</span>
+                <input type="number" id="mass2" value="1" step="0.1" min="0.01">
+            </div>
+            <div class="sm-row">
+                <span class="type-dot" data-type="3" title="Type 3"></span>
+                <span class="sm-lbl">σ</span>
+                <input type="number" id="sigma3" value="1" step="0.05" min="0.1">
+                <span class="sm-lbl">m</span>
+                <input type="number" id="mass3" value="1" step="0.1" min="0.01">
+            </div>
+        </div>
+
+        <!-- ── Initial Grid (separate group, below electrostatics) ─────────── -->
+        <div class="control-group">
+            <h3>Grid</h3>
+            <div class="control-row"
+                title="Grid spacing for initial placement, as a plain distance in simulation units. This is exactly the centre-to-centre spacing used when filling the box — no σ or potential-minimum scaling. Keep it ≤ the non-bonded cutoff rc so the overlap check stays reliable.">
+                <label>Grid spacing</label>
+                <input type="range" id="spacing-s" min="0.5" max="5" step="0.1" value="1">
+                <input type="number" class="param-input" id="spacing-n" value="1" step="0.1" min="0.1">
             </div>
             <div class="control-row">
-                <label>σ₁</label>
-                <input type="number" class="param-input" id="sigma1" value="1" step="0.05" min="0.1">
+                <label>N particles</label>
+                <input type="range" id="N-s" min="0" max="10000" step="50" value="1000">
+                <input type="number" class="param-input" id="N-n" value="1000">
             </div>
             <div class="control-row">
-                <label>σ₂</label>
-                <input type="number" class="param-input" id="sigma2" value="1" step="0.05" min="0.1">
+                <label>Box L</label>
+                <input type="range" id="L-s" min="10" max="250" step="1" value="50">
+                <input type="number" class="param-input" id="L-n" value="50">
             </div>
-            <div class="control-row">
-                <label>σ₃</label>
-                <input type="number" class="param-input" id="sigma3" value="1" step="0.05" min="0.1">
+        </div>
+
+        <div class="control-group">
+            <h3>Particles &amp; Molecules/Assemblies</h3>
+            <div class="sub-header" style="margin-top:0">Placement</div>
+            <div class="control-row checkbox-row"
+                title="When placing an assembly (Place mode), any existing molecule with a bead within the cutoff distance of a newly-dropped bead is deleted in full.">
+                <label>Autoremove on place</label>
+                <input type="checkbox" id="autoremove-cb" checked>
+            </div>
+            <div class="control-row"
+                title="Distance used for the overlap check. Clamped to the non-bonded cutoff (rc) so the existing cell list can be reused safely — values above rc are capped at rc.">
+                <label>Cutoff distance</label>
+                <input type="range" id="autoremove-s" min="0.1" max="8.0" step="0.1" value="1.0">
+                <input type="number" class="param-input" id="autoremove-n" value="1.0" step="0.1" min="0">
+            </div>
+            <div class="sub-header">Particles</div>
+            <div id="species-table-container">
+                <!-- built dynamically by buildSpeciesTableUI() -->
             </div>
 
-            <div class="sub-header" style="border:none;margin:10px 0 4px;color:#aaa;font-size:0.64rem;">m per particle type</div>
-            <div class="control-row">
-                <label>m₀</label>
-                <input type="number" class="param-input" id="mass0" value="1" step="0.1" min="0.01">
-            </div>
-            <div class="control-row">
-                <label>m₁</label>
-                <input type="number" class="param-input" id="mass1" value="1" step="0.1" min="0.01">
-            </div>
-            <div class="control-row">
-                <label>m₂</label>
-                <input type="number" class="param-input" id="mass2" value="1" step="0.1" min="0.01">
-            </div>
-            <div class="control-row">
-                <label>m₃</label>
-                <input type="number" class="param-input" id="mass3" value="1" step="0.1" min="0.01">
-            </div>
         </div>
 
     </div>
@@ -1209,9 +1322,6 @@ const URL_PARAMS = [
     {id:'maxpercell-n',type:'number'},
     {id:'wf-rwell',type:'number'},{id:'wf-sigma',type:'number'},
     {id:'wf-mu',type:'number'},{id:'wf-nu',type:'number'},
-    {id:'r0scale-n',type:'number'},
-    {id:'bond-k-n',type:'number'},
-    {id:'angle-k-n',type:'number'},{id:'angle-theta-n',type:'number'},
     ...[0,1,2,3].flatMap(r=>[0,1,2,3].map(c=>({id:`eps${r}${c}`,type:'number'}))),
     {id:'thermo-cb',type:'checkbox'},{id:'gravity-cb',type:'checkbox'},
     {id:'gravity-n',type:'number'},
@@ -1223,30 +1333,20 @@ const URL_PARAMS = [
     {id:'autoremove-cb', type:'checkbox'}, {id:'autoremove-n', type:'number'},
 ];
 
-const polymerData = Array.from({length: 4}, () => ({
-    ratio:       0,
-    chainLength: 2,
-    chainTypes:  new Array(200).fill(0),
-    chainCharges: new Array(200).fill(0),    // per-bead charge
-    chainAngles: new Array(200).fill(180),   // per-bead angle in degrees (bead b is middle vertex)
-    bondK:       100,
-    angleK:      10,
-    theta0:      Math.PI,
-}));
-let activePolymer = 0;
-
 // ── Species table ─────────────────────────────────────────────────────────────
 // Single source of truth for composition.
 // Slots 0-3: monomer species (1-bead, bead type = typeIdx).
-// Slots 4-7: polymer species (maps to polymerData[polyIdx]).
-// Slots 8+ : custom molecules loaded from file (Step D, future).
+// Slots 4+ : custom molecules / assemblies (imported or built).
 // ratio: unnormalised molecule-count weight. Engine normalises on use.
 // ════════════════════════════════════════════════════════════════════════════
 //  Colour utilities  (must be defined before speciesTable and draw())
 // ════════════════════════════════════════════════════════════════════════════
 
 // Bead-type colours (4 fixed types — these are NOT molecule colours).
-const _TYPE_COLORS     = ['#4da6ff', '#ff6b6b', '#ffd93d', '#6bcB77'];
+// Per-particle-type base colours. Mutable so the type dots can recolour a type
+// live (see _paintTypeDots / the colour-picker wiring); _TYPE_COLORS_DES tracks
+// the desaturated variant used for greyed-out selections.
+let _TYPE_COLORS     = ['#4da6ff', '#ff6b6b', '#ffd93d', '#6bcB77'];
 
 // Luminance-based desaturation: 85% mix toward grey. Matches the GPU shader.
 function _desatCssColor(css) {
@@ -1258,7 +1358,17 @@ function _desatCssColor(css) {
     return `rgb(${Math.round(r+(lum-r)*0.85)},${Math.round(g+(lum-g)*0.85)},${Math.round(b+(lum-b)*0.85)})`;
 }
 
-const _TYPE_COLORS_DES = _TYPE_COLORS.map(_desatCssColor);
+let _TYPE_COLORS_DES = _TYPE_COLORS.map(_desatCssColor);
+
+// Paint every .type-dot indicator (ε-matrix headers, σ/mass rows, and anywhere
+// else that carries data-type) with its type's current colour. Called at
+// startup and again whenever a type colour changes.
+function _paintTypeDots() {
+    document.querySelectorAll('.type-dot[data-type]').forEach(dot => {
+        const t = parseInt(dot.dataset.type, 10);
+        if (t >= 0 && t < _TYPE_COLORS.length) dot.style.background = _TYPE_COLORS[t];
+    });
+}
 
 // ── Molecule colour palette ───────────────────────────────────────────────────
 // 256-entry palette indexed by molId.
@@ -1345,23 +1455,17 @@ function getMolColorDesat(id) { return (id === 0xFFFFFFFF || id >= 256) ? null :
 const MONOMER_COLORS = _TYPE_COLORS;
 
 const speciesTable = [
-    { name: 'Monomer 0', kind: 'monomer', typeIdx: 0, ratio: 0.25, color: MONOMER_COLORS[0] },
-    { name: 'Monomer 1', kind: 'monomer', typeIdx: 1, ratio: 0.25, color: MONOMER_COLORS[1] },
-    { name: 'Monomer 2', kind: 'monomer', typeIdx: 2, ratio: 0.25, color: MONOMER_COLORS[2] },
-    { name: 'Monomer 3', kind: 'monomer', typeIdx: 3, ratio: 0.25, color: MONOMER_COLORS[3] },
-    { name: 'Polymer 0', kind: 'polymer', polyIdx: 0, ratio: 0.00, color: molPaletteCSS[0] },
-    { name: 'Polymer 1', kind: 'polymer', polyIdx: 1, ratio: 0.00, color: molPaletteCSS[1] },
-    { name: 'Polymer 2', kind: 'polymer', polyIdx: 2, ratio: 0.00, color: molPaletteCSS[2] },
-    { name: 'Polymer 3', kind: 'polymer', polyIdx: 3, ratio: 0.00, color: molPaletteCSS[3] },
+    { name: 'Particle 0', kind: 'monomer', typeIdx: 0, ratio: 0.25, color: MONOMER_COLORS[0] },
+    { name: 'Particle 1', kind: 'monomer', typeIdx: 1, ratio: 0.25, color: MONOMER_COLORS[1] },
+    { name: 'Particle 2', kind: 'monomer', typeIdx: 2, ratio: 0.25, color: MONOMER_COLORS[2] },
+    { name: 'Particle 3', kind: 'monomer', typeIdx: 3, ratio: 0.25, color: MONOMER_COLORS[3] },
 ];
 
 // Returns total bead-weighted ratio sum (used for normalising % display).
 function _speciesBeadWeightedTotal() {
     return speciesTable.reduce((sum, s) => {
         let beads = 1;
-        if (s.kind === 'polymer') {
-            beads = Math.max(1, polymerData[s.polyIdx].chainLength);
-        } else if (s.kind === 'custom') {
+        if (s.kind === 'custom') {
             const entry = customMolDefs[s.customIdx];
             beads = entry && entry.positions ? entry.positions.length : 1;
         }
@@ -1376,10 +1480,9 @@ function buildSpeciesTableUI() {
     container.innerHTML = '';
     const total = _speciesBeadWeightedTotal();
 
-    // ── Helper: one ratio row for built-in species (monomer or polymer) ──
+    // ── Helper: one ratio row for a built-in monomer species ──
     function makeBuiltinRow(entry, i) {
-        const beads = entry.kind === 'polymer'
-            ? Math.max(1, polymerData[entry.polyIdx].chainLength) : 1;
+        const beads = 1;
 
         const row = document.createElement('div');
         row.className = 'species-row';
@@ -1392,9 +1495,7 @@ function buildSpeciesTableUI() {
         nameIn.type      = 'text';
         nameIn.className = 'species-name-input';
         nameIn.value     = entry.name;
-        nameIn.title     = entry.kind === 'polymer'
-            ? `Polymer ${entry.polyIdx} · ${beads} beads/mol`
-            : `Monomer · type ${entry.typeIdx} · 1 bead`;
+        nameIn.title     = `Particle · type ${entry.typeIdx} · 1 bead`;
         nameIn.addEventListener('change', () => {
             entry.name = nameIn.value.trim() || entry.name;
             nameIn.value = entry.name;
@@ -1410,7 +1511,6 @@ function buildSpeciesTableUI() {
         ratioIn.addEventListener('change', () => {
             const v = Math.max(0, parseFloat(ratioIn.value) || 0);
             ratioIn.value = v; entry.ratio = v;
-            if (entry.kind === 'polymer') polymerData[entry.polyIdx].ratio = v;
             updateSpeciesTablePcts(); saveToURL();
         });
 
@@ -1532,7 +1632,7 @@ function buildSpeciesTableUI() {
         container.appendChild(row);
     }
 
-    // ── Render built-in species (monomers + polymers) ─────────────────────
+    // ── Render built-in atom species ─────────────────────────────────────
     for (let i = 0; i < speciesTable.length; i++) {
         if (speciesTable[i].kind !== 'custom') makeBuiltinRow(speciesTable[i], i);
     }
@@ -1564,24 +1664,6 @@ function _builtinSpeciesToMolEntry(s) {
             positions: [{ x: 0, y: 0 }],
         };
     }
-    if (s.kind === 'polymer') {
-        const pd  = polymerData[s.polyIdx];
-        const len = Math.max(1, pd.chainLength);
-        // Lay beads out horizontally, spacing = 1 (will snap to r0 once placed).
-        const positions = Array.from({ length: len }, (_, i) => ({
-            x: (i - (len - 1) / 2) * 1.0, y: 0,
-        }));
-        const bonds  = [];
-        for (let b = 0; b < len - 1; b++) bonds.push({ i: b, j: b + 1, k: pd.bondK, r0: null });
-        const angles = [];
-        for (let a = 0; a < len - 2; a++)
-            angles.push({ i: a, j: a + 1, k: a + 2, kAngle: pd.angleK, theta0: pd.theta0 });
-        const molDef = {
-            beadTypes: pd.chainTypes.slice(0, len),
-            bonds, angles,
-        };
-        return { name: s.name, color: s.color, molId: s.polyIdx, molDef, positions };
-    }
     return null;
 }
 
@@ -1593,8 +1675,7 @@ function updateSpeciesTablePcts() {
         if (!el) continue;
         const s = speciesTable[i];
         let beads = 1;
-        if (s.kind === 'polymer') beads = Math.max(1, polymerData[s.polyIdx].chainLength);
-        else if (s.kind === 'custom') {
+        if (s.kind === 'custom') {
             const entry = customMolDefs[s.customIdx];
             beads = entry && entry.positions ? entry.positions.length : 1;
         }
@@ -1606,19 +1687,18 @@ function updateSpeciesTablePcts() {
 // (+ type) arrays.  We count bead INSTANCES, not whole molecules, so the figure
 // stays correct even when a molecule's bonds are broken or its beads are relabelled.
 // molId scheme: free monomers carry 0xFFFFFFFF and are distinguished by bead type;
-// built-in polymers carry molId 0-3; custom mols/assemblies carry their entry.molId.
+// custom mols/assemblies carry their entry.molId.
 // Live placement-ghost beads are excluded so the figure reflects committed particles.
 function _realizedBeadCounts() {
     const counts = new Array(speciesTable.length).fill(0);
     const N = cpuSim ? (cpuSim.N | 0) : 0;
     if (!N || !cpuSim.molIdPerParticle) return { counts, denom: 0 };
 
-    const molIdToRow   = new Map();   // polymer/custom molId  → species row index
+    const molIdToRow   = new Map();   // custom-mol molId  → species row index
     const monoTypeToRow = new Map();  // free-monomer bead type → species row index
     for (let i = 0; i < speciesTable.length; i++) {
         const sp = speciesTable[i];
         if (sp.kind === 'monomer')      monoTypeToRow.set(sp.typeIdx, i);
-        else if (sp.kind === 'polymer') molIdToRow.set(sp.polyIdx, i);
         else if (sp.kind === 'custom') {
             const e = customMolDefs[sp.customIdx];
             if (e) molIdToRow.set(e.molId, i);
@@ -1709,130 +1789,6 @@ class MolDef {
     }
 }
 
-const molDefTable = Array.from({ length: 4 }, (_, i) => new MolDef({ name: `Polymer ${i}` }));
-
-function syncPolymerToMolDef(pi) {
-    const pd  = polymerData[pi];
-    const cl  = Math.max(1, pd.chainLength);
-    const def = molDefTable[pi];
-
-    def.name      = `Polymer ${pi}`;
-    def.nBeads    = cl;
-    def.beadTypes = pd.chainTypes.slice(0, cl);
-    def.beadCharges = pd.chainCharges.slice(0, cl);
-
-    def.bonds = [];
-    for (let b = 0; b < cl - 1; b++)
-        def.bonds.push({ i: b, j: b + 1, k: pd.bondK, r0: null });
-
-    def.angles = [];
-    for (let b = 0; b < cl - 2; b++) {
-        const angleDeg = pd.chainAngles[b + 1] ?? (pd.theta0 * 180 / Math.PI);
-        def.angles.push({ i: b, j: b + 1, k: b + 2,
-            kAngle: pd.angleK, theta0: angleDeg * Math.PI / 180 });
-    }
-
-    def.exclusions = [];
-    for (let b = 0; b < cl - 1; b++) def.exclusions.push({ i: b, j: b + 1 });
-    for (let b = 0; b < cl - 2; b++) def.exclusions.push({ i: b, j: b + 2 });
-}
-
-function resolveAllBondR0() {
-    // Updates r0 for every bond whose equilibrium length is derived from sigma
-    // (i.e. r0 was not fixed explicitly in the mol definition).
-    // Bonds with an explicit r0 (b.r0 != null AND b.sigmaMixForR0 == null) are left unchanged.
-    const spt   = cpuSim.sigmaPerType;
-    const scale = cpuSim.r0Scale ?? 1.0;
-    const WHL   = Math.pow(2, 1/6);
-    for (const def of molDefTable) {
-        for (const b of def.bonds) {
-            // sigmaMixForR0 != null means r0 should track sigma — recompute it.
-            // sigmaMixForR0 == null means r0 is fixed; leave it alone.
-            if (b.sigmaMixForR0 == null) continue;
-            const ti  = def.beadTypes[b.i] ?? 0;
-            const tj  = def.beadTypes[b.j] ?? 0;
-            const mix = (spt[ti] + spt[tj]) / 2;
-            b.sigmaMixForR0 = mix;
-            b.r0            = scale * WHL * mix;
-        }
-    }
-}
-
-function rebuildParamTables() {
-    const spt    = cpuSim?.sigmaPerType || [1, 1, 1, 1];
-    const r0Scale = cpuSim?.r0Scale ?? 1.0;
-    const WHL    = Math.pow(2, 1/6);
-    const bpt = [], apt = [];
-    for (let pi = 0; pi < 4; pi++) {
-        const def = molDefTable[pi];
-        for (const b of def.bonds) {
-            // If sigmaMixForR0 is available use it; otherwise derive from actual bead types.
-            // (The old fallback always used type-0 sigma, giving wrong r0 for mixed bonds.)
-            let mix;
-            if (b.sigmaMixForR0 != null) {
-                mix = b.sigmaMixForR0;
-            } else {
-                const ti = def.beadTypes[b.i] ?? 0;
-                const tj = def.beadTypes[b.j] ?? 0;
-                mix = (spt[ti] + spt[tj]) / 2;
-            }
-            const r0 = b.r0 ?? (r0Scale * WHL * mix);
-            bpt.push({ k: b.k, r0, sigmaMixForR0: b.sigmaMixForR0 ?? null });
-        }
-        for (const a of def.angles) apt.push({ k: a.kAngle, theta0: a.theta0 });
-    }
-    cpuSim.bondParamTable  = bpt;
-    cpuSim.angleParamTable = apt;
-    if (currentEngine === 'gpu') {
-        gpuSim.bondParamTable  = bpt;
-        gpuSim.angleParamTable = apt;
-        gpuSim.updateBondParams();
-        gpuSim.updateAngleParams();
-    }
-}
-
-function syncVisibleToPolymerData() {
-    const pd = polymerData[activePolymer];
-    // NOTE: ratio is no longer read from a DOM element — it lives in speciesTable[4+activePolymer].ratio.
-    pd.ratio       = speciesTable[4 + activePolymer].ratio;
-    const cl       = Math.max(1, Math.min(200, parseInt(document.getElementById('chain-length-n').value) || 2));
-    pd.chainLength = cl;
-    for (let b = 0; b < cl; b++) {
-        const el = document.getElementById(`chaintype-${b}`);
-        if (el) pd.chainTypes[b] = parseInt(el.value) || 0;
-        const qel = document.getElementById(`chaincharge-${b}`);
-        if (qel) { const q = parseFloat(qel.value); pd.chainCharges[b] = isFinite(q) ? q : 0; }
-    }
-    pd.bondK  = parseFloat(document.getElementById('bond-k-n').value)     || 100;
-    pd.angleK = parseFloat(document.getElementById('angle-k-n').value)    || 10;
-    pd.theta0 = (parseFloat(document.getElementById('angle-theta-n').value) || 180) * Math.PI / 180.0;
-    for (let b = 1; b < cl - 1; b++) {
-        const el = document.getElementById(`chainangle-${b}`);
-        if (el) { const v = parseFloat(el.value); pd.chainAngles[b] = isNaN(v) ? 180 : v; }
-    }
-    syncPolymerToMolDef(activePolymer);
-}
-
-function syncPolymerDataToVisible() {
-    const pd = polymerData[activePolymer];
-    document.getElementById('chain-length-n').value  = pd.chainLength;
-    buildChainTypeUI(pd.chainLength);
-    document.getElementById('bond-k-n').value       = pd.bondK;
-    document.getElementById('bond-k-s').value       = pd.bondK;
-    document.getElementById('angle-k-n').value      = pd.angleK;
-    document.getElementById('angle-k-s').value      = pd.angleK;
-    const theta0Deg = +(pd.theta0 * 180 / Math.PI).toFixed(2);
-    document.getElementById('angle-theta-n').value  = theta0Deg;
-    document.getElementById('angle-theta-s').value  = theta0Deg;
-    // Restore per-bead angle inputs (built inside buildChainTypeUI, called above)
-    for (let b = 1; b < pd.chainLength - 1; b++) {
-        const el = document.getElementById(`chainangle-${b}`);
-        if (el) el.value = +(pd.chainAngles[b] ?? theta0Deg).toFixed(2);
-    }
-    syncPolymerToMolDef(activePolymer);
-    // Rebuild species table so chain-length display and % stay current.
-    buildSpeciesTableUI();
-}
 
 function loadFromURL() {
     const p = new URLSearchParams(window.location.search);
@@ -1850,47 +1806,18 @@ function loadFromURL() {
         }
     }
     for (let pi = 0; pi < 4; pi++) {
-        // Species table ratios: s0r-s7r.  Fall back to old URL keys for compat.
+        // Monomer species ratios: s0r-s3r. Fall back to old URL keys for compat.
         const monoKey = p.get(`s${pi}r`) ?? p.get(`ratio${pi}`);
         if (monoKey !== null) { const v = parseFloat(monoKey); if (!isNaN(v)) speciesTable[pi].ratio = Math.max(0, v); }
-        const polyKey = p.get(`s${4+pi}r`) ?? p.get(`p${pi}ratio`);
-        if (polyKey !== null) {
-            const v = parseFloat(polyKey);
-            if (!isNaN(v)) { speciesTable[4+pi].ratio = Math.max(0, v); polymerData[pi].ratio = speciesTable[4+pi].ratio; }
-        }
-        const clen = parseInt(p.get(`p${pi}clen`));
-        if (!isNaN(clen)) polymerData[pi].chainLength = Math.max(1, Math.min(200, clen));
-        const ctypes = p.get(`p${pi}ctypes`);
-        if (ctypes) ctypes.split(',').forEach((v, i) => { polymerData[pi].chainTypes[i] = parseInt(v) || 0; });
-        const ccharges = p.get(`p${pi}ccharges`);
-        if (ccharges) ccharges.split(',').forEach((v, i) => { const q = parseFloat(v); if (isFinite(q)) polymerData[pi].chainCharges[i] = q; });
-        const bondK = parseFloat(p.get(`p${pi}bondK`));
-        if (!isNaN(bondK)) polymerData[pi].bondK = Math.max(0, bondK);
-        const angleK = parseFloat(p.get(`p${pi}angleK`));
-        if (!isNaN(angleK)) polymerData[pi].angleK = Math.max(0, angleK);
-        const theta0Deg = parseFloat(p.get(`p${pi}theta0`));
-        if (!isNaN(theta0Deg)) polymerData[pi].theta0 = theta0Deg * Math.PI / 180;
-        const cangles = p.get(`p${pi}cangles`);
-        if (cangles) cangles.split(',').forEach((v, i) => { const deg = parseFloat(v); if (!isNaN(deg)) polymerData[pi].chainAngles[i] = deg; });
-        else { // fallback: fill from theta0
-            const fallbackDeg = +(polymerData[pi].theta0 * 180 / Math.PI);
-            polymerData[pi].chainAngles.fill(fallbackDeg);
-        }
     }
-    for (let pi = 0; pi < 4; pi++) syncPolymerToMolDef(pi);
-    syncPolymerDataToVisible();
     // Sync which potential parameter block is visible with the restored dropdown.
     syncPotentialPanels();
 }
 
 let _saveURLTimer = null;
 function saveToURL() {
-    // NOTE: calls syncVisibleToPolymerData() as a side-effect to ensure
-    // polymerData[] reflects the current UI state before serialisation.
-    // This is intentional but means saveToURL() is not a pure read.
     clearTimeout(_saveURLTimer);
     _saveURLTimer = setTimeout(() => {
-        syncVisibleToPolymerData();
         const p = new URLSearchParams();
         for (const {id, type} of URL_PARAMS) {
             const el = document.getElementById(id);
@@ -1898,15 +1825,7 @@ function saveToURL() {
             p.set(id, type === 'checkbox' ? (el.checked ? '1' : '0') : el.value);
         }
         for (let pi = 0; pi < 4; pi++) {
-            p.set(`s${pi}r`,     speciesTable[pi].ratio);
-            p.set(`s${4+pi}r`,   speciesTable[4+pi].ratio);
-            p.set(`p${pi}clen`,   polymerData[pi].chainLength);
-            p.set(`p${pi}ctypes`, polymerData[pi].chainTypes.slice(0, polymerData[pi].chainLength).join(','));
-            p.set(`p${pi}ccharges`, polymerData[pi].chainCharges.slice(0, polymerData[pi].chainLength).map(v => +v.toFixed(3)).join(','));
-            p.set(`p${pi}bondK`,  polymerData[pi].bondK);
-            p.set(`p${pi}angleK`, polymerData[pi].angleK);
-            p.set(`p${pi}theta0`, +(polymerData[pi].theta0 * 180 / Math.PI).toFixed(4));
-            p.set(`p${pi}cangles`, polymerData[pi].chainAngles.slice(0, polymerData[pi].chainLength).map(v => +v.toFixed(2)).join(','));
+            p.set(`s${pi}r`, speciesTable[pi].ratio);
         }
         history.replaceState(null, '', '?' + p.toString());
     }, 300);
@@ -2058,11 +1977,6 @@ class MD2D_CPU {
     this.spacingFactor = 1.0;
     this.sigmaSqMix = null;
 
-    this.polymerRatios  = [0, 0, 0, 0];
-    this.chainLengths   = [2, 2, 2, 2];
-    this.chainTypesAll  = Array.from({length: 4}, () => new Array(200).fill(0));
-    this.chainChargesAll = Array.from({length: 4}, () => new Array(200).fill(0));
-
     this.nBonds        = 0;
     this.bondI         = null;
     this.bondJ         = null;
@@ -2203,129 +2117,6 @@ class MD2D_CPU {
         this.molIdPerParticle = new Uint32Array(0);
         this.exclOffsets = new Uint32Array(1);
         this.exclList    = new Uint32Array(1);
-    }
-
-    _setupBonds() {
-        const N             = this.N;
-        const polymerRatios = this.polymerRatios || [0, 0, 0, 0];
-        const chainLengths  = this.chainLengths  || [2, 2, 2, 2];
-        this.bondR0         = Math.pow(2, 1/6) * Math.max(...this.sigmaPerType);
-
-        const WHL = Math.pow(2, 1/6);
-        for (const def of molDefTable) {
-            for (const b of def.bonds) {
-                if (b.r0 === null) {
-                    const ti  = def.beadTypes[b.i] ?? 0;
-                    const tj  = def.beadTypes[b.j] ?? 0;
-                    const mix = (this.sigmaPerType[ti] + this.sigmaPerType[tj]) / 2;
-                    b.sigmaMixForR0 = mix;
-                    b.r0 = this.r0Scale * WHL * mix;
-                } else {
-                    b.sigmaMixForR0 = b.sigmaMixForR0 ?? null;
-                }
-            }
-        }
-
-        this.bondParamTable  = [];
-        this.angleParamTable = [];
-        const bondParamBase  = new Uint32Array(4);
-        const angleParamBase = new Uint32Array(4);
-        for (let pi = 0; pi < 4; pi++) {
-            bondParamBase[pi]  = this.bondParamTable.length;
-            angleParamBase[pi] = this.angleParamTable.length;
-            const def = molDefTable[pi];
-            for (const b of def.bonds)  this.bondParamTable .push({ k: b.k, r0: b.r0, sigmaMixForR0: b.sigmaMixForR0 ?? null });
-            for (const a of def.angles) this.angleParamTable.push({ k: a.kAngle, theta0: a.theta0 });
-        }
-
-        const nChainsByPoly = polymerRatios.map((r, pi) => {
-            const cl = Math.max(1, molDefTable[pi].nBeads || chainLengths[pi]);
-            return r > 0 ? Math.floor(N * r / cl) : 0;
-        });
-
-        let totalBonds  = 0;
-        let totalAngles = 0;
-        for (let pi = 0; pi < 4; pi++) {
-            const def = molDefTable[pi];
-            totalBonds  += nChainsByPoly[pi] * def.bonds.length;
-            totalAngles += nChainsByPoly[pi] * def.angles.length;
-        }
-        this.nBonds  = totalBonds;
-        this.nAngles = totalAngles;
-
-        this.bondI        = new Int32Array(Math.max(1, totalBonds));
-        this.bondJ        = new Int32Array(Math.max(1, totalBonds));
-        this.bondParamId  = new Uint32Array(Math.max(1, totalBonds));
-        this.angleI       = new Int32Array(Math.max(1, totalAngles));
-        this.angleJ       = new Int32Array(Math.max(1, totalAngles));
-        this.angleKarr    = new Int32Array(Math.max(1, totalAngles));
-        this.angleParamId = new Uint32Array(Math.max(1, totalAngles));
-
-        this.molIdPerParticle = new Uint32Array(N).fill(0xFFFFFFFF);
-
-        const exclDegree = new Uint32Array(N);
-        let bIdx = 0, aIdx = 0, beadOff = 0;
-
-        for (let pi = 0; pi < 4; pi++) {
-            const def = molDefTable[pi];
-            const cl  = Math.max(1, def.nBeads || chainLengths[pi]);
-            const nc  = nChainsByPoly[pi];
-
-            for (let c = 0; c < nc; c++) {
-                const off = beadOff + c * cl;
-
-                for (let bi = 0; bi < def.bonds.length; bi++) {
-                    const bond = def.bonds[bi];
-                    this.bondI[bIdx]       = off + bond.i;
-                    this.bondJ[bIdx]       = off + bond.j;
-                    this.bondParamId[bIdx] = bondParamBase[pi] + bi;
-                    bIdx++;
-                }
-                for (let ai = 0; ai < def.angles.length; ai++) {
-                    const ang = def.angles[ai];
-                    this.angleI[aIdx]       = off + ang.i;
-                    this.angleJ[aIdx]       = off + ang.j;
-                    this.angleKarr[aIdx]    = off + ang.k;
-                    this.angleParamId[aIdx] = angleParamBase[pi] + ai;
-                    aIdx++;
-                }
-                for (const ex of def.exclusions) {
-                    exclDegree[off + ex.i]++;
-                    exclDegree[off + ex.j]++;
-                }
-                for (let b = 0; b < cl; b++) this.molIdPerParticle[off + b] = pi;
-            }
-            beadOff += nc * cl;
-        }
-
-        this.exclOffsets = new Uint32Array(N + 1);
-        for (let i = 0; i < N; i++) this.exclOffsets[i + 1] = this.exclOffsets[i] + exclDegree[i];
-        this.exclList   = new Uint32Array(Math.max(1, this.exclOffsets[N]));
-        const exclCursor = new Uint32Array(N);
-
-        beadOff = 0;
-        for (let pi = 0; pi < 4; pi++) {
-            const def = molDefTable[pi];
-            const cl  = Math.max(1, def.nBeads || chainLengths[pi]);
-            const nc  = nChainsByPoly[pi];
-            for (let c = 0; c < nc; c++) {
-                const off = beadOff + c * cl;
-                for (const ex of def.exclusions) {
-                    const gi = off + ex.i, gj = off + ex.j;
-                    this.exclList[this.exclOffsets[gi] + exclCursor[gi]++] = gj;
-                    this.exclList[this.exclOffsets[gj] + exclCursor[gj]++] = gi;
-                }
-            }
-            beadOff += nc * cl;
-        }
-
-        this.bondExclude = new Set();
-        for (let i = 0; i < N; i++) {
-            for (let e = this.exclOffsets[i]; e < this.exclOffsets[i + 1]; e++) {
-                const j = this.exclList[e];
-                if (i < j) this.bondExclude.add(i * N + j);
-            }
-        }
     }
 
     _gaussian() {
@@ -2845,7 +2636,14 @@ fn vs_main(@builtin(vertex_index) idx: u32, @builtin(instance_index) instance: u
     );
 
     var out: VertexOutput;
-    out.pos   = vec4<f32>(ndcPos + vertices[idx] * finalSize * zoom, 0.0, 1.0);
+    // ndcPos + the vertex offset are computed in an isotropic pseudo-NDC space
+    // (equal sim-units-per-pixel in x and y, height as the reference axis —
+    // this is what keeps circles circular). camera.w carries H/W of the actual
+    // render target; multiplying only the final x by it converts pseudo-NDC
+    // into true NDC, where x and y map through different physical pixel counts
+    // whenever the canvas isn't square.
+    let finalPos = ndcPos + vertices[idx] * finalSize * zoom;
+    out.pos   = vec4<f32>(finalPos.x * camera.w, finalPos.y, 0.0, 1.0);
     out.color = finalColor;
     out.uv    = vertices[idx];
     return out;
@@ -2994,7 +2792,12 @@ fn vs_bond(
     }
 
     var out: VO;
-    out.pos   = vec4<f32>(px, py, 0.0, 1.0);
+    // Same isotropic-pseudo-NDC-then-aspect-correct trick as the particle
+    // shader: px/py (including the perpendicular half-width offset) are all
+    // computed in the isotropic space above, so multiplying the finished x by
+    // camera.w (H/W of the render target) is enough — the perpendicular offset
+    // rides along with it and the bond stays a true rectangle in screen space.
+    out.pos   = vec4<f32>(px * camera.w, py, 0.0, 1.0);
     out.color = color;
     return out;
 }
@@ -3709,6 +3512,13 @@ class MD2D_WebGPU {
         const y0 = Math.max(-MAX_TILES, vis.y0 - 1);
         const y1 = Math.min( MAX_TILES, vis.y1 + 1);
 
+        // Canvas is no longer necessarily square. The vertex shaders compute
+        // position in an isotropic pseudo-NDC space (equal sim-units-per-pixel
+        // in x and y, height as the reference axis — see wgslRenderCode /
+        // wgslBondRenderCode), then multiply the final x by this aspect factor
+        // to land in true NDC. Carried in the camera uniform's unused 4th slot.
+        const aspect = this.gpuCanvas.height / this.gpuCanvas.width;
+
         // Obtain the surface texture once; all tile passes write to the same view.
         const textureView = this.gpuCtx.getCurrentTexture().createView();
         let firstTile = true;
@@ -3719,7 +3529,7 @@ class MD2D_WebGPU {
                 // by (ix*L, iy*L) without touching the particle buffer.
                 this.device.queue.writeBuffer(
                     this.cameraBuffer, 0,
-                    new Float32Array([camera.x - ix*L, camera.y - iy*L, camera.zoom, 0])
+                    new Float32Array([camera.x - ix*L, camera.y - iy*L, camera.zoom, aspect])
                 );
 
                 const encoder   = this.device.createCommandEncoder();
@@ -4532,11 +4342,20 @@ class MD2D_WebGPU {
 const canvas    = document.getElementById('simCanvas');
 const gpuCanvas = document.getElementById('gpuCanvas');
 const ctx = canvas.getContext('2d');
+// Forward-declared: created later (after the canvas frame exists) but referenced
+// by the resize handler defined just below, so it needs a binding up front.
+let overlayCanvas;
 let currentEngine = 'cpu';
 const cpuSim = new MD2D_CPU();
 const gpuSim = new MD2D_WebGPU();
 let sim = cpuSim;
 let running = false;
+// The script declares a lot of module-level state (dragState, DRAG, selection
+// state, etc.) further down, in the order it's used. _resizeCanvases can now
+// fire (via ResizeObserver) before all of that has executed — flip this once
+// the startup IIFE at the bottom begins, and skip the render-on-resize until
+// then rather than touching not-yet-initialized bindings.
+let _appInitDone = false;
 let rafId = null;
 
 const camera = { x: 25, y: 25, zoom: 1 };
@@ -4547,23 +4366,44 @@ function resetCamera() {
     camera.zoom = 1;
 }
 
-// Maximum number of extra tile copies rendered in each direction.
-// With modular camera (always wrapped to [0,L] after each pan), MAX_TILES=4
-// gives ample coverage at any allowed zoom level.
-const MAX_TILES = 4;
-// Maximum zoom-out: viewport spans L/ZOOM_MIN = 4 box widths.
-// Camera wrapping keeps it in [0,L] so the ±4 tile grid always covers fully.
+// Hard ceiling on tile copies per direction — bounds worst-case draw calls.
+// The actual range used is computed per-axis from the real viewport extent
+// (see _visTiles), so a wide canvas gets as many horizontal tiles as it needs
+// up to this cap; this is just the safety limit, not the normal working value.
+const MAX_TILES = 12;
+// Maximum zoom-out.
 const ZOOM_MIN  = 0.25;
 
+// ── Camera transform ─────────────────────────────────────────────────────────
+// The canvas is no longer forced square — it fills whatever rectangular space
+// the layout gives it, and height is the reference axis: at zoom=1 exactly one
+// box height (L) fills the canvas vertically, using the SAME px-per-sim-unit
+// scale for x as for y (so circles stay circular, nothing is squeezed).
+// Whatever width is left over than shows more — or less — of the periodic
+// lattice, via the same PBC tiling already used for zooming out.
+function _camXform(L) {
+    const W = canvas.width, H = canvas.height;
+    const scale = H / L * camera.zoom;
+    return { W, H, scale, offX: W / 2 - camera.x * scale, offY: H / 2 - camera.y * scale };
+}
+
 // Returns the range of box-copy indices {x0,x1,y0,y1} that are at least partially
-// visible in the current camera view.  At zoom ≥ 1 this is always just {0,0,0,0}.
+// visible in the current camera view. Width and height are handled separately
+// since the canvas is no longer necessarily square: a wide canvas needs more
+// tile copies in x than in y to fill the frame at the same px-per-unit scale.
+// The clamp is per-axis and derived from the half-viewport extent (+1 slack),
+// so coverage is correct at any aspect ratio, not just near-square ones.
 function _visTiles(L) {
-    const hv = L / (2 * camera.zoom);
+    const { W, H, scale } = _camXform(L);
+    const hvx = (W / 2) / scale;
+    const hvy = (H / 2) / scale;
+    const capX = Math.min(MAX_TILES, Math.ceil(hvx / L) + 1);
+    const capY = Math.min(MAX_TILES, Math.ceil(hvy / L) + 1);
     return {
-        x0: Math.max(-MAX_TILES, Math.floor((camera.x - hv) / L)),
-        x1: Math.min( MAX_TILES, Math.ceil( (camera.x + hv) / L) - 1),
-        y0: Math.max(-MAX_TILES, Math.floor((camera.y - hv) / L)),
-        y1: Math.min( MAX_TILES, Math.ceil( (camera.y + hv) / L) - 1),
+        x0: Math.max(-capX, Math.floor((camera.x - hvx) / L)),
+        x1: Math.min( capX, Math.ceil( (camera.x + hvx) / L) - 1),
+        y0: Math.max(-capY, Math.floor((camera.y - hvy) / L)),
+        y1: Math.min( capY, Math.ceil( (camera.y + hvy) / L) - 1),
     };
 }
 
@@ -4587,14 +4427,87 @@ function renderFrame() {
 const canvasWrapper = document.querySelector('.canvas-wrapper');
 canvasWrapper.style.cursor = 'grab';
 
-// ── Canvas CSS size tracking ──────────────────────────────────────────────────
-// All rendering happens in a fixed 1000×1000 coordinate space; the wrapper is
-// scaled by CSS.  _csw tracks the CSS pixel width so mouse coordinates can be
-// mapped back to the 1000×1000 internal space.
-let _csw = canvasWrapper.getBoundingClientRect().width || 1000;
-new ResizeObserver(() => {
-    _csw = canvasWrapper.getBoundingClientRect().width || 1000;
-}).observe(canvasWrapper);
+// ── Canvas size tracking ────────────────────────────────────────────────────
+// .canvas-frame spans the full column width/height (same track as the stats
+// bar, so the two are always aligned regardless of stats-bar content).
+// .canvas-wrapper now fills it completely (CSS 100%/100%, see stylesheet) —
+// the canvas is free to be rectangular. The actual drawing-buffer resolution
+// of all three stacked canvases (CPU, GPU, overlay) is kept in sync with the
+// wrapper's live CSS size here, so the renderer always draws at native
+// resolution with no CSS up/downscaling.
+const canvasFrame = document.querySelector('.canvas-frame');
+function _resizeCanvases() {
+    const r = canvasWrapper.getBoundingClientRect();
+    const w = Math.max(1, Math.floor(r.width));
+    const h = Math.max(1, Math.floor(r.height));
+    if (canvas.width !== w)    canvas.width    = w;
+    if (canvas.height !== h)   canvas.height   = h;
+    if (gpuCanvas.width !== w) gpuCanvas.width = w;
+    if (gpuCanvas.height !== h) gpuCanvas.height = h;
+    if (overlayCanvas) {
+        if (overlayCanvas.width !== w)  overlayCanvas.width  = w;
+        if (overlayCanvas.height !== h) overlayCanvas.height = h;
+    }
+    _csw = w; _csh = h;
+    // Before startup finishes, a render touches module-level state (dragState,
+    // DRAG, selection variables, etc.) that's declared further down in the
+    // script and may not exist yet — see _appInitDone. The buffers are still
+    // resized above either way; performFill()'s own renderFrame() call covers
+    // the first real paint.
+    if (_appInitDone) renderFrame();
+}
+// Not called synchronously here — overlayCanvas doesn't exist yet at this point
+// in the script. ResizeObserver's callback always fires asynchronously (after
+// the whole script has finished running), so by the time it fires everything
+// below is already constructed; see the explicit call right after overlayCanvas
+// is created for the first, immediate sizing pass.
+new ResizeObserver(_resizeCanvases).observe(canvasFrame);
+
+// Measure the footer's real rendered height and publish it as --footer-h, so
+// the layout reserves exactly (footer height + one gap) beneath the content —
+// no guessed magic number, no dead zone. Re-measured on window resize because
+// the footer text can wrap to two lines on a narrow window, changing its
+// height. Observing the footer itself catches font-load reflow too.
+const _footerEl = document.getElementById('footer');
+function _syncFooterHeight() {
+    if (!_footerEl) return;
+    const h = Math.ceil(_footerEl.getBoundingClientRect().height);
+    if (h > 0) document.documentElement.style.setProperty('--footer-h', h + 'px');
+}
+_syncFooterHeight();
+new ResizeObserver(_syncFooterHeight).observe(_footerEl);
+
+// Proactively reserve the inspect bar's height by measuring the tallest of its
+// variants (bond / angle / particle / batch) up front, so the very first time
+// the bar appears the canvas doesn't shift. Each variant is rendered invisibly
+// (bar kept .is-hidden, so no flash), its height read, and the max published as
+// --inspect-h. Re-run on window resize because a narrow window can wrap a panel
+// to two rows, changing which variant is tallest. _updateInspectBar also grows
+// the value at runtime as a backstop, but this makes the common case shift-free.
+function _measureInspectHeight() {
+    const bar = document.getElementById('inspect-bar');
+    if (!bar) return;
+    const groups = ['ib-bond','ib-angle','ib-particle','ib-bond-batch','ib-angle-batch']
+        .map(id => document.getElementById(id)).filter(Boolean);
+    // Snapshot current display states so we can restore exactly.
+    const prev = groups.map(g => g.style.display);
+    let maxH = 0;
+    for (const g of groups) {
+        groups.forEach(x => { x.style.display = 'none'; });
+        g.style.display = 'contents';
+        maxH = Math.max(maxH, bar.offsetHeight);
+    }
+    groups.forEach((g,i) => { g.style.display = prev[i]; });
+    if (maxH > 0) document.documentElement.style.setProperty('--inspect-h', maxH + 'px');
+}
+_measureInspectHeight();
+window.addEventListener('resize', _measureInspectHeight);
+
+// _csw/_csh track the CSS (== internal, since the canvas is sized 1:1 with its
+// CSS box) pixel dimensions, so mouse coordinates can be mapped back to sim
+// space. Placeholder values until the first resize pass runs.
+let _csw = canvasWrapper.getBoundingClientRect().width  || 1000;
+let _csh = canvasWrapper.getBoundingClientRect().height || 1000;
 
 // wheel events handled by the unified handler below
 
@@ -4722,7 +4635,6 @@ async function saveSimState() {
         await gpuSim._fullReadback();
         syncCPUfromGPU();
     }
-    syncVisibleToPolymerData();
 
     const c = cpuSim, N = c.N;
 
@@ -4733,17 +4645,7 @@ async function saveSimState() {
         if (!el) continue;
         ui[id] = (type === 'checkbox') ? el.checked : el.value;
     }
-    ui.species = speciesTable.slice(0, 8).map(s => ({ ratio: s.ratio }));
-    ui.polymers = polymerData.map(pd => ({
-        ratio:       pd.ratio,
-        chainLength: pd.chainLength,
-        bondK:       pd.bondK,
-        angleK:      pd.angleK,
-        theta0Deg:   +(pd.theta0 * 180 / Math.PI).toFixed(4),
-        chainTypes:  pd.chainTypes.slice(0, pd.chainLength),
-        chainCharges: pd.chainCharges.slice(0, pd.chainLength),
-        chainAngles: pd.chainAngles.slice(0, pd.chainLength),
-    }));
+    ui.species = speciesTable.slice(0, 4).map(s => ({ ratio: s.ratio }));
 
     // ── Particle + topology arrays ─────────────────────────────────────────
     const state = {
@@ -4809,7 +4711,7 @@ async function loadSimState(json) {
     if (cpuSim.N > 0) _checkpoint();   // pre-load state stays undoable (e.g. a misclicked Load)
     _invalidateDragAdj();
     _selection = null;
-    octx.clearRect(0, 0, 1000, 1000);
+    _clearOverlay();
 
     // ── 1. Restore UI inputs ───────────────────────────────────────────────
     const ui = json.ui || {};
@@ -4825,29 +4727,12 @@ async function loadSimState(json) {
             if (slider) slider.value = val;
         }
     }
-    // Species table ratios (built-in slots 0-7)
+    // Species table ratios (built-in monomer slots 0-3)
     if (ui.species) {
         ui.species.forEach((s, i) => {
-            if (i < 8 && speciesTable[i]) speciesTable[i].ratio = s.ratio ?? 0;
+            if (i < 4 && speciesTable[i]) speciesTable[i].ratio = s.ratio ?? 0;
         });
     }
-    // polymerData
-    if (ui.polymers) {
-        ui.polymers.forEach((src, pi) => {
-            if (pi >= 4) return;
-            const pd = polymerData[pi];
-            pd.ratio       = src.ratio       ?? 0;
-            pd.chainLength = src.chainLength  ?? 2;
-            pd.bondK       = src.bondK        ?? 100;
-            pd.angleK      = src.angleK       ?? 10;
-            pd.theta0      = (src.theta0Deg   ?? 180) * Math.PI / 180;
-            if (src.chainTypes)  src.chainTypes.forEach((v, i) => { pd.chainTypes[i]  = v; });
-            if (src.chainCharges) src.chainCharges.forEach((v, i) => { pd.chainCharges[i] = v; });
-            if (src.chainAngles) src.chainAngles.forEach((v, i) => { pd.chainAngles[i] = v; });
-        });
-    }
-    for (let pi = 0; pi < 4; pi++) syncPolymerToMolDef(pi);
-    syncPolymerDataToVisible();
     applyIntegratorPanels();
     applyIntegratorParams();
     // Sync potential parameter panels (mie/wf) with the restored dropdown.
@@ -4855,7 +4740,7 @@ async function loadSimState(json) {
 
     // ── 2. Restore custom molecule definitions ─────────────────────────────
     // Remove previously loaded custom mols from speciesTable, then rebuild.
-    speciesTable.splice(8, speciesTable.length - 8);
+    speciesTable.splice(4, speciesTable.length - 4);
     customMolDefs.length = 0;
     (json.customMolDefs || []).forEach(e => {
         const def = MolDef.fromJSON(e.molDef);
@@ -5348,12 +5233,15 @@ async function _confirmPlacement(simX, simY) {
 }
 
 // ── Overlay canvas (rubber-band rect + grey-out, always on top) ───────────────
-const overlayCanvas = document.createElement('canvas');
-overlayCanvas.width  = 1000; overlayCanvas.height = 1000;
-// width/height CSS fills the wrapper regardless of its CSS size; internal res stays 1000×1000
+overlayCanvas = document.createElement('canvas');
+// Sized by _resizeCanvases, called explicitly below now that CPU/GPU/overlay
+// canvases all exist (the ResizeObserver set up earlier fires asynchronously,
+// so without this call the very first frame would draw at a stale 0×0/300×150
+// default canvas resolution).
 overlayCanvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;';
 canvasWrapper.appendChild(overlayCanvas);
 const octx = overlayCanvas.getContext('2d');
+_resizeCanvases();
 
 // ════════════════════════════════════════════════════════════════════════════
 //  PBC Geometry Utilities
@@ -5550,21 +5438,59 @@ let _wheelAccum    = 0;       // sub-notch scroll accumulator for 5° snapping
 let _selectionMode = null;    // 'select' | 'particle' | null — which mode owns _selection
 let _selectionFrame = null;   // frozen PBC-unwrapped transform frame; rebuilt on selection change
 
-// ── Overlay rendering ─────────────────────────────────────────────────────────
-// Bond state (selected bond, anchor dot) is composited on top of every branch
-// so it stays visible regardless of which mode is currently active.
+// ── Box-boundary grid ─────────────────────────────────────────────────────────
+// Draws the primary simulation box as a thin solid square, plus a copy in every
+// visible PBC tile, so when zoomed out the periodic replication is legible as a
+// tiling of squares (otherwise the wrap is seamless and invisible).
+// Drawn on the overlay canvas — works identically for the CPU and GPU render
+// paths, no shader involvement. Must be called right after an overlay clear so
+// it sits underneath all selection/edit decorations.
+let _showBoxGrid = true;   // toggled by the "Box grid" checkbox
+function _drawBoxGrid() {
+    if (!_showBoxGrid) return;
+    const L = sim.L;
+    const { scale, offX, offY } = _camXform(L);
+    const span = L * scale;                 // px per box copy
+    const v = _visTiles(L);
+    // Expand by one flanking tile in each direction: a box copy straddling the
+    // viewport edge is partially visible but _visTiles may exclude its origin
+    // tile, which would drop its border. The extra strokeRects are clipped by
+    // the canvas and essentially free.
+    const x0 = Math.max(-MAX_TILES, v.x0 - 1), x1 = Math.min(MAX_TILES, v.x1 + 1);
+    const y0 = Math.max(-MAX_TILES, v.y0 - 1), y1 = Math.min(MAX_TILES, v.y1 + 1);
+
+    octx.save();
+    octx.strokeStyle = 'rgba(60,60,60,0.35)';
+    octx.lineWidth   = 1;
+    for (let ix = x0; ix <= x1; ix++) {
+        for (let iy = y0; iy <= y1; iy++) {
+            const px = offX + ix * span;
+            const py = offY + iy * span;
+            octx.strokeRect(px, py, span, span);
+        }
+    }
+    octx.restore();
+}
+
+// Clears the overlay AND immediately redraws the box grid. The grid is always
+// visible, independent of interaction mode, so every overlay clear must be
+// followed by a grid redraw — routing all clears through this one helper keeps
+// that invariant in a single place instead of relying on each call site to
+// remember. Callers that then draw mode-specific widgets pass skipClear=true to
+// those widget functions so they don't clear again on top.
+function _clearOverlay() {
+    octx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    _drawBoxGrid();
+}
 function _drawSelectionOverlay() {
-    octx.clearRect(0, 0, 1000, 1000);
+    _clearOverlay();
 
     // Bond/angle edit modes: delegate entirely (canvas already cleared above).
     if (interactionMode === 'bond')     { _drawEditOverlay(true);          return; }
     if (interactionMode === 'angle')    { _drawAngleOverlay(true);         return; }
     if (interactionMode === 'particle') { _drawParticleTypeOverlay(true);  return; }
 
-    const W     = 1000;
-    const scale = W / sim.L * camera.zoom;
-    const offX  = W / 2 - camera.x * scale;
-    const offY  = W / 2 - camera.y * scale;
+    const { scale, offX, offY } = _camXform(sim.L);
 
     // ── Placement ghost ───────────────────────────────────────────────────────
     // Ghost particles are real sim particles (the active selection) rendered by
@@ -5593,14 +5519,11 @@ function _drawSelectionOverlay() {
 // Desaturation (selected = full colour, rest greyed) is handled by renderFrame's
 // temporary _selection swap, so no per-bead decoration is drawn here.
 function _drawParticleTypeOverlay(skipClear = false) {
-    if (!skipClear) octx.clearRect(0, 0, 1000, 1000);
+    if (!skipClear) { _clearOverlay(); }
 
     // Rubber-band rect while dragging in particle mode
     if (dragState === DRAG.SEL_RUBBER && _selDragStart && _selDragCur) {
-        const W     = 1000;
-        const scale = W / sim.L * camera.zoom;
-        const offX  = W / 2 - camera.x * scale;
-        const offY  = W / 2 - camera.y * scale;
+        const { scale, offX, offY } = _camXform(sim.L);
         const sx0 = _selDragStart.x * scale + offX, sy0 = _selDragStart.y * scale + offY;
         const sx1 = _selDragCur.x   * scale + offX, sy1 = _selDragCur.y   * scale + offY;
         octx.fillStyle   = 'rgba(255,140,0,0.07)';
@@ -5673,7 +5596,7 @@ function _clearSelection() {
     _selectionFrame = null;
     if (dragState === DRAG.SEL_GROUP || dragState === DRAG.SEL_RUBBER) dragState = DRAG.NONE;
     _selGroupPrev = null;
-    octx.clearRect(0, 0, 1000, 1000);
+    _clearOverlay();
     _syncSelectionToGPU();
     if (!running) renderFrame();
     // Reset stat label without calling setMode (would cause setMode↔_clearSelection cycle).
@@ -5711,7 +5634,7 @@ function _exitBondEdit() {
     _beA = -1; _beBondIdx = -1;
     const ib=document.getElementById('inspect-bar'); if(ib) ib.style.display='none';
     setMode('select');
-    octx.clearRect(0, 0, 1000, 1000);
+    _clearOverlay();
     if (!running) renderFrame();
 }
 
@@ -5764,17 +5687,7 @@ function _snapWorld() {
     }
     return {
         ui,
-        species: speciesTable.slice(0, 8).map(s => ({ ratio: s.ratio })),
-        polymers: polymerData.map(pd => ({
-            ratio:       pd.ratio,
-            chainLength: pd.chainLength,
-            bondK:       pd.bondK,
-            angleK:      pd.angleK,
-            theta0:      pd.theta0,                  // radians, kept exact
-            chainTypes:   pd.chainTypes.slice(),
-            chainCharges: pd.chainCharges.slice(),
-            chainAngles:  pd.chainAngles.slice(),
-        })),
+        species: speciesTable.slice(0, 4).map(s => ({ ratio: s.ratio })),
         customMolDefs: customMolDefs.map(e => ({
             name:      e.name,
             molId:     e.molId,
@@ -5806,7 +5719,12 @@ function capture({ withBaseline = true } = {}) {
         // assignment, with no re-derivation from the live DOM (which caused stale
         // cell-grid / sigma state when undoing across a load).
         params: {
-            T: c.T, mass: c.mass, dt: c.dt,
+            // dt is captured as dtTarget, NOT the live c.dt: c.dt is transiently
+            // ramped near-zero by triggerEase() and climbs back to dtTarget only
+            // while running (advanceEaseDt). Snapshotting the live value would
+            // bank a near-zero dt and, on restore, also overwrite dtTarget with
+            // it — freezing the sim. dtTarget is the stable, user-intended value.
+            T: c.T, mass: c.mass, dt: dtTarget,
             massPerType:  c.massPerType  ? [...c.massPerType]  : null,
             sigmaPerType: c.sigmaPerType ? [...c.sigmaPerType] : null,
             epsMatrix:    c.epsMatrix    ? c.epsMatrix.map(r => [...r]) : null,
@@ -5863,25 +5781,12 @@ function _applyWorld(w) {
             if (slider) slider.value = v;
         }
     }
-    // 2. Species ratios (built-in slots 0-7)
+    // 2. Species ratios (built-in monomer slots 0-3)
     (w.species || []).forEach((s, i) => {
-        if (i < 8 && speciesTable[i]) speciesTable[i].ratio = s.ratio ?? 0;
+        if (i < 4 && speciesTable[i]) speciesTable[i].ratio = s.ratio ?? 0;
     });
-    // 3. polymerData
-    (w.polymers || []).forEach((src, pi) => {
-        if (pi >= 4) return;
-        const pd = polymerData[pi];
-        pd.ratio       = src.ratio       ?? 0;
-        pd.chainLength = src.chainLength ?? 2;
-        pd.bondK       = src.bondK       ?? 100;
-        pd.angleK      = src.angleK      ?? 10;
-        pd.theta0      = src.theta0      ?? Math.PI;   // stored as radians
-        if (src.chainTypes)   src.chainTypes.forEach((v, i)   => { pd.chainTypes[i]   = v; });
-        if (src.chainCharges) src.chainCharges.forEach((v, i) => { pd.chainCharges[i] = v; });
-        if (src.chainAngles)  src.chainAngles.forEach((v, i)  => { pd.chainAngles[i]  = v; });
-    });
-    // 4. Custom molecule defs — rebuild speciesTable slots 8+ from the snapshot
-    speciesTable.splice(8, speciesTable.length - 8);
+    // 3. Custom molecule defs — rebuild speciesTable slots 4+ from the snapshot
+    speciesTable.splice(4, speciesTable.length - 4);
     customMolDefs.length = 0;
     (w.customMolDefs || []).forEach(e => {
         const entry = { name: e.name, molDef: _cloneMolDef(e.molDef),
@@ -5893,9 +5798,6 @@ function _applyWorld(w) {
     });
     _nextMolId = w.nextMolId ?? _nextMolId;
     buildSpeciesTableUI();
-    // 5. Sync chain — identical to loadSimState's
-    for (let pi = 0; pi < 4; pi++) syncPolymerToMolDef(pi);
-    syncPolymerDataToVisible();
     applyIntegratorPanels();
     applyIntegratorParams();
     syncPotentialPanels();
@@ -6109,7 +6011,7 @@ async function _resetToBaseline() {
     const globalTab = document.querySelector('.sc-tab[data-tab="global"]');
     if (globalTab && !globalTab.classList.contains('active')) globalTab.click();
     _updateCursor();
-    octx.clearRect(0, 0, 1000, 1000);   // clear any leftover bond/angle overlay
+    _clearOverlay();   // clear any leftover bond/angle overlay, keep box grid
     _updateInspectBar();
     if (!running) renderFrame();
     _refreshUndoBtn();
@@ -6274,7 +6176,7 @@ function _scheduleLiveUpdate() {
 // the current mode — switching to camera must not erase what the user set up.
 // Interactive-only state (ghost line, hover dot) is guarded to bond mode.
 function _drawEditOverlay(skipClear = false) {
-    if (!skipClear) octx.clearRect(0,0,1000,1000);
+    if (!skipClear) { _clearOverlay(); }
 
     // Widgets are only ever shown in their own edit mode — never composited into
     // camera/select/run. Outside bond mode this is a no-op (the canvas is left as
@@ -6284,79 +6186,98 @@ function _drawEditOverlay(skipClear = false) {
     // Nothing to draw — skip scale computation.
     if (_beBondIdx < 0 && _beA < 0 && _beHoverBead < 0) return;
 
-    const W=1000, scale=W/cpuSim.L*camera.zoom;
-    const offX=W/2-camera.x*scale, offY=W/2-camera.y*scale;
+    const { scale, offX: baseOffX, offY: baseOffY } = _camXform(cpuSim.L);
+    const span   = cpuSim.L * scale;   // px per box copy
     const pr_val = parseFloat(document.getElementById('pr-n').value)||0.45;
-    const baseR  = 1000 / cpuSim.L * camera.zoom * pr_val;  // px radius of sigma=1 bead
+    const baseR  = scale * pr_val;  // px radius of sigma=1 bead
     const spt    = cpuSim.sigmaPerType || [1,1,1,1];
     const L=cpuSim.L, h=L/2;
     const px=sim.x, py=sim.y;
-
-    const canX = (x) => x*scale+offX;
-    const canY = (y) => y*scale+offY;
     const sig  = (i) => spt[(cpuSim.type?cpuSim.type[i]:0)&3] || 1;
+    const { x0, x1, y0, y1 } = _visTiles(L);
 
-    // ── Selected bond: black line + dots at both endpoints ──────────────────
-    // Persistent — visible in any mode so the user always sees what is selected.
-    if (_beBondIdx>=0 && _beBondIdx<cpuSim.nBonds) {
-        const i=cpuSim.bondI[_beBondIdx], j=cpuSim.bondJ[_beBondIdx];
-        const sigAvg = (sig(i)+sig(j))*0.5;
-        let dx=px[j]-px[i], dy=py[j]-py[i];
-        if(dx>h)dx-=L;if(dx<-h)dx+=L;if(dy>h)dy-=L;if(dy<-h)dy+=L;
-        const xi=canX(px[i]), yi=canY(py[i]);
-        const xj=xi+dx*scale,  yj=yi+dy*scale;
+    // The whole widget is drawn once per visible PBC tile, offsetting the canvas
+    // origin by (ix*L, iy*L) — same tiling the particle/bond renderer uses — so
+    // the affordances appear in every copy, not just the primary box. offX/offY
+    // are rebound per tile; all bond geometry uses minimum-image displacements so
+    // a bond/ghost spanning a boundary draws the short way (matching what the
+    // bond actually is once created), instead of a long line across the box.
+    for (let ix = x0; ix <= x1; ix++) {
+    for (let iy = y0; iy <= y1; iy++) {
+        const offX = baseOffX + ix * span;
+        const offY = baseOffY + iy * span;
+        const canX = (x) => x*scale+offX;
+        const canY = (y) => y*scale+offY;
 
-        // Bond highlight line — width matches the endpoint dot diameter (dot radius = baseR*si*0.5)
-        octx.strokeStyle = '#000';
-        octx.lineWidth   = Math.max(1.5, baseR*sigAvg);
-        octx.beginPath(); octx.moveTo(xi,yi); octx.lineTo(xj,yj); octx.stroke();
+        // ── Selected bond: black line + dots at both endpoints ──────────────────
+        // Persistent — visible in any mode so the user always sees what is selected.
+        if (_beBondIdx>=0 && _beBondIdx<cpuSim.nBonds) {
+            const i=cpuSim.bondI[_beBondIdx], j=cpuSim.bondJ[_beBondIdx];
+            const sigAvg = (sig(i)+sig(j))*0.5;
+            let dx=px[j]-px[i], dy=py[j]-py[i];
+            if(dx>h)dx-=L;if(dx<-h)dx+=L;if(dy>h)dy-=L;if(dy<-h)dy+=L;
+            const xi=canX(px[i]), yi=canY(py[i]);
+            const xj=xi+dx*scale,  yj=yi+dy*scale;
 
-        // Endpoint dots at i and j — half of bead radius
-        octx.fillStyle = '#000';
-        for (const [cx,cy,si] of [[xi,yi,sig(i)],[xj,yj,sig(j)]]) {
-            octx.beginPath();
-            octx.arc(cx, cy, Math.max(2.5, baseR*si*0.5), 0, 6.2832);
-            octx.fill();
-        }
-    }
-
-    // ── Ghost bond and hover dot: bond-edit mode only ────────────────────────
-    // These rely on live mouse tracking and are not meaningful outside bond mode.
-    if (interactionMode === 'bond') {
-        // Ghost bond: dashed line from anchor → pointer / hover bead
-        if (_beA>=0 && _beMouseSim) {
-            const ax=canX(px[_beA]), ay=canY(py[_beA]);
-            let tx, ty;
-            if (_beHoverBead>=0 && _beHoverBead!==_beA) {
-                tx=canX(px[_beHoverBead]); ty=canY(py[_beHoverBead]);
-            } else {
-                tx=_beMouseSim.x*scale+offX; ty=_beMouseSim.y*scale+offY;
-            }
+            // Bond highlight line — width matches the endpoint dot diameter (dot radius = baseR*si*0.5)
             octx.strokeStyle = '#000';
-            octx.lineWidth   = Math.max(1, baseR*sig(_beA)*0.4);
-            octx.setLineDash([5,4]);
-            octx.beginPath(); octx.moveTo(ax,ay); octx.lineTo(tx,ty); octx.stroke();
-            octx.setLineDash([]);
+            octx.lineWidth   = Math.max(1.5, baseR*sigAvg);
+            octx.beginPath(); octx.moveTo(xi,yi); octx.lineTo(xj,yj); octx.stroke();
+
+            // Endpoint dots at i and j — half of bead radius
+            octx.fillStyle = '#000';
+            for (const [cx,cy,si] of [[xi,yi,sig(i)],[xj,yj,sig(j)]]) {
+                octx.beginPath();
+                octx.arc(cx, cy, Math.max(2.5, baseR*si*0.5), 0, 6.2832);
+                octx.fill();
+            }
         }
 
-        // Hover dot: 1/3 of bead radius — subtle, smaller than selected
-        if (_beHoverBead>=0 && _beHoverBead!==_beA) {
-            const hx=canX(px[_beHoverBead]), hy=canY(py[_beHoverBead]);
+        // ── Ghost bond and hover dot: bond-edit mode only ────────────────────────
+        // These rely on live mouse tracking and are not meaningful outside bond mode.
+        if (interactionMode === 'bond') {
+            // Ghost bond: dashed line from anchor → pointer / hover bead.
+            // Drawn using the minimum-image displacement from the anchor so it
+            // takes the short path across a boundary — matching the bond that
+            // will actually be created — rather than a straight line across the box.
+            if (_beA>=0 && _beMouseSim) {
+                const ax=canX(px[_beA]), ay=canY(py[_beA]);
+                let tgtX, tgtY;
+                if (_beHoverBead>=0 && _beHoverBead!==_beA) {
+                    tgtX = px[_beHoverBead]; tgtY = py[_beHoverBead];
+                } else {
+                    tgtX = _beMouseSim.x; tgtY = _beMouseSim.y;
+                }
+                let dxg = tgtX - px[_beA], dyg = tgtY - py[_beA];
+                if(dxg>h)dxg-=L; if(dxg<-h)dxg+=L; if(dyg>h)dyg-=L; if(dyg<-h)dyg+=L;
+                const tx = ax + dxg*scale, ty = ay + dyg*scale;
+                octx.strokeStyle = '#000';
+                octx.lineWidth   = Math.max(1, baseR*sig(_beA)*0.4);
+                octx.setLineDash([5,4]);
+                octx.beginPath(); octx.moveTo(ax,ay); octx.lineTo(tx,ty); octx.stroke();
+                octx.setLineDash([]);
+            }
+
+            // Hover dot: 1/3 of bead radius — subtle, smaller than selected
+            if (_beHoverBead>=0 && _beHoverBead!==_beA) {
+                const hx=canX(px[_beHoverBead]), hy=canY(py[_beHoverBead]);
+                octx.fillStyle = '#000';
+                octx.beginPath();
+                octx.arc(hx, hy, Math.max(1.5, baseR*sig(_beHoverBead)*(1/3)), 0, 6.2832);
+                octx.fill();
+            }
+        }
+
+        // ── Anchor dot: persistent — visible in any mode ─────────────────────────
+        // 1/2 of bead radius — clearly bigger than hover
+        if (_beA>=0) {
+            const ax=canX(px[_beA]), ay=canY(py[_beA]);
             octx.fillStyle = '#000';
             octx.beginPath();
-            octx.arc(hx, hy, Math.max(1.5, baseR*sig(_beHoverBead)*(1/3)), 0, 6.2832);
+            octx.arc(ax, ay, Math.max(2.5, baseR*sig(_beA)*0.5), 0, 6.2832);
             octx.fill();
         }
     }
-
-    // ── Anchor dot: persistent — visible in any mode ─────────────────────────
-    // 1/2 of bead radius — clearly bigger than hover
-    if (_beA>=0) {
-        const ax=canX(px[_beA]), ay=canY(py[_beA]);
-        octx.fillStyle = '#000';
-        octx.beginPath();
-        octx.arc(ax, ay, Math.max(2.5, baseR*sig(_beA)*0.5), 0, 6.2832);
-        octx.fill();
     }
 }
 
@@ -6377,7 +6298,7 @@ function _exitAngleEdit() {
     _aeA = -1; _aeB = -1; _aeAngleIdx = -1;
     const ib = document.getElementById('inspect-bar'); if (ib) ib.style.display = 'none';
     setMode('select');
-    octx.clearRect(0, 0, 1000, 1000);
+    _clearOverlay();
     if (!running) renderFrame();
 }
 
@@ -6544,24 +6465,26 @@ canvasWrapper.addEventListener('mousemove', function _aeMoveHandler(e) {
 // ── Overlay renderer ───────────────────────────────────────────────────────
 // Draws all angle arcs with directional arrows on the overlay canvas.
 function _drawAngleOverlay(skipClear = false) {
-    if (!skipClear) octx.clearRect(0, 0, 1000, 1000);
+    if (!skipClear) { _clearOverlay(); }
 
     // Widgets only ever shown in angle mode — never in camera/select/run.
     if (interactionMode !== 'angle') return;
 
     if (_aeAngleIdx < 0 && _aeA < 0 && _aeHoverBead < 0 && !cpuSim.nAngles) return;
 
-    const W     = 1000, scale = W / cpuSim.L * camera.zoom;
-    const offX  = W/2 - camera.x*scale, offY = W/2 - camera.y*scale;
+    const { scale, offX: baseOffX, offY: baseOffY } = _camXform(cpuSim.L);
+    const span   = cpuSim.L * scale;   // px per box copy
     const pr_val = parseFloat(document.getElementById('pr-n').value) || 0.45;
-    const baseR  = 1000 / cpuSim.L * camera.zoom * pr_val;
+    const baseR  = scale * pr_val;
     const spt    = cpuSim.sigmaPerType || [1,1,1,1];
     const L = cpuSim.L, h = L/2;
     const px = sim.x, py = sim.y;
-
-    const canX = (x) => x*scale + offX;
-    const canY = (y) => y*scale + offY;
     const sig  = (i) => spt[(cpuSim.type?cpuSim.type[i]:0)&3] || 1;
+
+    // Arc angles (leg directions) use minimum-image displacements, so they're
+    // independent of which tile a widget is drawn in — only the arc's centre
+    // position shifts per tile. legAngles is therefore tile-independent; the
+    // per-tile offset only enters through canX/canY (rebound in the loop below).
 
     // Always sweep CW (anticlockwise=false) from i-leg to k-leg.
     // Sweep = (angle_k - angle_i + 2π) mod 2π, which is invariant under rotation
@@ -6601,66 +6524,76 @@ function _drawAngleOverlay(skipClear = false) {
         return { ai: Math.atan2(dyi, dxi), ak: Math.atan2(dyk, dxk) };
     }
 
-    // ── Existing angles ──────────────────────────────────────────────────
-    for (let a = 0; a < (cpuSim.nAngles||0); a++) {
-        const i = cpuSim.angleI[a], j = cpuSim.angleJ[a], k = cpuSim.angleKarr[a];
-        const sel  = (a === _aeAngleIdx);
-        const jx   = canX(px[j]), jy = canY(py[j]);
-        const arcR = Math.max(5, baseR * sig(j) * 0.8);
-        const { ai, ak } = legAngles(i, j, k);
-        const color = sel ? '#000' : 'rgba(0,0,0,0.3)';
-        drawArcArrow(jx, jy, arcR, ai, ak, color, false, sel);
+    const { x0, x1, y0, y1 } = _visTiles(L);
+    for (let ix = x0; ix <= x1; ix++) {
+    for (let iy = y0; iy <= y1; iy++) {
+        const offX = baseOffX + ix * span;
+        const offY = baseOffY + iy * span;
+        const canX = (x) => x*scale + offX;
+        const canY = (y) => y*scale + offY;
 
-        // Endpoint dots on selected angle — same size as bond selected dots
-        if (sel) {
-            octx.fillStyle = '#000';
-            for (const bi of [i, j, k]) {
-                octx.beginPath();
-                octx.arc(canX(px[bi]), canY(py[bi]),
-                         Math.max(2.5, baseR*sig(bi)*0.5), 0, 6.2832);
-                octx.fill();
+        // ── Existing angles ──────────────────────────────────────────────────
+        for (let a = 0; a < (cpuSim.nAngles||0); a++) {
+            const i = cpuSim.angleI[a], j = cpuSim.angleJ[a], k = cpuSim.angleKarr[a];
+            const sel  = (a === _aeAngleIdx);
+            const jx   = canX(px[j]), jy = canY(py[j]);
+            const arcR = Math.max(5, baseR * sig(j) * 0.8);
+            const { ai, ak } = legAngles(i, j, k);
+            const color = sel ? '#000' : 'rgba(0,0,0,0.3)';
+            drawArcArrow(jx, jy, arcR, ai, ak, color, false, sel);
+
+            // Endpoint dots on selected angle — same size as bond selected dots
+            if (sel) {
+                octx.fillStyle = '#000';
+                for (const bi of [i, j, k]) {
+                    octx.beginPath();
+                    octx.arc(canX(px[bi]), canY(py[bi]),
+                             Math.max(2.5, baseR*sig(bi)*0.5), 0, 6.2832);
+                    octx.fill();
+                }
             }
         }
-    }
 
-    // ── Ghost arc preview (aeA + aeB picked, tracking cursor/hover) ──────
-    if (_aeA >= 0 && _aeB >= 0 && interactionMode === 'angle') {
-        const jx   = canX(px[_aeB]), jy = canY(py[_aeB]);
-        const arcR = Math.max(5, baseR * sig(_aeB) * 0.8);
-        let dxi = px[_aeA]-px[_aeB], dyi = py[_aeA]-py[_aeB];
-        if(dxi>h)dxi-=L; if(dxi<-h)dxi+=L; if(dyi>h)dyi-=L; if(dyi<-h)dyi+=L;
-        const ai = Math.atan2(dyi, dxi);
+        // ── Ghost arc preview (aeA + aeB picked, tracking cursor/hover) ──────
+        if (_aeA >= 0 && _aeB >= 0 && interactionMode === 'angle') {
+            const jx   = canX(px[_aeB]), jy = canY(py[_aeB]);
+            const arcR = Math.max(5, baseR * sig(_aeB) * 0.8);
+            let dxi = px[_aeA]-px[_aeB], dyi = py[_aeA]-py[_aeB];
+            if(dxi>h)dxi-=L; if(dxi<-h)dxi+=L; if(dyi>h)dyi-=L; if(dyi<-h)dyi+=L;
+            const ai = Math.atan2(dyi, dxi);
 
-        let dxk, dyk;
-        if (_aeHoverBead >= 0 && _aeHoverBead !== _aeA && _aeHoverBead !== _aeB) {
-            dxk = px[_aeHoverBead]-px[_aeB]; dyk = py[_aeHoverBead]-py[_aeB];
-            if(dxk>h)dxk-=L; if(dxk<-h)dxk+=L; if(dyk>h)dyk-=L; if(dyk<-h)dyk+=L;
-        } else if (_aeMouseSim) {
-            dxk = _aeMouseSim.x-px[_aeB]; dyk = _aeMouseSim.y-py[_aeB];
-            if(dxk>h)dxk-=L; if(dxk<-h)dxk+=L; if(dyk>h)dyk-=L; if(dyk<-h)dyk+=L;
-        } else {
-            dxk = -dxi; dyk = -dyi;
+            let dxk, dyk;
+            if (_aeHoverBead >= 0 && _aeHoverBead !== _aeA && _aeHoverBead !== _aeB) {
+                dxk = px[_aeHoverBead]-px[_aeB]; dyk = py[_aeHoverBead]-py[_aeB];
+                if(dxk>h)dxk-=L; if(dxk<-h)dxk+=L; if(dyk>h)dyk-=L; if(dyk<-h)dyk+=L;
+            } else if (_aeMouseSim) {
+                dxk = _aeMouseSim.x-px[_aeB]; dyk = _aeMouseSim.y-py[_aeB];
+                if(dxk>h)dxk-=L; if(dxk<-h)dxk+=L; if(dyk>h)dyk-=L; if(dyk<-h)dyk+=L;
+            } else {
+                dxk = -dxi; dyk = -dyi;
+            }
+            drawArcArrow(jx, jy, arcR, ai, Math.atan2(dyk, dxk), 'rgba(0,0,0,0.45)', true, false);
         }
-        drawArcArrow(jx, jy, arcR, ai, Math.atan2(dyk, dxk), 'rgba(0,0,0,0.45)', true, false);
-    }
 
-    // ── Anchor dots (aeA, aeB) — bigger dot, same as bond anchor ─────────
-    const anchors = [_aeA, _aeB].filter(b => b >= 0);
-    for (const b of anchors) {
-        octx.fillStyle = '#000';
-        octx.beginPath();
-        octx.arc(canX(px[b]), canY(py[b]),
-                 Math.max(2.5, baseR*sig(b)*0.5), 0, 6.2832);
-        octx.fill();
-    }
+        // ── Anchor dots (aeA, aeB) — bigger dot, same as bond anchor ─────────
+        const anchors = [_aeA, _aeB].filter(b => b >= 0);
+        for (const b of anchors) {
+            octx.fillStyle = '#000';
+            octx.beginPath();
+            octx.arc(canX(px[b]), canY(py[b]),
+                     Math.max(2.5, baseR*sig(b)*0.5), 0, 6.2832);
+            octx.fill();
+        }
 
-    // ── Hover dot — smaller dot, same as bond hover ───────────────────────
-    if (_aeHoverBead >= 0 && !anchors.includes(_aeHoverBead) && interactionMode === 'angle') {
-        octx.fillStyle = '#000';
-        octx.beginPath();
-        octx.arc(canX(px[_aeHoverBead]), canY(py[_aeHoverBead]),
-                 Math.max(1.5, baseR*sig(_aeHoverBead)*(1/3)), 0, 6.2832);
-        octx.fill();
+        // ── Hover dot — smaller dot, same as bond hover ───────────────────────
+        if (_aeHoverBead >= 0 && !anchors.includes(_aeHoverBead) && interactionMode === 'angle') {
+            octx.fillStyle = '#000';
+            octx.beginPath();
+            octx.arc(canX(px[_aeHoverBead]), canY(py[_aeHoverBead]),
+                     Math.max(1.5, baseR*sig(_aeHoverBead)*(1/3)), 0, 6.2832);
+            octx.fill();
+        }
+    }
     }
 }
 
@@ -7273,8 +7206,31 @@ function _rebuildExcl(s) {
 function syncCPUfromGPU() {
     const g = gpuSim, c = cpuSim;
     c._adoptArrays(g, g.N);   // x/y/vx/vy/type/charge/molId + fresh fx/fy/next, sized to N
+    // Scalar physics params — mirror them back so cpuSim stays the faithful
+    // source of truth that checkpoints snapshot. Without this, any param that
+    // was updated on gpuSim (or ramped during a run) could be lost on the swap
+    // back to CPU and a subsequent checkpoint would capture a stale value.
+    // dt is deliberately NOT copied: c.dt is driven by the ease ramp / dtTarget,
+    // not read back from the GPU's transient step size.
+    c.T             = g.T             ?? c.T;
+    c.mass          = g.mass          ?? c.mass;
+    if (g.massPerType)  c.massPerType  = [...g.massPerType];
+    if (g.sigmaPerType) c.sigmaPerType = [...g.sigmaPerType];
+    if (g.epsMatrix)    c.epsMatrix    = g.epsMatrix.map(r => [...r]);
+    c.rcCut         = g.rcCut         ?? c.rcCut;
+    c.maxPerCell    = g.maxPerCell    ?? c.maxPerCell;
+    c.spacingFactor = g.spacingFactor ?? c.spacingFactor;
+    c.r0Scale       = g.r0Scale       ?? c.r0Scale;
+    c.gravityOn     = g.gravityOn     ?? c.gravityOn;
+    c.gravity       = g.gravity       ?? c.gravity;
     c.coulombK     = g.coulombK     ?? c.coulombK     ?? 1.0;
     c.coulombAlpha = g.coulombAlpha ?? c.coulombAlpha ?? 1.0;
+    c.potentialType = g.potentialType ?? c.potentialType;
+    c.mieM = g.mieM ?? c.mieM; c.mieN = g.mieN ?? c.mieN; c.mieC = g.mieC ?? c.mieC;
+    c.wfRwell = g.wfRwell ?? c.wfRwell; c.wfSigma = g.wfSigma ?? c.wfSigma;
+    c.wfMu = g.wfMu ?? c.wfMu; c.wfNu = g.wfNu ?? c.wfNu;
+    c.integratorType = g.integratorType ?? c.integratorType;
+    c.tauT = g.tauT ?? c.tauT; c.gamma = g.gamma ?? c.gamma;
     c.nBonds       = g.nBonds;
     c.bondI        = g.bondI        ? new Int32Array(g.bondI)        : new Int32Array(1);
     c.bondJ        = g.bondJ        ? new Int32Array(g.bondJ)        : new Int32Array(1);
@@ -7450,7 +7406,7 @@ function _updateInspectBar() {
     const ibB = document.getElementById('ib-bond');
     const ibA = document.getElementById('ib-angle');
     const ibP = document.getElementById('ib-particle');
-    const ph  = document.getElementById('inspect-placeholder');
+    const ph  = document.querySelector('.inspect-slot');
     if (!bar||!ibB) return;
 
     const hasBond     = (interactionMode==='bond')     && _beBondIdx>=0 && _beBondIdx<cpuSim.nBonds;
@@ -7463,21 +7419,27 @@ function _updateInspectBar() {
     const ibBB = document.getElementById('ib-bond-batch');
     const ibAB = document.getElementById('ib-angle-batch');
     const show = hasBond || hasAngle || hasParticle || hasBondBatch || hasAngleBatch;
-    bar.style.display = show ? '' : 'none';
+    // The bar stays in layout always (see .inspect-slot); toggle visibility, not
+    // display, so showing/hiding it never resizes the canvas above.
+    bar.classList.toggle('is-hidden', !show);
     ibB.style.display = hasBond    ? 'contents' : 'none';
     if (ibA) ibA.style.display = hasAngle    ? 'contents' : 'none';
     if (ibP) ibP.style.display = hasParticle ? 'contents' : 'none';
     if (ibBB) ibBB.style.display = hasBondBatch  ? 'contents' : 'none';
     if (ibAB) ibAB.style.display = hasAngleBatch ? 'contents' : 'none';
-    // Keep placeholder height in sync: when bar is hidden the placeholder holds its
-    // reserved height (measured once) so the canvas size stays stable.
-    if (ph) {
-        if (show) {
-            if (!ph.dataset.rh) ph.dataset.rh = Math.max(46, bar.offsetHeight || 46) + 'px';
-            ph.style.height = '0';
-        } else {
-            ph.style.height = ph.dataset.rh || '46px';
-        }
+    // Grow the reserved slot height if this realized state is taller than what's
+    // been reserved so far (e.g. a panel that wraps to two rows on a narrow
+    // window). Never shrinks, so once the tallest state has appeared the layout
+    // is completely stable. Measured after the content swap above via rAF.
+    if (show && ph) {
+        requestAnimationFrame(() => {
+            const need = bar.offsetHeight;
+            const cur  = parseFloat(getComputedStyle(document.documentElement)
+                            .getPropertyValue('--inspect-h')) || 0;
+            if (need > cur) {
+                document.documentElement.style.setProperty('--inspect-h', need + 'px');
+            }
+        });
     }
 
     if (hasBond) {
@@ -7783,10 +7745,12 @@ function _rotateMol(inds, cx, cy, dtheta) {
 }
 
 function _screenToSim(mx, my) {
-    // mx/my are in CSS pixels; scale to the 1000×1000 internal canvas coordinate space.
-    const W = 1000, scale = W / sim.L * camera.zoom;
-    const r = W / _csw;   // CSS px → internal canvas px ratio
-    return { x: camera.x + (mx*r - W/2) / scale, y: camera.y + (my*r - W/2) / scale };
+    // mx/my are in CSS pixels, mapped to internal canvas pixels (== CSS pixels,
+    // since the canvas resolution always matches its CSS box — see
+    // _resizeCanvases) and then to sim coordinates via the shared transform.
+    const { W, H, scale } = _camXform(sim.L);
+    const rx = W / _csw, ry = H / _csh;
+    return { x: camera.x + (mx*rx - W/2) / scale, y: camera.y + (my*ry - H/2) / scale };
 }
 
 // GPU helpers: particle buffer stride = 8 × f32 = 32 bytes  [x,y,vx,vy,fx,fy,pad,type]
@@ -8004,7 +7968,9 @@ window.addEventListener('mousemove', (e) => {
     // Wrapping modulo L is seamless because every tile is an identical copy —
     // camera.x = 0 and camera.x = L are the same view.
     const L        = sim.L;
-    const scaleCss = _csw / L * camera.zoom;   // CSS px → sim units
+    // One scale for both axes — panning must move the camera at the same
+    // sim-units-per-pixel rate in x and y, or the drag would feel skewed.
+    const scaleCss = _camXform(L).scale;
     camera.x = ((camera.x - e.movementX / scaleCss) % L + L) % L;
     camera.y = ((camera.y - e.movementY / scaleCss) % L + L) % L;
     if (!running) renderFrame();
@@ -8205,12 +8171,24 @@ canvasWrapper.addEventListener('wheel', e => {
     const rect    = canvasWrapper.getBoundingClientRect();
     const mx      = e.clientX - rect.left;
     const my      = e.clientY - rect.top;
-    const W       = 1000, L = sim.L;
+    const L       = sim.L;
+    const { W, H } = _camXform(L);
     const factor  = e.deltaY < 0 ? 1.15 : 1 / 1.15;
     const newZoom = Math.max(ZOOM_MIN, Math.min(200, camera.zoom * factor));
-    camera.x += (mx - W / 2) * (L / W) * (1 / camera.zoom - 1 / newZoom);
-    camera.y += (my - W / 2) * (L / W) * (1 / camera.zoom - 1 / newZoom);
+    // Height is the shared reference axis (see _camXform) — the same
+    // sim-units-per-pixel conversion applies to both mx and my, or the point
+    // under the cursor would drift sideways as you zoom on a wide canvas.
+    const invDelta = (L / H) * (1 / camera.zoom - 1 / newZoom);
+    camera.x += (mx - W / 2) * invDelta;
+    camera.y += (my - H / 2) * invDelta;
     camera.zoom = newZoom;
+    // Wrap the camera back into [0, L], exactly as the pan handler does. Without
+    // this, the pointer-centred offset above accumulates and pushes camera.x/y
+    // outside [0, L]; _visTiles then computes a tile window that can fall
+    // outside the ±MAX_TILES clamp, so zooming out revealed empty space beyond
+    // the drawn copies until some other handler (a pan or click) re-wrapped it.
+    camera.x = ((camera.x % L) + L) % L;
+    camera.y = ((camera.y % L) + L) % L;
     if (!running) renderFrame();
 }, { passive: false });
 
@@ -8223,24 +8201,11 @@ setMode('camera');
         btn.addEventListener('click', () => {
             btn.blur();   // drop focus immediately — blue underline is the active indicator
             document.querySelectorAll('.sc-tab').forEach(b => b.classList.remove('active'));
-            document.querySelectorAll('.sc-pane').forEach(p => { p.style.display = 'none'; });
+            document.querySelectorAll('.sc-pane').forEach(p => p.classList.remove('active'));
             btn.classList.add('active');
             const pane = document.getElementById('sc-' + btn.dataset.tab);
-            if (pane) pane.style.display = 'grid';
+            if (pane) { pane.classList.add('active'); pane.parentElement.scrollTop = 0; }
         });
-    });
-    // Measure and reserve inspect-bar height after first paint
-    requestAnimationFrame(() => {
-        const bar = document.getElementById('inspect-bar');
-        const ph  = document.getElementById('inspect-placeholder');
-        if (bar && ph && !ph.dataset.rh) {
-            bar.style.visibility = 'hidden';
-            bar.style.display    = '';
-            ph.dataset.rh = Math.max(46, bar.offsetHeight) + 'px';
-            bar.style.display    = 'none';
-            bar.style.visibility = '';
-            ph.style.height      = ph.dataset.rh;
-        }
     });
 })();
 
@@ -8278,15 +8243,16 @@ function _cpuParticleColor(engine, i, colorMode, sel, spd, maxSpd, victims) {
 }
 
 function draw(engine, colorMode = 'type', radius = 2) {
-    const W       = canvas.width; const H = canvas.height;
-    const scale   = W / engine.L * camera.zoom;
-    const baseOffX = W / 2 - camera.x * scale;
-    const baseOffY = H / 2 - camera.y * scale;
-    const tileSpan = engine.L * scale;   // canvas px per box copy = 1000 * zoom
+    const { W, H, scale, offX: baseOffX, offY: baseOffY } = _camXform(engine.L);
+    const tileSpan = engine.L * scale;   // canvas px per box copy
     const N       = engine.N;
 
     ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H);
-    if (N === 0) return;
+    // N defaults to a nonzero placeholder before the engine's arrays are ever
+    // allocated (first real init/fill), so check the arrays themselves too —
+    // this function can now be reached very early, from the canvas resize
+    // handler's immediate render-on-resize.
+    if (!N || !engine.x || !engine.y) return;
 
     // Speed array — computed once, reused across tiles.
     let maxSpd = 1e-12;
@@ -8299,7 +8265,7 @@ function draw(engine, colorMode = 'type', radius = 2) {
     }
 
     const spt        = engine.sigmaPerType || [1, 1, 1, 1];
-    const baseRadius = (W / engine.L) * camera.zoom * radius;
+    const baseRadius = scale * radius;
     const L          = engine.L;
     const { x0, x1, y0, y1 } = _visTiles(L);
 
@@ -8318,7 +8284,7 @@ function draw(engine, colorMode = 'type', radius = 2) {
                     const ti = (engine.type ? engine.type[i] : 0) & 3;
                     const tj = (engine.type ? engine.type[j] : 0) & 3;
                     const sigAvg = (spt[ti] + spt[tj]) * 0.5;
-                    ctx.lineWidth = Math.max(1, (W / L) * camera.zoom * 2 * radius * sigAvg);
+                    ctx.lineWidth = Math.max(1, scale * 2 * radius * sigAvg);
 
                     const xi = engine.x[i] * scale + offX, yi = engine.y[i] * scale + offY;
                     let dx = engine.x[j] - engine.x[i], dy = engine.y[j] - engine.y[i];
@@ -8422,7 +8388,7 @@ function readUI(targetSim) {
         parseFloat(document.getElementById('sigma2').value) || 1,
         parseFloat(document.getElementById('sigma3').value) || 1,
     ];
-    targetSim.r0Scale       = parseFloat(document.getElementById('r0scale-n').value) || 0.9;
+    targetSim.r0Scale       = 1.0;   // r0-scale knob removed; bonds use geometric r0
     // Non-bonded potential: type, Mie exponents, and Wang-Frenkel params.
     targetSim.potentialType = document.getElementById('potential-select').value || 'mie';
     {
@@ -8448,127 +8414,24 @@ function readUI(targetSim) {
             : (parseFloat(document.getElementById('rc-n').value) || 2.5);
     }
     targetSim.maxPerCell = Math.max(8, Math.min(1024, Math.round(parseFloat(document.getElementById('maxpercell-n').value)) || 32));
-    targetSim.spacingFactor = parseFloat(document.getElementById('spacing-n').value) || 0.9;
-    // NOTE: targetSim.ratios and targetSim.polymerRatios are derived from speciesTable below.
+    targetSim.spacingFactor = parseFloat(document.getElementById('spacing-n').value) || 1.0;
     targetSim.integratorType = document.getElementById('integrator-select').value;
     targetSim.tauT           = parseFloat(document.getElementById('tauT-n').value) || 1.0;
     targetSim.gamma          = targetSim.mass / Math.max(targetSim.tauT, 1e-9);
-    syncVisibleToPolymerData();
-    // Derive engine ratios from speciesTable.
-    // Only built-in slots 0-7 participate in grid initialization.
-    // Custom molecules (assemblies/imports) live at slots 8+ and are placed manually —
-    // including them would produce NaN (beadsPerMol[i] = undefined for i≥8).
-    const chainLens   = polymerData.map(pd => Math.max(1, pd.chainLength));
-    const beadsPerMol = [1, 1, 1, 1, chainLens[0], chainLens[1], chainLens[2], chainLens[3]];
-    const totalW = speciesTable.slice(0, 8).reduce((s, sp, i) => s + sp.ratio * beadsPerMol[i], 0) || 1;
-    targetSim.polymerRatios = [0, 1, 2, 3].map(pi =>
-        speciesTable[4 + pi].ratio * beadsPerMol[4 + pi] / totalW
-    );
+    // Derive engine monomer ratios from the species table (monomer slots 0-3).
+    // Custom molecules (assemblies/imports) live at slots 4+ and are placed
+    // manually, so they don't participate in grid initialization here.
     const monoSum = speciesTable.slice(0, 4).reduce((s, sp) => s + sp.ratio, 0) || 1;
     targetSim.ratios = speciesTable.slice(0, 4).map(sp => sp.ratio / monoSum);
-    targetSim.chainLengths  = polymerData.map(pd => pd.chainLength);
-    targetSim.chainTypesAll = polymerData.map(pd => [...pd.chainTypes]);
-    targetSim.chainChargesAll = polymerData.map(pd => [...pd.chainCharges]);
-}
-
-const typeLabels = ['0 (blue)', '1 (red)', '2 (yellow)', '3 (green)'];
-
-function buildChainTypeUI(length) {
-    const container = document.getElementById('chain-types-container');
-    container.innerHTML = '';
-    const pd = polymerData[activePolymer];
-    const globalDeg = +(pd.theta0 * 180 / Math.PI).toFixed(2);
-    for (let b = 0; b < length; b++) {
-        const row = document.createElement('div');
-        row.className = 'control-row';
-        row.style.gap = '4px';
-
-        const label = document.createElement('label');
-        label.textContent = `Bead ${b}`;
-        label.style.flex = '0 0 52px';
-
-        const sel = document.createElement('select');
-        sel.id        = `chaintype-${b}`;
-        sel.className = 'param-input';
-        sel.style.flex = '0 0 80px';
-        typeLabels.forEach((txt, idx) => {
-            const opt       = document.createElement('option');
-            opt.value       = idx;
-            opt.textContent = txt;
-            sel.appendChild(opt);
-        });
-        sel.value = pd.chainTypes[b] ?? 0;
-        sel.addEventListener('change', () => {
-            pd.chainTypes[b] = parseInt(sel.value);
-            saveToURL();
-        });
-
-        // Per-bead charge input
-        const qLabel = document.createElement('span');
-        qLabel.textContent = 'q:';
-        qLabel.style.cssText = 'font-size:0.75rem;color:#888;flex:0 0 auto;';
-        const qIn = document.createElement('input');
-        qIn.type      = 'number';
-        qIn.id        = `chaincharge-${b}`;
-        qIn.className = 'param-input';
-        qIn.step      = 0.1;
-        qIn.style.flex = '0 0 44px';
-        qIn.style.width = '44px';
-        qIn.value = +(pd.chainCharges[b] ?? 0).toFixed(2);
-        qIn.addEventListener('change', () => {
-            let v = parseFloat(qIn.value);
-            if (!isFinite(v)) v = 0;
-            qIn.value = v;
-            pd.chainCharges[b] = v;
-            syncPolymerToMolDef(activePolymer);
-            saveToURL();
-        });
-
-        // Angle input — only meaningful for inner beads (not endpoints)
-        const isInner = b > 0 && b < length - 1;
-        const angleLabel = document.createElement('span');
-        angleLabel.textContent = 'θ:';
-        angleLabel.style.cssText = 'font-size:0.75rem;color:#888;flex:0 0 auto;' +
-            (isInner ? '' : 'visibility:hidden;');
-
-        const angleIn = document.createElement('input');
-        angleIn.type      = 'number';
-        angleIn.id        = `chainangle-${b}`;
-        angleIn.className = 'param-input';
-        angleIn.min       = -180;
-        angleIn.max       = 180;
-        angleIn.step      = 1;
-        angleIn.style.flex = '0 0 52px';
-        angleIn.style.width = '52px';
-        if (isInner) {
-            angleIn.value = +(pd.chainAngles[b] ?? globalDeg).toFixed(2);
-            angleIn.addEventListener('change', () => {
-                let v = parseFloat(angleIn.value);
-                if (isNaN(v)) v = 180;
-                v = Math.max(-180, Math.min(180, v));
-                angleIn.value = v;
-                pd.chainAngles[b] = v;
-                syncPolymerToMolDef(activePolymer);
-                rebuildParamTables();
-                triggerEase();
-                saveToURL();
-            });
-        } else {
-            angleIn.style.visibility = 'hidden';
-        }
-
-        row.appendChild(label);
-        row.appendChild(sel);
-        row.appendChild(qLabel);
-        row.appendChild(qIn);
-        row.appendChild(angleLabel);
-        row.appendChild(angleIn);
-        container.appendChild(row);
-    }
 }
 
 wire('N-s', 'N-n'); wire('L-s', 'L-n');
-wire('spacing-s', 'spacing-n', v => { sim.spacingFactor = v; });
+wire('spacing-s', 'spacing-n', v => {
+    // Update both engines: spacingFactor is checkpointed, so setting only the
+    // active sim would desync the other and bake a mismatch into snapshots.
+    cpuSim.spacingFactor = v;
+    gpuSim.spacingFactor = v;
+});
 [0, 1, 2, 3].forEach(t => {
     document.getElementById(`mass${t}`).addEventListener('change', e => {
         const v = Math.max(0.01, parseFloat(e.target.value) || 1);
@@ -8738,25 +8601,22 @@ function setOverflowWarning(on) {
             gpuSim.sigmaPerType[t] = v;
             gpuSim.updateSigmaLive();
         }
-        resolveAllBondR0();
-        rebuildParamTables();
         triggerEase();
         saveToURL();
     });
 });
-wire('r0scale-s', 'r0scale-n', v => {
-    cpuSim.r0Scale = v;
-    if (currentEngine === 'gpu') gpuSim.r0Scale = v;
-    resolveAllBondR0();
-    rebuildParamTables();
-    triggerEase();
-});
 wire('spf-s', 'spf-n'); wire('rescale-s', 'rescale-n'); wire('pr-s', 'pr-n', () => { if (!running) renderFrame(); });
 wire('T-s', 'T-n', v => {
-    sim.T = v;
+    // Update BOTH engines, not just the active `sim`. Checkpoints snapshot
+    // cpuSim.T (+ the DOM), so if only gpuSim.T were set here, cpuSim.T would
+    // lag and a checkpoint would bake in a T that disagrees with the UI —
+    // surfacing after undo as "UI shows the new T but the sim runs the old one".
+    cpuSim.T = v;
+    gpuSim.T = v;
     document.getElementById('s-Tset').textContent = v.toFixed(3);
-    if (currentEngine === 'gpu' && gpuSim.integratorType === 'sd') {
-        gpuSim.updateIntegratorParams();
+    if (currentEngine === 'gpu') {
+        gpuSim.updateParamsLive();
+        if (gpuSim.integratorType === 'sd') gpuSim.updateIntegratorParams();
     }
     triggerEase();
 });
@@ -8766,35 +8626,6 @@ wire('tauT-s', 'tauT-n', v => {
     cpuSim.gamma = cpuSim.mass / Math.max(v, 1e-9);
     gpuSim.tauT  = v;
     if (currentEngine === 'gpu') gpuSim.updateIntegratorParams();
-    triggerEase();
-});
-
-wire('bond-k-s', 'bond-k-n', v => {
-    polymerData[activePolymer].bondK = v;
-    syncPolymerToMolDef(activePolymer);
-    rebuildParamTables();
-    triggerEase();
-});
-wire('angle-k-s', 'angle-k-n', v => {
-    polymerData[activePolymer].angleK = v;
-    syncPolymerToMolDef(activePolymer);
-    rebuildParamTables();
-    triggerEase();
-});
-wire('angle-theta-s', 'angle-theta-n', v => {
-    const pd = polymerData[activePolymer];
-    pd.theta0 = v * Math.PI / 180.0;
-    // Push to inner beads with alternating sign: bead 1 → +v, bead 2 → -v, bead 3 → +v …
-    const cl = pd.chainLength;
-    for (let b = 1; b < cl - 1; b++) {
-        const sign = (b % 2 === 1) ? 1 : -1;
-        const val  = sign * Math.abs(v);
-        pd.chainAngles[b] = val;
-        const el = document.getElementById(`chainangle-${b}`);
-        if (el) el.value = val;
-    }
-    syncPolymerToMolDef(activePolymer);
-    rebuildParamTables();
     triggerEase();
 });
 
@@ -8864,25 +8695,12 @@ molDropzone.addEventListener('drop', e => {
 document.getElementById('thermo-cb').addEventListener('change', () => saveToURL());
 document.getElementById('integrator-select').addEventListener('change', () => { applyIntegratorPanels(); applyIntegratorParams(); saveToURL(); });
 document.getElementById('colormode-select').addEventListener('change', () => { if (!running) renderFrame(); saveToURL(); });
-
-document.getElementById('polymer-select').addEventListener('change', e => {
-    syncVisibleToPolymerData();
-    activePolymer = parseInt(e.target.value);
-    syncPolymerDataToVisible();
-    saveToURL();
+document.getElementById('boxgrid-check').addEventListener('change', e => {
+    _showBoxGrid = e.target.checked;
+    // The grid lives on the overlay, so re-running the overlay pass is enough —
+    // but renderFrame() is simplest and cheap when paused.
+    if (!running) renderFrame(); else _drawSelectionOverlay();
 });
-
-document.getElementById('chain-length-n').addEventListener('change', e => {
-    const len = Math.max(1, Math.min(200, parseInt(e.target.value) || 2));
-    e.target.value = len;
-    polymerData[activePolymer].chainLength = len;
-    buildChainTypeUI(len);
-    buildSpeciesTableUI();   // refresh "(Nb)" label and bead-% column
-    saveToURL();
-});
-
-// buildChainTypeUI() is called in the startup IIFE after loadFromURL()
-// restores the correct chainLength — calling it here would be overwritten.
 
 const btnRun = document.getElementById('btn-run');
 const btnInit = document.getElementById('btn-init');
@@ -8986,7 +8804,7 @@ async function clearSimulation() {
     _selection   = null;
     _ptSelection = null;
 
-    octx.clearRect(0, 0, 1000, 1000);
+    _clearOverlay();
 
     const newL = parseFloat(document.getElementById('L-n').value) || 50;
 
@@ -9137,7 +8955,7 @@ async function startLoop() {
 
     running = true;
     // Clear edit overlay — it becomes stale once the simulation is running
-    octx.clearRect(0, 0, 1000, 1000);
+    _clearOverlay();
     btnRun.textContent = 'Stop'; btnRun.classList.add('btn-danger');
     _refreshSaveMolBtn();
 
@@ -9192,7 +9010,7 @@ async function performFill() {
     if (cpuSim.N > 0) _checkpoint();   // top-up is undoable; first fill of empty box is not
     _invalidateDragAdj();
     _selection = null; _selectionMode = null;
-    octx.clearRect(0, 0, 1000, 1000);
+    _clearOverlay();
 
     // stopLoop() already synced GPU → CPU; snapshot directly.
 
@@ -9207,9 +9025,9 @@ async function performFill() {
     // ── Shared setup: spacing, cell-list, custom-mol targets ─────────────
     // All of this runs for both the empty-box and fill-mode paths.
 
-    const WHL     = Math.pow(2, 1/6);
-    const sigMax  = Math.max(...cpuSim.sigmaPerType);
-    const spacing = (cpuSim.spacingFactor || 1.0) * WHL * sigMax;
+    // Grid spacing is the raw distance the user entered — no 2^(1/6)·σ_max
+    // scaling. They control packing directly; sensible default is 1.
+    const spacing = Math.max(0.05, cpuSim.spacingFactor || 1.0);
     const minD2   = spacing * spacing * 0.25;
     const L = cpuSim.L, h = L / 2;
     const nx = Math.max(1, Math.floor(L / spacing));
@@ -9268,10 +9086,7 @@ async function performFill() {
     // Largest assembly first — better packing heuristic
     customSpeciesActive.sort((a, b) => b.nBeads - a.nBeads);
 
-    const chainLens_fill = polymerData.map(pd => Math.max(1, pd.chainLength));
-    const bpm_fill = [1, 1, 1, 1,
-        chainLens_fill[0], chainLens_fill[1], chainLens_fill[2], chainLens_fill[3]];
-    const builtinW = speciesTable.slice(0, 8).reduce((s, sp, i) => s + sp.ratio * bpm_fill[i], 0);
+    const builtinW = speciesTable.slice(0, 4).reduce((s, sp) => s + sp.ratio, 0);
     // Custom mol bead weight = ratio (molecule count) × beadsPerMol — same metric as built-ins
     const customW  = customSpeciesActive.reduce((s, c) => s + (c.s.ratio ?? 0) * c.nBeads, 0);
     const totalW   = (builtinW + customW) || 1;
@@ -9318,11 +9133,17 @@ async function performFill() {
                     _fcAdd(beadPos[b].x, beadPos[b].y);
                 }
                 for (const bond of (molDef.bonds || [])) {
-                    const ti  = (molDef.beadTypes[bond.i] ?? 0) & 3;
-                    const tj  = (molDef.beadTypes[bond.j] ?? 0) & 3;
-                    const mix = (cpuSim.sigmaPerType[ti] + cpuSim.sigmaPerType[tj]) * 0.5;
-                    const r0  = (bond.r0 !== null && bond.r0 !== undefined)
-                        ? bond.r0 : (cpuSim.r0Scale ?? 0.9) * WHL * mix;
+                    // Rest length from the molecule's own local template geometry
+                    // (positions[i]/positions[j] before rotation/translation), NOT
+                    // the placed PBC-wrapped coordinates. This is rotation-invariant
+                    // and avoids any wrap discrepancy. No sigma-mix / 2^(1/6) /
+                    // r0-scale; explicit per-bond r0 still overrides.
+                    let r0 = bond.r0;
+                    if (r0 === null || r0 === undefined) {
+                        const pi_ = positions[bond.i] || { x: 0, y: 0 };
+                        const pj_ = positions[bond.j] || { x: 0, y: 0 };
+                        r0 = Math.max(1e-3, Math.hypot(pi_.x - pj_.x, pi_.y - pj_.y));
+                    }
                     newBonds.push({ i: base + bond.i, j: base + bond.j, k: bond.k, r0 });
                 }
                 for (const ang of (molDef.angles || []))
@@ -9432,35 +9253,13 @@ async function performFill() {
     // ── Step 3: custom molecules first (largest first, already sorted) ────
     placeCustomMols(newXY, newBonds, newAngles);
 
-    // ── Step 4: polymer chains + single beads ────────────────────────────
-    // Runs for both empty and fill canvases.  Places built-in polymers then
-    // monomers on the spacing grid, largest first, with no random fallback.
-    // N is an upper limit: leftover bead budget that does not tile cleanly is
-    // intentionally left unplaced (we never pad the box with stray beads).
+    // ── Step 4: single beads (monomers) on the spacing grid ──────────────
+    // Polymers are gone; monomers fill their ratio-share of the bead budget.
+    // N is an upper limit — leftover budget that doesn't tile cleanly is left
+    // unplaced (we never pad the box with stray beads).
     {
-        const polymerRatios = cpuSim.polymerRatios || [0,0,0,0];
-        const chainLengths  = cpuSim.chainLengths   || [2,2,2,2];
-        const chainTypesAll = cpuSim.chainTypesAll  || Array.from({length:4}, ()=>[]);
-        const chainChargesAll = cpuSim.chainChargesAll || Array.from({length:4}, ()=>[]);
-
-        const nChainsByPoly = polymerRatios.map((r, pi) =>
-            r > 0 ? Math.floor(adjustedFillN * r / Math.max(1, chainLengths[pi])) : 0);
-        const nBeadsByPoly  = nChainsByPoly.map((nc, pi) => nc * Math.max(1, chainLengths[pi]));
-        let nPolyBeads = nBeadsByPoly.reduce((a,b) => a+b, 0);
-        if (nPolyBeads > adjustedFillN) {
-            const scale = adjustedFillN / nPolyBeads;
-            for (let pi = 0; pi < 4; pi++) {
-                nChainsByPoly[pi] = Math.floor(nChainsByPoly[pi] * scale);
-                nBeadsByPoly[pi]  = nChainsByPoly[pi] * Math.max(1, chainLengths[pi]);
-            }
-            nPolyBeads = nBeadsByPoly.reduce((a,b) => a+b, 0);
-        }
-        // Monomer (single-bead) budget comes from the monomer species' own ratio
-        // share — NOT "everything left over after polymers".  This removes the old
-        // behaviour of padding the box with random single beads when N doesn't tile
-        // cleanly into the requested molecules.  builtinW (computed above) already
-        // weights monomers by 1 bead and polymers by chain length, so monoW/builtinW
-        // is exactly the monomer bead fraction of the built-in budget.
+        // Monomer bead budget = the monomer species' ratio share of the built-in
+        // budget. builtinW is the sum of monomer ratios (computed above).
         const monoW    = speciesTable.slice(0, 4).reduce((s, sp) => s + (sp.ratio ?? 0), 0);
         const nSingles = builtinW > 0 ? Math.floor(adjustedFillN * monoW / builtinW) : 0;
 
@@ -9475,57 +9274,6 @@ async function performFill() {
             const ix = Math.min(nx-1, Math.max(0, Math.floor(p.x / spacing)));
             const iy = Math.min(ny-1, Math.max(0, Math.floor(p.y / spacing)));
             occupied.add(ix * ny + iy);
-        }
-
-        // Polymer chains
-        for (let pi = 0; pi < 4; pi++) {
-            const chainLen   = Math.max(1, chainLengths[pi]);
-            const nChains    = nChainsByPoly[pi];
-            if (nChains === 0) continue;
-            const chainTypes = chainTypesAll[pi];
-            const chainCharges = chainChargesAll[pi] || [];
-            const def        = molDefTable[pi];
-
-            const validStarts = [];
-            for (let iy = 0; iy < ny; iy++)
-                for (let ix = 0; ix <= nx - chainLen; ix++)
-                    validStarts.push({ix, iy});
-            for (let i = validStarts.length-1; i > 0; i--) {
-                const j = Math.floor(Math.random()*(i+1));
-                [validStarts[i], validStarts[j]] = [validStarts[j], validStarts[i]];
-            }
-
-            let placed = 0;
-            for (const s of validStarts) {
-                if (placed >= nChains) break;
-                let ok = true;
-                for (let b = 0; b < chainLen; b++) {
-                    if (occupied.has((s.ix+b) * ny + s.iy)) { ok = false; break; }
-                }
-                if (!ok) continue;
-                for (let b = 0; b < chainLen && ok; b++) {
-                    if (!_fcClear((s.ix+b+0.5)*spacing, (s.iy+0.5)*spacing)) ok = false;
-                }
-                if (!ok) continue;
-
-                const base = newXY.length;
-                for (let b = 0; b < chainLen; b++) {
-                    const bx = (s.ix+b+0.5)*spacing, by = (s.iy+0.5)*spacing;
-                    newXY.push({ x: bx, y: by, type: chainTypes[b] ?? 0, charge: chainCharges[b] ?? 0, molId: pi });
-                    occupied.add((s.ix+b) * ny + s.iy);
-                    _fcAdd(bx, by);
-                }
-                for (const bond of (def.bonds || [])) {
-                    const ti = chainTypes[bond.i] ?? 0, tj = chainTypes[bond.j] ?? 0;
-                    const mix = (cpuSim.sigmaPerType[ti] + cpuSim.sigmaPerType[tj]) * 0.5;
-                    const r0  = bond.r0 !== null ? bond.r0 : (cpuSim.r0Scale ?? 0.9) * WHL * mix;
-                    newBonds.push({ i: base + bond.i, j: base + bond.j, k: bond.k, r0 });
-                }
-                for (const ang of (def.angles || []))
-                    newAngles.push({ i: base+ang.i, j: base+ang.j, k: base+ang.k,
-                                     kAngle: ang.kAngle, theta0: ang.theta0 });
-                placed++;
-            }
         }
 
         // Single beads
@@ -9561,7 +9309,7 @@ async function performFill() {
                 _fcAdd(bx, by);
             }
         }
-    }   // end Step 4 (polymer + monomer grid placement)
+    }   // end Step 4 (monomer grid placement)
 
     // ── Step 5: append all new particles and rebuild simulation state ─────
     appendNewParticles(baseN, newXY, newBonds, newAngles);
@@ -9652,8 +9400,10 @@ engineSelect.addEventListener('change', async (e) => {
 });
 
 (async function() {
+    _appInitDone = true;
     loadFromURL();
     buildSpeciesTableUI();   // populate after URL values are loaded
+    _paintTypeDots();        // colour the ε-matrix / σ-mass type indicators
     applyIntegratorUI();
     // First init uses the SAME placement path as the Fill button: start from an
     // empty box (N=0) and fill it from the UI ratios.  performFill() runs its own
@@ -9662,7 +9412,6 @@ engineSelect.addEventListener('change', async (e) => {
     // initialised yet, exactly as the old initialize()+upload sequence did).
     cpuSim.N = 0;
     await performFill();
-    buildChainTypeUI(polymerData[activePolymer].chainLength);
 
     currentEngine = 'gpu';
     document.getElementById('engine-select').value = currentEngine;
