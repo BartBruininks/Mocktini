@@ -17,7 +17,7 @@ Mocktini lets you set up a box of particles, define how they interact, and watch
 It is useful for:
 - Visualising how particle interactions give rise to structure (liquid, gas, crystal)
 - Exploring the effect of temperature, density, and interaction strength
-- Building intuition for polymer behaviour, phase transitions, and diffusion
+- Building intuition for molecular behaviour, phase transitions, and diffusion
 - Teaching and self-study in soft matter physics and statistical mechanics
 
 ---
@@ -92,13 +92,11 @@ An important detail: **every bonded pair automatically gets a non-bonded exclusi
 
 Mocktini supports three ways to build molecules:
 
-**Built-in Polymer Editor** — configure linear polymer chains with controls for chain length, per-bead types, per-bead charge, bond stiffness *k*, rest length *r*₀, bending stiffness, and equilibrium angle *θ*₀ (which can vary per bead for non-uniform chains).
-
 **Interactive Assembly** — use Bond Edit and Angle Edit modes to connect individual particles already in the simulation into custom structures by clicking, then export the result as a molecule file. When a group of particles is selected, both modes also expose a **batch panel**: write a rest length / stiffness to every bond (or angle) in the selection at once, snap them all to the current geometry, or use **Autobond** / **Autoangle** to generate topology automatically — Autobond bonds every selected pair within the chosen distance, and Autoangle creates an angle across every bonded triple inside the selection. This makes it practical to wire up a large assembly in a few clicks rather than bond-by-bond.
 
 **Import from file** — load a molecule definition from a JSON file. Imported molecules appear in the species list and can be placed, mixed with other species, edited, and copied.
 
-> 📖 [Wiki: Bonded interactions and polymer models](wiki/Bonded-Interactions.md)
+> 📖 [Wiki: Bonded interactions](wiki/Bonded-Interactions.md)
 
 ### Boundary Conditions
 
@@ -164,7 +162,7 @@ The GPU path uses the same force expressions as the CPU path — results are phy
 - **N** — number of particles
 - **L** — simulation box side length
 - **Spacing** — initial grid spacing used for the filling grid
-- **Species ratios** — relative amounts of each monomer type and polymer
+- **Species ratios** — relative amounts of each monomer type and molecule/assemblies
 - **Mass per type** — particle masses (affects dynamics but not equilibrium structure)
 - **Molecule files** — import molecule definitions from JSON, or export any built or assembled molecule for sharing
 
@@ -229,10 +227,10 @@ Sharing and saving work is a core feature of Mocktini. There are two levels of w
 
 ### Molecule Files
 
-Any selection (one or multiple molecules) you build — whether through the Polymer Editor or by assembling particles interactively — can be exported as a compact **JSON molecule file**. This file encodes the molecule's bead types, per-bead charges, bond topology, angle topology, and all parameters. You can then:
+Any selection (one or multiple molecules) you build — by assembling particles interactively — can be exported as a compact **JSON molecule file**. This file encodes the molecule's bead types, per-bead charges, bond topology, angle topology, and all parameters. You can then:
 - **Import** it back into Mocktini at any time (it appears in the species list and can be placed freely)
 - **Share** it with collaborators, who load it in their own copy of Mocktini
-- **Combine** multiple imported molecules with built-in polymers and monomers in any ratio
+- **Combine** multiple imported molecules with monomers in any ratio
 
 Molecule files are the right format when you want to share a *building block*, not a whole experiment. They describe the molecule itself — its connectivity (bonds and angles), its bead types, and any per-bead charges. They do *not* carry the global non-bonded settings such as the ε matrix, σ per type, the cutoff, or the electrostatic K_e/α; those belong to the simulation as a whole rather than to any one molecule.
 
@@ -245,7 +243,7 @@ A **state file** captures everything: all particle positions, velocities, and ch
 
 ### URL State
 
-All control panel parameters (box size, interaction strengths, electrostatics, polymer settings, etc.) are also encoded live in the browser URL. Copying the URL from the address bar captures your current setup and can be bookmarked or shared directly — though it does not include live particle positions the way a state file does.
+All control panel parameters (box size, interaction strengths, electrostatics, etc.) are also encoded live in the browser URL. Copying the URL from the address bar captures your current setup and can be bookmarked or shared directly — though it does not include live particle positions the way a state file does.
 
 ---
 
