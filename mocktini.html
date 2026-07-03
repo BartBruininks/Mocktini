@@ -1224,12 +1224,12 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
     </div>
 </div>
 
-<footer id="footer">Mocktini v1.4.0 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license · <a href="https://github.com/BartBruininks/Mocktini">GitHub</a></footer>
+<footer id="footer">Mocktini v1.4.1 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license · <a href="https://github.com/BartBruininks/Mocktini">GitHub</a></footer>
 
 <script>
 'use strict';
 // ════════════════════════════════════════════════════════════════════════════
-//  Mocktini - 2D Molecular Dynamics  —  v1.4.0
+//  Mocktini - 2D Molecular Dynamics  —  v1.4.1
 // ════════════════════════════════════════════════════════════════════════════
 //
 //  OVERVIEW
@@ -5632,7 +5632,10 @@ const _UNDO_DEPTH = 5;     // max snapshots kept per stack
 // ── Enter / exit ──────────────────────────────────────────────────────────
 function _exitBondEdit() {
     _beA = -1; _beBondIdx = -1;
-    const ib=document.getElementById('inspect-bar'); if(ib) ib.style.display='none';
+    // Clear any inline display so the class-based (is-hidden/visibility) toggling
+    // in _updateInspectBar can take over again. Setting display:none here would
+    // permanently override the class and break the bar for the rest of the session.
+    const ib=document.getElementById('inspect-bar'); if(ib) ib.style.display='';
     setMode('select');
     _clearOverlay();
     if (!running) renderFrame();
@@ -6296,7 +6299,9 @@ let _aeMouseSim  = null;  // pointer position in sim-space
 // ── Enter / exit ──────────────────────────────────────────────────────────
 function _exitAngleEdit() {
     _aeA = -1; _aeB = -1; _aeAngleIdx = -1;
-    const ib = document.getElementById('inspect-bar'); if (ib) ib.style.display = 'none';
+    // Clear any inline display (see _exitBondEdit) so _updateInspectBar's class
+    // toggling controls visibility again instead of a stuck inline display:none.
+    const ib = document.getElementById('inspect-bar'); if (ib) ib.style.display = '';
     setMode('select');
     _clearOverlay();
     if (!running) renderFrame();
@@ -7384,9 +7389,14 @@ async function _pasteClipboard() {
 async function _deleteSelection() {
     if (!_selection || _selection.size === 0) return;
     await _deleteIndexSet(_selection);   // checkpoint defaults true — pre-delete state is undoable
-    _selection = null; _selectionMode = null; _selectionFrame = null;
-    // Refresh the mode stat label — it may still say "SEL N" from before the delete.
-    setMode(interactionMode);
+    // Route cleanup through _clearSelection so the stale GPU selection buffer is
+    // flushed to empty. Nulling _selection alone leaves selBuf's old highlight
+    // bits on the GPU; after the delete reindexes particles those bits paint
+    // whatever now occupies the old slots — the "random particles selected after
+    // delete+run" bug. _clearSelection also resets the "SEL N" label, clears the
+    // overlay, re-renders, and refreshes the inspect bar, dropping us back into
+    // the clean empty-selection entry state.
+    _clearSelection();
     _refreshSaveMolBtn();
 }
 
@@ -7427,6 +7437,7 @@ function _updateInspectBar() {
     if (ibP) ibP.style.display = hasParticle ? 'contents' : 'none';
     if (ibBB) ibBB.style.display = hasBondBatch  ? 'contents' : 'none';
     if (ibAB) ibAB.style.display = hasAngleBatch ? 'contents' : 'none';
+
     // Grow the reserved slot height if this realized state is taller than what's
     // been reserved so far (e.g. a panel that wraps to two rows on a narrow
     // window). Never shrinks, so once the tallest state has appeared the layout
