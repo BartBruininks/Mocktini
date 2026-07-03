@@ -272,6 +272,71 @@ body {
     color: #444;
 }
 
+/* ── Collapsible control-group sections ─────────────────────────────────
+   The h3 becomes a clickable toggle. A chevron on the right indicates
+   state; collapsing hides the wrapped .cg-body (added at load by JS) and
+   trims the header's bottom margin so a collapsed section is compact. */
+.control-group h3.cg-toggle {
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+.control-group h3.cg-toggle .cg-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.control-group h3.cg-toggle:hover { color: #000; }
+.control-group h3.cg-toggle .cg-chevron {
+    flex: 0 0 auto;
+    font-size: 0.7rem;
+    color: #999;
+    transition: transform 0.15s ease;
+    transform: rotate(0deg);   /* points down = expanded */
+}
+.control-group.is-collapsed h3.cg-toggle {
+    margin-bottom: 0;
+}
+.control-group.is-collapsed h3.cg-toggle .cg-chevron {
+    transform: rotate(-90deg); /* points right = collapsed */
+}
+.control-group.is-collapsed .cg-body {
+    display: none;
+}
+
+/* ── Drag-and-drop panel reordering ─────────────────────────────────────
+   The collapsible h3 doubles as a drag handle. A grip cue on the left of
+   the header signals draggability; the group fades while dragging, and a
+   thick accent line marks where it will drop (above or below a target). */
+.control-group h3.cg-toggle {
+    cursor: pointer;   /* base: click-to-collapse; grab cue is on the grip */
+}
+.control-group h3.cg-toggle .cg-grip {
+    flex: 0 0 auto;
+    margin-right: 6px;
+    color: #bbb;
+    font-size: 0.8rem;
+    line-height: 1;
+    cursor: grab;
+    letter-spacing: -1px;
+}
+.control-group h3.cg-toggle .cg-grip:active { cursor: grabbing; }
+.control-group h3.cg-toggle:hover .cg-grip { color: #888; }
+.control-group.cg-dragging {
+    opacity: 0.45;
+}
+.control-group.cg-drop-before {
+    box-shadow: 0 -3px 0 -1px #4a90d9, 0 2px 4px rgba(0,0,0,0.1);
+}
+.control-group.cg-drop-after {
+    box-shadow: 0 3px 0 -1px #4a90d9, 0 2px 4px rgba(0,0,0,0.1);
+}
+
 .sub-header {
     font-size: 0.68rem;
     font-weight: 700;
@@ -466,11 +531,8 @@ footer a:hover {
     gap: 4px;
     margin-bottom: 4px;
 }
-.species-swatch {
-    width: 10px; height: 10px;
-    border-radius: 50%;
-    border: 1px solid rgba(0,0,0,0.18);
-}
+/* .species-swatch dimensions are defined jointly with .type-dot (search
+   "Type indicator dots") so both dot styles stay in lockstep. */
 .species-name {
     font-size: 0.77rem;
     white-space: nowrap;
@@ -541,12 +603,30 @@ footer a:hover {
    above its columns, and beside the σ/mass rows so a bead type is visually the
    same token everywhere. Made interactive (cursor + hover ring) in a later
    pass that wires up click-to-recolour. */
-.type-dot {
-    width: 11px; height: 11px;
+/* Type indicator dots in the Particle Properties section share the exact
+   visual style of the .species-swatch dots in the Particles section, so a
+   given type looks identical everywhere. Only the grid placement differs
+   (these sit in eps-matrix / sm-row grid cells), hence justify-self:center. */
+.type-dot,
+.species-swatch {
+    width: 10px; height: 10px;
     border-radius: 50%;
-    border: 1px solid rgba(0,0,0,0.22);
+    border: 1px solid rgba(0,0,0,0.18);
     box-sizing: border-box;
+}
+.type-dot {
     justify-self: center;
+}
+
+/* Clickable colour dots (type indicators + monomer species swatches). Both
+   open a colour picker on click and recolour every dot of that type. */
+.type-dot[data-type],
+.species-swatch.cg-color-dot {
+    cursor: pointer;
+}
+.type-dot[data-type]:hover,
+.species-swatch.cg-color-dot:hover {
+    box-shadow: 0 0 0 2px rgba(74,144,217,0.55);
 }
 
 /* One row of the σ/mass block: [dot] σ [field] m [field].
@@ -974,20 +1054,18 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
                 <label for="boxgrid-check" title="Draw the simulation box as a dashed square, repeated across every visible periodic copy — makes the PBC tiling visible when zoomed out.">Box grid</label>
                 <input type="checkbox" id="boxgrid-check" checked>
             </div>
+            <div class="control-row" title="How many integration steps are advanced between rendered frames. This is a display-cadence control (more steps/frame = faster wall-clock evolution, fewer redraws), not a physics parameter.">
+                <label>Steps / frame</label>
+                <input type="range" id="spf-s" min="1" max="50" step="1" value="5">
+                <input type="number" class="param-input" id="spf-n" value="5">
+            </div>
         </div>
 
         <!-- ── Simulation Settings (split out of Simulation after Compute Engine) ── -->
         <div class="control-group">
             <h3>Simulation Settings</h3>
 
-            <div class="sub-header" style="margin-top:0">Steps per frame</div>
-            <div class="control-row">
-                <label>Steps / frame</label>
-                <input type="range" id="spf-s" min="1" max="50" step="1" value="5">
-                <input type="number" class="param-input" id="spf-n" value="5">
-            </div>
-
-            <div class="sub-header">Integration Settings</div>
+            <div class="sub-header" style="margin-top:0">Integration Settings</div>
             <div class="control-row">
                 <label>Integrator</label>
                 <select id="integrator-select" class="param-input" style="flex:0 0 140px;width:140px">
@@ -1183,6 +1261,14 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
         <div class="control-group">
             <h3>Grid</h3>
             <div class="control-row"
+                title="Lattice used for initial monomer placement. Square: axis-aligned grid, 4 nearest neighbours. Hexagonal: rows offset by half a spacing and compressed by √3/2, giving 6 nearest neighbours all exactly one spacing apart (close-packed). The spacing below is the centre-to-centre nearest-neighbour distance in both cases.">
+                <label>Grid type</label>
+                <select id="gridtype-select" class="param-input" style="flex:0 0 120px;width:120px">
+                    <option value="square" selected>Square</option>
+                    <option value="hex">Hexagonal</option>
+                </select>
+            </div>
+            <div class="control-row"
                 title="Grid spacing for initial placement, as a plain distance in simulation units. This is exactly the centre-to-centre spacing used when filling the box — no σ or potential-minimum scaling. Keep it ≤ the non-bonded cutoff rc so the overlap check stays reliable.">
                 <label>Grid spacing</label>
                 <input type="range" id="spacing-s" min="0.5" max="5" step="0.1" value="1">
@@ -1224,12 +1310,12 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
     </div>
 </div>
 
-<footer id="footer">Mocktini v1.4.1 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license · <a href="https://github.com/BartBruininks/Mocktini">GitHub</a></footer>
+<footer id="footer">Mocktini v1.4.9 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license · <a href="https://github.com/BartBruininks/Mocktini">GitHub</a></footer>
 
 <script>
 'use strict';
 // ════════════════════════════════════════════════════════════════════════════
-//  Mocktini - 2D Molecular Dynamics  —  v1.4.1
+//  Mocktini - 2D Molecular Dynamics  —  v1.4.9
 // ════════════════════════════════════════════════════════════════════════════
 //
 //  OVERVIEW
@@ -1331,6 +1417,7 @@ const URL_PARAMS = [
     {id:'integrator-select', type:'string'},
     {id:'tauT-n', type:'number'},
     {id:'autoremove-cb', type:'checkbox'}, {id:'autoremove-n', type:'number'},
+    {id:'gridtype-select', type:'string'},
 ];
 
 // ── Species table ─────────────────────────────────────────────────────────────
@@ -1363,10 +1450,25 @@ let _TYPE_COLORS_DES = _TYPE_COLORS.map(_desatCssColor);
 // Paint every .type-dot indicator (ε-matrix headers, σ/mass rows, and anywhere
 // else that carries data-type) with its type's current colour. Called at
 // startup and again whenever a type colour changes.
+// Look up the user-facing name for a monomer type index from the Particles &
+// Assemblies species table, so type dots elsewhere in the UI show the same
+// name the user set there. Falls back to "Type N" if no monomer species maps
+// to that type index (shouldn't happen for the built-in 0-3, but stays safe).
+function _typeName(t) {
+    if (typeof speciesTable !== 'undefined') {
+        const sp = speciesTable.find(s => s.kind === 'monomer' && s.typeIdx === t);
+        if (sp && sp.name) return sp.name;
+    }
+    return `Type ${t}`;
+}
+
 function _paintTypeDots() {
     document.querySelectorAll('.type-dot[data-type]').forEach(dot => {
         const t = parseInt(dot.dataset.type, 10);
         if (t >= 0 && t < _TYPE_COLORS.length) dot.style.background = _TYPE_COLORS[t];
+        // Tooltip mirrors the species name from the Particles section, plus a
+        // hint that the dot is a colour picker.
+        dot.title = `${_typeName(t)} · click to set colour`;
     });
 }
 
@@ -1425,9 +1527,124 @@ const molPaletteF32   = new Float32Array(256 * 4);  // r,g,b,a × 256
 // Next available mol ID for custom molecules (0-3 reserved for built-in polymers).
 let _nextMolId = 4;
 
-// ── Custom molecule store ──────────────────────────────────────────────────────
-// Each entry: { name, molDef, positions, molId, color }
-// positions: Array of {x,y} relative to centroid (sim units).
+// ── Live per-type colour plumbing ──────────────────────────────────────────────
+// Parse "#rrggbb" → [r,g,b] each in 0..1 (plain sRGB/255, matching how the rest
+// of the palette floats are stored — NOT gamma-linearised).
+function _hexToRgb01(hex) {
+    const h = hex.replace('#', '');
+    return [parseInt(h.slice(0,2),16)/255,
+            parseInt(h.slice(2,4),16)/255,
+            parseInt(h.slice(4,6),16)/255];
+}
+function _rgb01ToHex(r, g, b) {
+    return _rgbToHex(r, g, b);
+}
+
+// Sync molPalette slots 0-3 (the GPU/type-colour slots) to the current
+// _TYPE_COLORS. Slots 0-3 are otherwise unused now that polymers are gone
+// (custom molecules start at molId 4), so they cleanly double as the live
+// per-type colour palette that the WGSL typeColor() reads.
+function _syncTypeColorsToMolPalette() {
+    for (let t = 0; t < 4; t++) {
+        const [r, g, b] = _hexToRgb01(_TYPE_COLORS[t]);
+        molPaletteF32[t*4+0] = r;
+        molPaletteF32[t*4+1] = g;
+        molPaletteF32[t*4+2] = b;
+        molPaletteF32[t*4+3] = 1.0;
+        molPaletteCSS[t]   = _TYPE_COLORS[t];
+        molPaletteDesat[t] = _desatCssColor(_TYPE_COLORS[t]);
+    }
+}
+// The default molPalette build seeds slots 0-3 with the old polymer colours;
+// overwrite them so the GPU type colours match the UI from the first frame.
+_syncTypeColorsToMolPalette();
+
+// Change the colour of bead type `t` (0-3) everywhere: the UI dots, the species
+// swatches, the CPU draw path (_TYPE_COLORS / _TYPE_COLORS_DES), and the GPU
+// (molPalette slots 0-3, re-uploaded to the live buffer). All dots of that type
+// update because they all resolve their colour from these shared arrays.
+//
+// `rebuild` controls whether the species table DOM is fully rebuilt. During a
+// live colour-picker drag we pass false and just recolour the existing swatch
+// nodes in place (cheap, no flicker); on commit (or load) we pass true so a
+// full, canonical rebuild runs. Either way the type dots and GPU update.
+function _setTypeColor(t, hex, rebuild = true) {
+    if (t < 0 || t > 3) return;
+    // Normalise to lower-case #rrggbb.
+    const [r, g, b] = _hexToRgb01(hex);
+    hex = _rgb01ToHex(r, g, b);
+
+    _TYPE_COLORS[t]     = hex;
+    _TYPE_COLORS_DES[t] = _desatCssColor(hex);
+
+    // Keep the species table's stored monomer colour in step (used by swatches
+    // and persisted with save-state).
+    if (typeof speciesTable !== 'undefined') {
+        const sp = speciesTable.find(s => s.kind === 'monomer' && s.typeIdx === t);
+        if (sp) sp.color = hex;
+    }
+
+    _syncTypeColorsToMolPalette();
+
+    // Repaint UI: type dots always; species swatches either via full rebuild
+    // (commit/load) or a cheap in-place recolour of the matching swatch (drag).
+    _paintTypeDots();
+    if (rebuild && typeof buildSpeciesTableUI === 'function') {
+        buildSpeciesTableUI();
+    } else {
+        document.querySelectorAll(`.species-swatch.cg-color-dot[data-type="${t}"]`)
+            .forEach(sw => { sw.style.background = hex; });
+    }
+
+    // Push to the GPU and redraw whichever engine is live.
+    if (typeof gpuSim !== 'undefined' && gpuSim && gpuSim.updateMolPaletteBuffer)
+        gpuSim.updateMolPaletteBuffer();
+    // If paused, force a redraw so the new colour shows immediately; while
+    // running, the sim loop repaints every frame so no explicit call is needed.
+    if (typeof running !== 'undefined' && !running && typeof renderFrame === 'function')
+        renderFrame();
+}
+
+// Change the colour of a custom molecule / assembly (identified by its molId,
+// which occupies molPalette slots 4..255). Mirrors _setTypeColor but for the
+// per-molecule palette: updates the CSS/desat/float palette entries, the stored
+// entry.color + species-table color, the swatch(es), and both render paths.
+// `rebuild` behaves as in _setTypeColor — false for cheap live drag, true on
+// commit/load for a full species-table rebuild.
+function _setMolColor(molId, hex, rebuild = true) {
+    if (!(molId >= 4 && molId < 256)) return;   // 0-3 are the type slots
+    const [r, g, b] = _hexToRgb01(hex);
+    hex = _rgb01ToHex(r, g, b);
+
+    molPaletteF32[molId*4+0] = r;
+    molPaletteF32[molId*4+1] = g;
+    molPaletteF32[molId*4+2] = b;
+    molPaletteF32[molId*4+3] = 1.0;
+    molPaletteCSS[molId]   = hex;
+    molPaletteDesat[molId] = _desatCssColor(hex);
+
+    // Keep the custom-mol store + species-table entries in step (both persist
+    // with save-state, and the swatches read entry.color on rebuild).
+    if (typeof customMolDefs !== 'undefined') {
+        for (const e of customMolDefs) if (e.molId === molId) e.color = hex;
+    }
+    if (typeof speciesTable !== 'undefined') {
+        for (const s of speciesTable)
+            if (s.kind === 'custom' && customMolDefs[s.customIdx]?.molId === molId) s.color = hex;
+    }
+
+    if (rebuild && typeof buildSpeciesTableUI === 'function') {
+        buildSpeciesTableUI();
+    } else {
+        document.querySelectorAll(`.species-swatch.cg-color-dot[data-molid="${molId}"]`)
+            .forEach(sw => { sw.style.background = hex; });
+    }
+
+    if (typeof gpuSim !== 'undefined' && gpuSim && gpuSim.updateMolPaletteBuffer)
+        gpuSim.updateMolPaletteBuffer();
+    if (typeof running !== 'undefined' && !running && typeof renderFrame === 'function')
+        renderFrame();
+}
 const customMolDefs = [];   // all custom molecule definitions (imports + assemblies)
 // entry shape: { name, molDef, positions, molId, color, source: 'import'|'assembly' }
 
@@ -1488,8 +1705,10 @@ function buildSpeciesTableUI() {
         row.className = 'species-row';
 
         const swatch = document.createElement('span');
-        swatch.className = 'species-swatch';
+        swatch.className = 'species-swatch cg-color-dot';
         swatch.style.background = entry.color;
+        swatch.dataset.type = entry.typeIdx;
+        swatch.title = `${entry.name} · click to set colour`;
 
         const nameIn = document.createElement('input');
         nameIn.type      = 'text';
@@ -1499,6 +1718,9 @@ function buildSpeciesTableUI() {
         nameIn.addEventListener('change', () => {
             entry.name = nameIn.value.trim() || entry.name;
             nameIn.value = entry.name;
+            // Keep the Particle Properties type-dot tooltips in sync with the
+            // renamed monomer species.
+            _paintTypeDots();
         });
 
         const ratioIn = document.createElement('input');
@@ -1554,8 +1776,10 @@ function buildSpeciesTableUI() {
         row.className = 'species-row';
 
         const swatch = document.createElement('span');
-        swatch.className = 'species-swatch';
+        swatch.className = 'species-swatch cg-color-dot';
         swatch.style.background = entry.color;
+        swatch.dataset.molid = entry.molId;
+        swatch.title = `${entry.name} · click to set colour`;
 
         const nameIn = document.createElement('input');
         nameIn.type      = 'text';
@@ -1652,6 +1876,12 @@ function buildSpeciesTableUI() {
     }
 
     updateRealizedPcts();   // populate realized-% labels for the freshly built rows
+
+    // Keep the Particle Properties type-dot indicators (colour + name tooltip)
+    // in sync with the species table on every rebuild — this covers state
+    // loads, undo/redo restores, and custom-molecule add/remove, all of which
+    // route through here.
+    _paintTypeDots();
 }
 
 // Build a minimal placement entry for a built-in species (monomer or polymer).
@@ -2566,13 +2796,9 @@ fn chargeColor(q: f32) -> vec4<f32> {
 }
 
 fn typeColor(pType: u32) -> vec4<f32> {
-    let c = array<vec4<f32>, 4>(
-        vec4<f32>(0.3,  0.65, 1.0,  1.0),
-        vec4<f32>(1.0,  0.42, 0.42, 1.0),
-        vec4<f32>(1.0,  0.85, 0.24, 1.0),
-        vec4<f32>(0.42, 0.8,  0.47, 1.0),
-    );
-    return c[pType % 4u];
+    // Live per-type colours are stored in molPalette slots 0-3 (kept in sync
+    // with the UI _TYPE_COLORS by _setTypeColor / updateMolPaletteBuffer).
+    return vec4<f32>(molPalette[pType % 4u].rgb, 1.0);
 }
 
 fn velColor(speed: f32, maxSpeed: f32) -> vec4<f32> {
@@ -2703,13 +2929,8 @@ fn chargeColor(q: f32) -> vec4<f32> {
 }
 
 fn typeColor(pType: u32) -> vec4<f32> {
-    let c = array<vec4<f32>, 4>(
-        vec4<f32>(0.3,  0.65, 1.0,  1.0),
-        vec4<f32>(1.0,  0.42, 0.42, 1.0),
-        vec4<f32>(1.0,  0.85, 0.24, 1.0),
-        vec4<f32>(0.42, 0.8,  0.47, 1.0),
-    );
-    return c[pType % 4u];
+    // Live per-type colours from molPalette slots 0-3 (see the other typeColor).
+    return vec4<f32>(molPalette[pType % 4u].rgb, 1.0);
 }
 fn velColor(speed: f32, maxSpeed: f32) -> vec4<f32> {
     let t = clamp(speed / max(maxSpeed, 1e-6), 0.0, 1.0);
@@ -4645,7 +4866,10 @@ async function saveSimState() {
         if (!el) continue;
         ui[id] = (type === 'checkbox') ? el.checked : el.value;
     }
-    ui.species = speciesTable.slice(0, 4).map(s => ({ ratio: s.ratio }));
+    ui.species = speciesTable.slice(0, 4).map(s => ({ ratio: s.ratio, color: s.color }));
+    // Live per-type colours (0-3). Stored explicitly so a load restores the
+    // exact palette the user picked, independent of species-table ordering.
+    ui.typeColors = _TYPE_COLORS.slice(0, 4);
 
     // ── Particle + topology arrays ─────────────────────────────────────────
     const state = {
@@ -4733,6 +4957,23 @@ async function loadSimState(json) {
             if (i < 4 && speciesTable[i]) speciesTable[i].ratio = s.ratio ?? 0;
         });
     }
+    // Restore per-type colours. Prefer the explicit typeColors array; fall back
+    // to per-species colour for older files. Applied via _setTypeColor so the
+    // molPalette, dots, swatches, and canvas all pick up the loaded palette.
+    {
+        const cols = Array.isArray(ui.typeColors)
+            ? ui.typeColors
+            : (ui.species ? ui.species.map(s => s && s.color) : null);
+        if (cols) {
+            for (let t = 0; t < 4; t++) {
+                if (typeof cols[t] === 'string' && /^#?[0-9a-fA-F]{6}$/.test(cols[t].replace('#',''))) {
+                    // rebuild=false: loadSimState rebuilds the species table once
+                    // further down, so skip the per-colour rebuild here.
+                    _setTypeColor(t, cols[t][0] === '#' ? cols[t] : '#' + cols[t], false);
+                }
+            }
+        }
+    }
     applyIntegratorPanels();
     applyIntegratorParams();
     // Sync potential parameter panels (mie/wf) with the restored dropdown.
@@ -4749,6 +4990,13 @@ async function loadSimState(json) {
         customMolDefs.push(entry);
         speciesTable.push({ name: e.name, kind: 'custom', source: e.source,
                             customIdx: customMolDefs.length - 1, ratio: 0, color: e.color });
+        // Push the saved colour back into the palette so both render paths show
+        // the user-chosen assembly colour (loader would otherwise keep the
+        // default golden-angle palette entry for this molId). rebuild=false: the
+        // buildSpeciesTableUI() below does the single rebuild.
+        if (typeof e.color === 'string' && e.molId >= 4 && e.molId < 256) {
+            _setMolColor(e.molId, e.color, false);
+        }
     });
     _nextMolId = json.nextMolId ?? Math.max(_nextMolId, 4 + customMolDefs.length);
     buildSpeciesTableUI();
@@ -5798,6 +6046,10 @@ function _applyWorld(w) {
         customMolDefs.push(entry);
         speciesTable.push({ name: e.name, kind: 'custom', source: e.source,
                             customIdx: customMolDefs.length - 1, ratio: 0, color: e.color });
+        // Restore the assembly's colour into the palette (see loadSimState).
+        if (typeof e.color === 'string' && e.molId >= 4 && e.molId < 256) {
+            _setMolColor(e.molId, e.color, false);
+        }
     });
     _nextMolId = w.nextMolId ?? _nextMolId;
     buildSpeciesTableUI();
@@ -8706,6 +8958,9 @@ molDropzone.addEventListener('drop', e => {
 document.getElementById('thermo-cb').addEventListener('change', () => saveToURL());
 document.getElementById('integrator-select').addEventListener('change', () => { applyIntegratorPanels(); applyIntegratorParams(); saveToURL(); });
 document.getElementById('colormode-select').addEventListener('change', () => { if (!running) renderFrame(); saveToURL(); });
+// Grid type only affects the NEXT Fill (it doesn't move existing particles), so
+// just persist the choice; no re-render needed.
+document.getElementById('gridtype-select').addEventListener('change', saveToURL);
 document.getElementById('boxgrid-check').addEventListener('change', e => {
     _showBoxGrid = e.target.checked;
     // The grid lives on the overlay, so re-running the overlay pass is enough —
@@ -9268,23 +9523,70 @@ async function performFill() {
     // Polymers are gone; monomers fill their ratio-share of the bead budget.
     // N is an upper limit — leftover budget that doesn't tile cleanly is left
     // unplaced (we never pad the box with stray beads).
+    //
+    // Two lattices are supported (Grid type selector). In BOTH, `spacing` is the
+    // centre-to-centre nearest-neighbour distance:
+    //   square — axis-aligned; candidate points at cell centres, dx = dy = spacing.
+    //   hex    — rows compressed to dy = spacing·√3/2 and alternate rows shifted
+    //            by spacing/2 in x, so each point has 6 neighbours all exactly
+    //            `spacing` away (close-packed triangular lattice).
     {
         // Monomer bead budget = the monomer species' ratio share of the built-in
         // budget. builtinW is the sum of monomer ratios (computed above).
         const monoW    = speciesTable.slice(0, 4).reduce((s, sp) => s + (sp.ratio ?? 0), 0);
         const nSingles = builtinW > 0 ? Math.floor(adjustedFillN * monoW / builtinW) : 0;
 
-        // Coarse occupied grid seeded from existing + custom mol beads
+        const gridType = (document.getElementById('gridtype-select')?.value) || 'square';
+
+        // Build the list of candidate lattice points {x,y} for the chosen grid.
+        // Points are wrapped into [0,L). For the SQUARE lattice we keep a coarse
+        // "occupied" set (indexed on the square cell a point falls in) seeded from
+        // existing + custom-mol beads, so monomers avoid taken cells — the
+        // original fast dedup. The HEX lattice does NOT use this cell dedup:
+        // several hex points can map into one square cell (rows are offset and
+        // compressed), so cell-dedup would wrongly reject valid hex sites. Hex
+        // relies solely on the exact _fcClear distance test below, which already
+        // enforces the real minimum-separation rule.
+        const useCellDedup = (gridType !== 'hex');
         const occupied = new Set();
-        for (let i = 0; i < exN; i++) {
-            const ix = Math.min(nx-1, Math.max(0, Math.floor(snapX[i] / spacing)));
-            const iy = Math.min(ny-1, Math.max(0, Math.floor(snapY[i] / spacing)));
-            occupied.add(ix * ny + iy);
+        const occKey = (x, y) => {
+            const ix = Math.min(nx-1, Math.max(0, Math.floor(x / spacing)));
+            const iy = Math.min(ny-1, Math.max(0, Math.floor(y / spacing)));
+            return ix * ny + iy;
+        };
+        if (useCellDedup) {
+            for (let i = 0; i < exN; i++)   occupied.add(occKey(snapX[i], snapY[i]));
+            for (const p of newXY)          occupied.add(occKey(p.x, p.y));
         }
-        for (const p of newXY) {
-            const ix = Math.min(nx-1, Math.max(0, Math.floor(p.x / spacing)));
-            const iy = Math.min(ny-1, Math.max(0, Math.floor(p.y / spacing)));
-            occupied.add(ix * ny + iy);
+
+        const candidates = [];
+        if (gridType === 'hex') {
+            const dy    = spacing * Math.sqrt(3) / 2;      // compressed row height
+            let   nRows = Math.max(1, Math.floor(L / dy));
+            const nCols = Math.max(1, Math.floor(L / spacing));
+            // Periodic seam guard: the box height L is generally not an exact
+            // multiple of dy, so the top row wraps to sit some distance from
+            // row 0. If that wrapped vertical gap is smaller than the row height
+            // (i.e. the leftover L - nRows·dy is too small), the top and bottom
+            // rows would end up closer than `spacing`. Drop the last row in that
+            // case: a slightly wider seam gap is harmless (MD closes it in a step)
+            // whereas beads placed too close would spike the initial forces.
+            if (nRows > 1 && (L - nRows * dy) < dy * 0.5) nRows -= 1;
+            for (let r = 0; r < nRows; r++) {
+                const yc  = (r + 0.5) * dy;
+                const off = (r & 1) ? spacing * 0.5 : 0;   // stagger odd rows
+                for (let cX = 0; cX < nCols; cX++) {
+                    // Wrap x so the half-spacing offset on odd rows doesn't spill
+                    // past L; keeps the lattice periodic-consistent with the box.
+                    const xc = (((cX + 0.5) * spacing + off) % L + L) % L;
+                    candidates.push({ x: xc, y: yc });
+                }
+            }
+        } else {
+            // Square lattice — cell centres, exactly as before.
+            for (let iy = 0; iy < ny; iy++)
+                for (let ix = 0; ix < nx; ix++)
+                    candidates.push({ x: (ix + 0.5) * spacing, y: (iy + 0.5) * spacing });
         }
 
         // Single beads
@@ -9302,10 +9604,12 @@ async function performFill() {
                 [sTypes[i],sTypes[j]]=[sTypes[j],sTypes[i]];
             }
 
-            const freeCells = [];
-            for (let iy=0;iy<ny;iy++)
-                for (let ix=0;ix<nx;ix++)
-                    if (!occupied.has(ix * ny + iy)) freeCells.push({ix,iy});
+            // Drop candidates whose square cell is already occupied (square
+            // lattice only), then shuffle so the placed subset is spatially
+            // uniform rather than row-ordered.
+            const freeCells = useCellDedup
+                ? candidates.filter(p => !occupied.has(occKey(p.x, p.y)))
+                : candidates.slice();
             for (let i=freeCells.length-1;i>0;i--) {
                 const j=Math.floor(Math.random()*(i+1));
                 [freeCells[i],freeCells[j]]=[freeCells[j],freeCells[i]];
@@ -9313,10 +9617,10 @@ async function performFill() {
             let tIdx=0;
             for (const cell of freeCells) {
                 if (tIdx >= sTypes.length) break;
-                const bx=(cell.ix+0.5)*spacing, by=(cell.iy+0.5)*spacing;
+                const bx=cell.x, by=cell.y;
                 if (!_fcClear(bx, by)) continue;
                 newXY.push({ x: bx, y: by, type: sTypes[tIdx++], molId: 0xFFFFFFFF });
-                occupied.add(cell.ix * ny + cell.iy);
+                if (useCellDedup) occupied.add(occKey(bx, by));
                 _fcAdd(bx, by);
             }
         }
@@ -9477,6 +9781,231 @@ engineSelect.addEventListener('change', async (e) => {
             console.warn('Mocktini autoload failed:', err);
         }
     }
+})();
+
+// ═══════════════════════════════════════════════════════════════════
+//  Collapsible + reorderable control-group sections
+// ═══════════════════════════════════════════════════════════════════
+// Each .control-group gets a clickable h3 that collapses/expands the rest
+// of its content, and doubles as a drag handle for reordering panels within
+// the controls column. Rather than restructure the markup by hand, we wrap
+// every node after the h3 into a .cg-body wrapper at load time, then toggle a
+// .is-collapsed class on the group. This keeps all existing input IDs and
+// their JS wiring untouched (the wrapper is purely a layout container).
+//
+// Reordering uses the native HTML5 Drag and Drop API on the h3 handle. Only
+// the header is draggable, so inputs inside the body keep normal text/number
+// interaction. A drag and a collapse-click are distinguished by a moved flag:
+// once a dragstart fires, the click that the browser synthesises on drop is
+// suppressed so reordering never also collapses the panel. Order is in-memory
+// only (session-scoped, like the collapse state) and is pure UI chrome — it
+// has no effect on save/load state.
+(function initControlSections() {
+    const container = document.querySelector('.controls-container');
+    if (!container) return;
+    const groups = container.querySelectorAll(':scope > .control-group');
+
+    let dragEl   = null;   // the .control-group currently being dragged
+    let didDrag  = false;  // set on dragstart, cleared shortly after dragend
+
+    // Clear any lingering drop-indicator classes from all groups.
+    const clearDropCues = () => {
+        container.querySelectorAll('.cg-drop-before, .cg-drop-after')
+            .forEach(g => g.classList.remove('cg-drop-before', 'cg-drop-after'));
+    };
+
+    groups.forEach(group => {
+        const h3 = group.querySelector(':scope > h3');
+        if (!h3 || h3.classList.contains('cg-toggle')) return;   // idempotent
+
+        // Wrap everything after the h3 into .cg-body.
+        const body = document.createElement('div');
+        body.className = 'cg-body';
+        let node = h3.nextSibling;
+        while (node) {
+            const next = node.nextSibling;
+            body.appendChild(node);
+            node = next;
+        }
+        group.appendChild(body);
+
+        // Turn the h3 into a toggle: [grip] [title] ........ [chevron].
+        h3.classList.add('cg-toggle');
+        const grip = document.createElement('span');
+        grip.className = 'cg-grip';
+        grip.textContent = '⋮⋮';
+        grip.setAttribute('aria-hidden', 'true');
+        grip.title = 'Drag to reorder';
+        const label = document.createElement('span');
+        label.className = 'cg-title';
+        label.append(...h3.childNodes);   // move existing title content in
+        const chevron = document.createElement('span');
+        chevron.className = 'cg-chevron';
+        chevron.textContent = '▼';
+        chevron.setAttribute('aria-hidden', 'true');
+        h3.append(grip, label, chevron);
+
+        // ── Collapse (click / keyboard) ──────────────────────────────────
+        h3.setAttribute('role', 'button');
+        h3.setAttribute('tabindex', '0');
+        h3.setAttribute('aria-expanded', 'true');
+        const toggle = () => {
+            const collapsed = group.classList.toggle('is-collapsed');
+            h3.setAttribute('aria-expanded', String(!collapsed));
+        };
+        h3.addEventListener('click', () => {
+            if (didDrag) return;   // this click is the tail of a drag → ignore
+            toggle();
+        });
+        h3.addEventListener('keydown', e => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+        });
+
+        // ── Drag to reorder ──────────────────────────────────────────────
+        h3.setAttribute('draggable', 'true');
+        h3.addEventListener('dragstart', e => {
+            dragEl  = group;
+            didDrag = true;
+            group.classList.add('cg-dragging');
+            // Some browsers require data to be set for the drag to proceed.
+            if (e.dataTransfer) {
+                e.dataTransfer.effectAllowed = 'move';
+                try { e.dataTransfer.setData('text/plain', ''); } catch (_) {}
+            }
+        });
+        h3.addEventListener('dragend', () => {
+            group.classList.remove('cg-dragging');
+            clearDropCues();
+            dragEl = null;
+            // Defer clearing didDrag until after the synthetic click fires.
+            setTimeout(() => { didDrag = false; }, 0);
+        });
+    });
+
+    // ── Container-level drop handling ────────────────────────────────────
+    // Determine, for the group under the pointer, whether we'd insert before
+    // or after it based on which half of it the cursor is in.
+    const groupUnderPoint = (y) => {
+        const gs = [...container.querySelectorAll(':scope > .control-group')];
+        for (const g of gs) {
+            if (g === dragEl) continue;
+            const r = g.getBoundingClientRect();
+            if (y >= r.top && y <= r.bottom) {
+                return { group: g, after: y > r.top + r.height / 2 };
+            }
+        }
+        return null;
+    };
+
+    container.addEventListener('dragover', e => {
+        if (!dragEl) return;
+        e.preventDefault();               // allow the drop
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+        clearDropCues();
+        const hit = groupUnderPoint(e.clientY);
+        if (hit) {
+            hit.group.classList.add(hit.after ? 'cg-drop-after' : 'cg-drop-before');
+        }
+    });
+
+    container.addEventListener('drop', e => {
+        if (!dragEl) return;
+        e.preventDefault();
+        const hit = groupUnderPoint(e.clientY);
+        if (hit && hit.group !== dragEl) {
+            if (hit.after) hit.group.after(dragEl);
+            else           hit.group.before(dragEl);
+        }
+        clearDropCues();
+    });
+})();
+
+// ═══════════════════════════════════════════════════════════════════
+//  Colour picker (click any type dot, monomer swatch, or assembly swatch)
+// ═══════════════════════════════════════════════════════════════════
+// One shared hidden <input type="color"> is opened on click of any colour dot
+// in the control panel: the Particle Properties type dots and monomer swatches
+// (data-type → _setTypeColor, palette slots 0-3) and the custom-molecule /
+// assembly swatches (data-molid → _setMolColor, palette slots 4+). Live-updates
+// while dragging ('input', cheap) and commits on 'change' (full rebuild +
+// persist), fanning the colour out to every matching dot plus both render paths.
+(function initColorPicker() {
+    const container = document.querySelector('.controls-container');
+    if (!container) return;
+
+    const picker = document.createElement('input');
+    picker.type = 'color';
+    // The input must stay ON-SCREEN with non-zero size for Chrome to open the
+    // native colour dialog — Chrome refuses to open it for an off-screen or
+    // zero-size input (Firefox is lenient, which is why it worked there). We
+    // make it a 1x1, opacity:0 element and move it to the click point on each
+    // open so the OS popup anchors sensibly next to the dot. No browser sniffing.
+    picker.style.cssText =
+        'position:fixed;width:1px;height:1px;opacity:0;border:0;padding:0;margin:0;' +
+        'pointer-events:none;z-index:-1;left:0;top:0;';
+    document.body.appendChild(picker);
+
+    let active = null;   // { kind:'type'|'mol', id }
+
+    const normHex = css => {
+        // Accept #rrggbb or rgb(r,g,b); return #rrggbb for the native picker.
+        if (!css) return '#000000';
+        if (css[0] === '#') return css.slice(0,7);
+        const m = css.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+        if (!m) return '#000000';
+        return '#' + [1,2,3].map(i => (+m[i]).toString(16).padStart(2,'0')).join('');
+    };
+
+    // Apply the picker's current colour to whichever target is active.
+    const apply = (rebuild) => {
+        if (!active) return;
+        if (active.kind === 'type') _setTypeColor(active.id, picker.value, rebuild);
+        else                        _setMolColor(active.id, picker.value, rebuild);
+    };
+
+    container.addEventListener('click', e => {
+        const dot = e.target.closest(
+            '.type-dot[data-type], .species-swatch.cg-color-dot[data-type], ' +
+            '.species-swatch.cg-color-dot[data-molid]');
+        if (!dot) return;
+        if (dot.dataset.molid !== undefined) {
+            const id = parseInt(dot.dataset.molid, 10);
+            if (!(id >= 4 && id < 256)) return;
+            active = { kind: 'mol', id };
+            picker.value = normHex(molPaletteCSS[id] || '#000000');
+        } else {
+            const t = parseInt(dot.dataset.type, 10);
+            if (!(t >= 0 && t <= 3)) return;
+            active = { kind: 'type', id: t };
+            picker.value = normHex(_TYPE_COLORS[t]);
+        }
+        // Anchor the (invisible) input at the pointer, then open. Chrome
+        // positions the popup from the input's *rendered* box, so we must force
+        // a synchronous layout flush after moving it — otherwise the FIRST open
+        // uses the stale initial position (0,0 → top-left) because the style
+        // change hasn't been laid out yet. Reading offsetWidth triggers reflow.
+        // showPicker() is the modern, reliable opener; fall back to click().
+        // clientX/Y are 0 for keyboard-activated clicks; use the dot box then.
+        let px = e.clientX, py = e.clientY;
+        if (!px && !py) { const r = dot.getBoundingClientRect(); px = r.left; py = r.bottom; }
+        picker.style.left = `${Math.round(px)}px`;
+        picker.style.top  = `${Math.round(py)}px`;
+        void picker.offsetWidth;   // force reflow so the new position is committed
+        if (typeof picker.showPicker === 'function') {
+            try { picker.showPicker(); } catch (_) { picker.click(); }
+        } else {
+            picker.click();
+        }
+    });
+
+    // Live preview while dragging in the picker — cheap in-place recolour.
+    picker.addEventListener('input', () => apply(false));
+    // Commit (also fires on close in most browsers): full rebuild + persist.
+    picker.addEventListener('change', () => {
+        apply(true);
+        if (typeof saveToURL === 'function') saveToURL();
+        active = null;
+    });
 })();
 </script>
 </body>
