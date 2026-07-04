@@ -731,6 +731,28 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
     font-size: 0.73rem;
     border-radius: 4px;
 }
+/* Segmented rect/lasso selection-shape toggle (shown in the empty select/particle
+   inspect bar). Two buttons sharing a pill; the active one is filled. */
+.seg-toggle {
+    display: inline-flex;
+    border: 1px solid var(--blue-pale);
+    border-radius: 5px;
+    overflow: hidden;
+}
+.inspect-bar .seg-toggle button {
+    padding: 3px 12px;
+    border: none;
+    border-radius: 0;
+    background: #fff;
+    color: var(--blue-dark);
+    font-weight: 600;
+    cursor: pointer;
+}
+.inspect-bar .seg-toggle button + button { border-left: 1px solid var(--blue-pale); }
+.inspect-bar .seg-toggle button.active {
+    background: var(--blue);
+    color: #fff;
+}
 /* hide spinners on inspect inputs */
 .inspect-input::-webkit-inner-spin-button,
 .inspect-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
@@ -822,6 +844,20 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
 
         <div class="inspect-slot">
         <div class="inspect-bar is-hidden" id="inspect-bar">
+            <!-- Persisted selection-shape mode (rect|lasso). Hidden input so it
+                 rides the existing URL_PARAMS load/save path; the visible toggle
+                 below reads/writes its value. -->
+            <input type="hidden" id="selshape-mode" value="rect">
+            <!-- Selection-shape toggle (shown in select/particle mode when there is
+                 no active selection). Shared between both modes. -->
+            <div id="ib-selshape" style="display:none">
+                <span class="stat-key">SELECTION TOOL</span>
+                <span class="seg-toggle" id="ib-selshape-toggle">
+                    <button id="ss-rect"  data-shape="rect"  title="Rubber-band rectangle select">Square</button>
+                    <button id="ss-disk"  data-shape="disk"  title="Circular disk select (click centre, drag radius)">Disk</button>
+                    <button id="ss-lasso" data-shape="lasso" title="Freehand lasso select">Lasso</button>
+                </span>
+            </div>
             <!-- Bond inspect -->
             <div id="ib-bond" style="display:contents">
                 <span class="stat-key">BOND</span>
@@ -1418,6 +1454,7 @@ const URL_PARAMS = [
     {id:'tauT-n', type:'number'},
     {id:'autoremove-cb', type:'checkbox'}, {id:'autoremove-n', type:'number'},
     {id:'gridtype-select', type:'string'},
+    {id:'selshape-mode', type:'string'},
 ];
 
 // ── Species table ─────────────────────────────────────────────────────────────
@@ -4708,7 +4745,7 @@ new ResizeObserver(_syncFooterHeight).observe(_footerEl);
 function _measureInspectHeight() {
     const bar = document.getElementById('inspect-bar');
     if (!bar) return;
-    const groups = ['ib-bond','ib-angle','ib-particle','ib-bond-batch','ib-angle-batch']
+    const groups = ['ib-bond','ib-angle','ib-particle','ib-bond-batch','ib-angle-batch','ib-selshape']
         .map(id => document.getElementById(id)).filter(Boolean);
     // Snapshot current display states so we can restore exactly.
     const prev = groups.map(g => g.style.display);
@@ -5678,6 +5715,15 @@ function _selectionToMolData(inds, anchorX, anchorY) {
 // dragState (DRAG enum above) covers SEL_RUBBER and SEL_GROUP sub-states.
 let _selDragStart  = null;    // sim-space start corner of rubber-band
 let _selDragCur    = null;    // sim-space current corner of rubber-band
+let _lassoPts      = null;    // sim-space polyline for freehand lasso (array of {x,y})
+
+// Current selection shape ('rect' | 'lasso'), read from the persisted hidden
+// input so it survives reload and is shared by select + particle modes.
+function _selShape() {
+    const el = document.getElementById('selshape-mode');
+    const v = el ? el.value : 'rect';
+    return (v === 'lasso' || v === 'disk') ? v : 'rect';
+}
 let _selection     = null;    // Set<int> selected particle indices, or null
 let _selGroupPrev  = null;    // last sim-space pos during SEL_GROUP drag
 let _clipboard     = null;    // copy buffer
@@ -5747,19 +5793,50 @@ function _drawSelectionOverlay() {
         return;
     }
 
-    // ── Rubber-band rect ──────────────────────────────────────────────────────
-    if (dragState !== DRAG.SEL_RUBBER || !_selDragStart || !_selDragCur) {
-        return;   // no rubber-band active — overlay already cleared above
+    // ── Active drag select (rubber-band rect or freehand lasso) ───────────────
+    if (dragState !== DRAG.SEL_RUBBER) {
+        return;   // no drag select active — overlay already cleared above
     }
+    _drawDragSelectShape(scale, offX, offY,
+        'rgba(80,160,255,0.07)', 'rgba(50,130,255,0.90)');
+}
 
-    const sx0 = _selDragStart.x * scale + offX, sy0 = _selDragStart.y * scale + offY;
-    const sx1 = _selDragCur.x   * scale + offX, sy1 = _selDragCur.y   * scale + offY;
-    octx.fillStyle   = 'rgba(80,160,255,0.07)';
-    octx.fillRect(sx0, sy0, sx1 - sx0, sy1 - sy0);
-    octx.strokeStyle = 'rgba(50,130,255,0.90)';
+// Draw the in-progress selection shape (rect from _selDragStart/_selDragCur, or
+// lasso from _lassoPts) onto the overlay in the given fill/stroke colours.
+// Shared by the select-mode and particle-mode overlays so both look identical
+// bar colour. Coordinates are unwrapped sim-space → screen via scale/off.
+function _drawDragSelectShape(scale, offX, offY, fill, stroke) {
+    octx.fillStyle   = fill;
+    octx.strokeStyle = stroke;
     octx.lineWidth   = 1.5;
     octx.setLineDash([6, 4]);
-    octx.strokeRect(sx0, sy0, sx1 - sx0, sy1 - sy0);
+    const shape = _selShape();
+    if (shape === 'lasso') {
+        if (!_lassoPts || _lassoPts.length < 2) { octx.setLineDash([]); return; }
+        octx.beginPath();
+        octx.moveTo(_lassoPts[0].x * scale + offX, _lassoPts[0].y * scale + offY);
+        for (let k = 1; k < _lassoPts.length; k++) {
+            octx.lineTo(_lassoPts[k].x * scale + offX, _lassoPts[k].y * scale + offY);
+        }
+        octx.closePath();   // preview the implicit closing edge
+        octx.fill();
+        octx.stroke();
+    } else if (shape === 'disk') {
+        if (!_selDragStart || !_selDragCur) { octx.setLineDash([]); return; }
+        const cxs = _selDragStart.x * scale + offX, cys = _selDragStart.y * scale + offY;
+        const rimX = _selDragCur.x * scale + offX, rimY = _selDragCur.y * scale + offY;
+        const rPix = Math.hypot(rimX - cxs, rimY - cys);
+        octx.beginPath();
+        octx.arc(cxs, cys, rPix, 0, Math.PI * 2);
+        octx.fill();
+        octx.stroke();
+    } else {
+        if (!_selDragStart || !_selDragCur) { octx.setLineDash([]); return; }
+        const sx0 = _selDragStart.x * scale + offX, sy0 = _selDragStart.y * scale + offY;
+        const sx1 = _selDragCur.x   * scale + offX, sy1 = _selDragCur.y   * scale + offY;
+        octx.fillRect(sx0, sy0, sx1 - sx0, sy1 - sy0);
+        octx.strokeRect(sx0, sy0, sx1 - sx0, sy1 - sy0);
+    }
     octx.setLineDash([]);
 }
 
@@ -5769,18 +5846,11 @@ function _drawSelectionOverlay() {
 function _drawParticleTypeOverlay(skipClear = false) {
     if (!skipClear) { _clearOverlay(); }
 
-    // Rubber-band rect while dragging in particle mode
-    if (dragState === DRAG.SEL_RUBBER && _selDragStart && _selDragCur) {
+    // Rubber-band rect / lasso while dragging in particle mode
+    if (dragState === DRAG.SEL_RUBBER) {
         const { scale, offX, offY } = _camXform(sim.L);
-        const sx0 = _selDragStart.x * scale + offX, sy0 = _selDragStart.y * scale + offY;
-        const sx1 = _selDragCur.x   * scale + offX, sy1 = _selDragCur.y   * scale + offY;
-        octx.fillStyle   = 'rgba(255,140,0,0.07)';
-        octx.fillRect(sx0, sy0, sx1 - sx0, sy1 - sy0);
-        octx.strokeStyle = 'rgba(255,100,0,0.90)';
-        octx.lineWidth   = 1.5;
-        octx.setLineDash([6, 4]);
-        octx.strokeRect(sx0, sy0, sx1 - sx0, sy1 - sy0);
-        octx.setLineDash([]);
+        _drawDragSelectShape(scale, offX, offY,
+            'rgba(255,140,0,0.07)', 'rgba(255,100,0,0.90)');
     }
 }
 
@@ -5808,6 +5878,87 @@ function _getParticlesInRect(x0, y0, x1, y1) {
             for (let ty = tyMin; ty <= tyMax && !hit; ty++) {
                 const iy = py + ty * L;
                 if (iy >= yMin && iy <= yMax) hit = true;
+            }
+        }
+        if (hit) out.push(i);
+    }
+    return out;
+}
+
+// Even-odd (crossing-number) point-in-polygon test. poly is a flat array of
+// {x,y} vertices; the edge from the last vertex back to the first is implicit.
+// Points exactly on an edge are treated consistently by the half-open y-range
+// convention (no double counting at shared vertices).
+function _pointInPoly(px, py, poly) {
+    let inside = false;
+    const n = poly.length;
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+        const yi = poly[i].y, yj = poly[j].y;
+        // Does the horizontal ray at py cross edge j→i?
+        if ((yi > py) !== (yj > py)) {
+            const xCross = poly[i].x + (py - yi) / (yj - yi) * (poly[j].x - poly[i].x);
+            if (px < xCross) inside = !inside;
+        }
+    }
+    return inside;
+}
+
+// PBC-aware lasso selection — the polygon analogue of _getParticlesInRect.
+// `poly` is a flat array of {x,y} in unwrapped sim-space (from _screenToSim, so
+// vertices may lie outside [0,L] when the user drew in a non-centre tile). We
+// take the polygon's bounding box, derive the overlapping tile range, and test
+// every tile-shifted image of each particle with the even-odd rule. Degenerate
+// lassos (<3 vertices) select nothing.
+function _getParticlesInPoly(poly) {
+    if (!poly || poly.length < 3) return [];
+    let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
+    for (const v of poly) {
+        if (v.x < xMin) xMin = v.x; if (v.x > xMax) xMax = v.x;
+        if (v.y < yMin) yMin = v.y; if (v.y > yMax) yMax = v.y;
+    }
+    const L = sim.L;
+    const txMin = Math.floor(xMin / L), txMax = Math.floor(xMax / L);
+    const tyMin = Math.floor(yMin / L), tyMax = Math.floor(yMax / L);
+    const out = [];
+    for (let i = 0; i < sim.N; i++) {
+        const px = sim.x[i], py = sim.y[i];
+        let hit = false;
+        for (let tx = txMin; tx <= txMax && !hit; tx++) {
+            const ix = px + tx * L;
+            if (ix < xMin || ix > xMax) continue;   // cheap bbox reject on x
+            for (let ty = tyMin; ty <= tyMax && !hit; ty++) {
+                const iy = py + ty * L;
+                if (iy < yMin || iy > yMax) continue;   // cheap bbox reject on y
+                if (_pointInPoly(ix, iy, poly)) hit = true;
+            }
+        }
+        if (hit) out.push(i);
+    }
+    return out;
+}
+
+// PBC-aware disk selection. Center-out: `cx,cy` is the disk centre and `r` its
+// radius, both in unwrapped sim-space. Same tile-range strategy as the rect and
+// lasso gatherers, but the per-image test is a cheap squared-distance compare.
+function _getParticlesInDisk(cx, cy, r) {
+    if (!(r > 0)) return [];
+    const xMin = cx - r, xMax = cx + r, yMin = cy - r, yMax = cy + r;
+    const r2 = r * r;
+    const L = sim.L;
+    const txMin = Math.floor(xMin / L), txMax = Math.floor(xMax / L);
+    const tyMin = Math.floor(yMin / L), tyMax = Math.floor(yMax / L);
+    const out = [];
+    for (let i = 0; i < sim.N; i++) {
+        const px = sim.x[i], py = sim.y[i];
+        let hit = false;
+        for (let tx = txMin; tx <= txMax && !hit; tx++) {
+            const ix = px + tx * L;
+            const dx = ix - cx;
+            if (dx * dx > r2) continue;   // cheap x reject
+            for (let ty = tyMin; ty <= tyMax && !hit; ty++) {
+                const iy = py + ty * L;
+                const dy = iy - cy;
+                if (dx * dx + dy * dy <= r2) hit = true;
             }
         }
         if (hit) out.push(i);
@@ -5844,6 +5995,7 @@ function _clearSelection() {
     _selectionFrame = null;
     if (dragState === DRAG.SEL_GROUP || dragState === DRAG.SEL_RUBBER) dragState = DRAG.NONE;
     _selGroupPrev = null;
+    _selDragStart = null; _selDragCur = null; _lassoPts = null;
     _clearOverlay();
     _syncSelectionToGPU();
     if (!running) renderFrame();
@@ -7680,7 +7832,11 @@ function _updateInspectBar() {
     const hasAngleBatch = (interactionMode==='angle') && _aeAngleIdx<0 && selN>0;
     const ibBB = document.getElementById('ib-bond-batch');
     const ibAB = document.getElementById('ib-angle-batch');
-    const show = hasBond || hasAngle || hasParticle || hasBondBatch || hasAngleBatch;
+    // Selection-shape toggle: shown in select/particle mode when NO selection is
+    // held (the empty state), so the user can pick rect vs lasso before dragging.
+    const ibSS = document.getElementById('ib-selshape');
+    const hasSelShape = (interactionMode === 'select' || interactionMode === 'particle') && selN === 0;
+    const show = hasBond || hasAngle || hasParticle || hasBondBatch || hasAngleBatch || hasSelShape;
     // The bar stays in layout always (see .inspect-slot); toggle visibility, not
     // display, so showing/hiding it never resizes the canvas above.
     bar.classList.toggle('is-hidden', !show);
@@ -7689,6 +7845,7 @@ function _updateInspectBar() {
     if (ibP) ibP.style.display = hasParticle ? 'contents' : 'none';
     if (ibBB) ibBB.style.display = hasBondBatch  ? 'contents' : 'none';
     if (ibAB) ibAB.style.display = hasAngleBatch ? 'contents' : 'none';
+    if (ibSS) ibSS.style.display = hasSelShape   ? 'contents' : 'none';
 
     // Grow the reserved slot height if this realized state is taller than what's
     // been reserved so far (e.g. a panel that wraps to two rows on a narrow
@@ -7705,6 +7862,7 @@ function _updateInspectBar() {
         });
     }
 
+    if (hasSelShape) _syncSelShapeToggle();
     if (hasBond) {
         const i = cpuSim.bondI[_beBondIdx], j = cpuSim.bondJ[_beBondIdx];
         document.getElementById('ib-label').textContent  = `${i}→${j}`;
@@ -7786,6 +7944,34 @@ function _updateInspectBar() {
         }
     }
 }
+
+// Reflect the persisted selection shape on the segmented toggle's active state.
+function _syncSelShapeToggle() {
+    const shape = _selShape();
+    const r = document.getElementById('ss-rect');
+    const d = document.getElementById('ss-disk');
+    const l = document.getElementById('ss-lasso');
+    if (r) r.classList.toggle('active', shape === 'rect');
+    if (d) d.classList.toggle('active', shape === 'disk');
+    if (l) l.classList.toggle('active', shape === 'lasso');
+}
+
+(function _wireSelShapeToggle() {
+    const grp = document.getElementById('ib-selshape-toggle');
+    const hidden = document.getElementById('selshape-mode');
+    if (!grp || !hidden) return;
+    grp.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-shape]');
+        if (!btn) return;
+        hidden.value = btn.dataset.shape;   // 'rect' | 'lasso'
+        _syncSelShapeToggle();
+        saveToURL();
+        // Switching shape mid-idle: drop any half-drawn drag primitives so the
+        // next drag starts clean in the newly chosen shape.
+        _selDragStart = null; _selDragCur = null; _lassoPts = null;
+    });
+    _syncSelShapeToggle();
+})();
 
 (function _wireInspectBar() {
     // Shared commit logic for bond params
@@ -8136,8 +8322,14 @@ canvasWrapper.addEventListener('mousedown', async (e) => {
         _pdragAdj    = null;
         _selection   = null;
         dragState    = DRAG.SEL_RUBBER;
-        _selDragStart = sp;
-        _selDragCur   = sp;
+        if (_selShape() === 'lasso') {
+            _lassoPts     = [sp];
+            _selDragStart = null; _selDragCur = null;
+        } else {
+            _lassoPts     = null;
+            _selDragStart = sp;
+            _selDragCur   = sp;
+        }
         _drawSelectionOverlay();
         return;
     }
@@ -8182,10 +8374,24 @@ window.addEventListener('mousemove', (e) => {
         return;
     }
 
-    // ── Rubber-band update ────────────────────────────────────────────────────
+    // ── Rubber-band / lasso update ────────────────────────────────────────────
     if (dragState === DRAG.SEL_RUBBER) {
         const rect = canvasWrapper.getBoundingClientRect();
-        _selDragCur = _screenToSim(e.clientX - rect.left, e.clientY - rect.top);
+        const sp   = _screenToSim(e.clientX - rect.left, e.clientY - rect.top);
+        if (_selShape() === 'lasso') {
+            // Append, but drop near-duplicate points so the polygon stays light
+            // (mousemove can fire many times per pixel of motion).
+            if (_lassoPts) {
+                const last = _lassoPts[_lassoPts.length - 1];
+                const dx = sp.x - last.x, dy = sp.y - last.y;
+                const minStep = sim.L * 0.004;   // ~0.4% of box edge
+                if (dx*dx + dy*dy >= minStep*minStep) _lassoPts.push(sp);
+            } else {
+                _lassoPts = [sp];
+            }
+        } else {
+            _selDragCur = sp;
+        }
         _drawSelectionOverlay();
         return;
     }
@@ -8254,21 +8460,40 @@ window.addEventListener('mouseup', () => {
     // ── Rubber-band release → build selection ─────────────────────────────────
     if (dragState === DRAG.SEL_RUBBER) {
         dragState = DRAG.NONE;
-        if (_selDragStart && _selDragCur) {
-            const seeds = _getParticlesInRect(
+        // Gather seed beads + a frame anchor (used to re-image the selection into
+        // the periodic tile the user drew in), branching on the active shape.
+        let seeds = null, anchorX, anchorY;
+        if (_selShape() === 'lasso') {
+            if (_lassoPts && _lassoPts.length >= 3) {
+                seeds = _getParticlesInPoly(_lassoPts);
+                // Anchor = polygon vertex centroid (cheap, good enough for tiling).
+                let cx = 0, cy = 0;
+                for (const p of _lassoPts) { cx += p.x; cy += p.y; }
+                anchorX = cx / _lassoPts.length;
+                anchorY = cy / _lassoPts.length;
+            }
+        } else if (_selShape() === 'disk') {
+            if (_selDragStart && _selDragCur) {
+                const r = Math.hypot(_selDragCur.x - _selDragStart.x,
+                                     _selDragCur.y - _selDragStart.y);
+                seeds   = _getParticlesInDisk(_selDragStart.x, _selDragStart.y, r);
+                anchorX = _selDragStart.x;   // disk centre is the natural anchor
+                anchorY = _selDragStart.y;
+            }
+        } else if (_selDragStart && _selDragCur) {
+            seeds   = _getParticlesInRect(
                 _selDragStart.x, _selDragStart.y, _selDragCur.x, _selDragCur.y);
+            anchorX = (_selDragStart.x + _selDragCur.x) / 2;
+            anchorY = (_selDragStart.y + _selDragCur.y) / 2;
+        }
 
+        if (seeds !== null) {
             if (interactionMode === 'particle') {
                 // Bead-level selection — no molecule expansion
                 _selection     = seeds.length > 0 ? new Set(seeds) : null;
                 _selectionMode = _selection ? 'particle' : null;
-                if (_selection) {
-                    const rectCx = (_selDragStart.x + _selDragCur.x) / 2;
-                    const rectCy = (_selDragStart.y + _selDragCur.y) / 2;
-                    _selectionFrame = buildSelectionFrame([..._selection], rectCx, rectCy);
-                } else {
-                    _selectionFrame = null;
-                }
+                _selectionFrame = _selection
+                    ? buildSelectionFrame([..._selection], anchorX, anchorY) : null;
                 _syncSelectionToGPU();
                 _updateInspectBar();
                 if (!running) renderFrame();   // re-render with desaturation
@@ -8276,13 +8501,8 @@ window.addEventListener('mouseup', () => {
                 // Select mode — expand to full molecules
                 _selection     = seeds.length > 0 ? _expandSelToMols(seeds) : null;
                 _selectionMode = _selection ? 'select' : null;
-                if (_selection) {
-                    const rectCx = (_selDragStart.x + _selDragCur.x) / 2;
-                    const rectCy = (_selDragStart.y + _selDragCur.y) / 2;
-                    _selectionFrame = buildSelectionFrame([..._selection], rectCx, rectCy);
-                } else {
-                    _selectionFrame = null;
-                }
+                _selectionFrame = _selection
+                    ? buildSelectionFrame([..._selection], anchorX, anchorY) : null;
                 _syncSelectionToGPU();
                 if (!running) renderFrame();
                 _refreshSaveMolBtn();
@@ -8295,7 +8515,7 @@ window.addEventListener('mouseup', () => {
                 }
             }
         }
-        _selDragStart = null; _selDragCur = null;
+        _selDragStart = null; _selDragCur = null; _lassoPts = null;
         _updateCursor();
         _drawSelectionOverlay();
         return;
