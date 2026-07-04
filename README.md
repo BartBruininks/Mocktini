@@ -254,7 +254,7 @@ Mocktini uses semantic versioning (`MAJOR.MINOR.PATCH`):
 - **MINOR** — new user-visible feature
 - **PATCH** — bug fix, performance improvement, or annotation
 
-Current version: **v1.2.3**
+Current version: **v1.4.10**
 
 ---
 
