@@ -8384,7 +8384,7 @@ window.addEventListener('mousemove', (e) => {
             if (_lassoPts) {
                 const last = _lassoPts[_lassoPts.length - 1];
                 const dx = sp.x - last.x, dy = sp.y - last.y;
-                const minStep = sim.L * 0.004;   // ~0.4% of box edge
+                const minStep = Math.min(...sim.sigmaPerType.filter(s => s > 0)) * 0.10
                 if (dx*dx + dy*dy >= minStep*minStep) _lassoPts.push(sp);
             } else {
                 _lassoPts = [sp];
