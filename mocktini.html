@@ -2224,7 +2224,7 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
     </div>
 </div>
 
-<footer id="footer">Mocktini v1.16.0 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license · <a href="https://github.com/BartBruininks/Mocktini">GitHub</a></footer>
+<footer id="footer">Mocktini v1.16.2 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license · <a href="https://github.com/BartBruininks/Mocktini">GitHub</a></footer>
 
 <script>
 'use strict';
@@ -2394,7 +2394,7 @@ function _applyDefaults() {
 }
 _applyDefaults();
 // ════════════════════════════════════════════════════════════════════════════
-//  Mocktini - 2D Molecular Dynamics  —  v1.16.0
+//  Mocktini - 2D Molecular Dynamics  —  v1.16.2
 // ════════════════════════════════════════════════════════════════════════════
 //
 //  OVERVIEW
@@ -8201,6 +8201,7 @@ function _compactByIndexSet(delSet) {
     }
 
     _rebuildExcl(c);
+    _pdragAdj = null;   // indices just moved — the bond-adjacency cache is stale
     return remap;
 }
 
@@ -9249,8 +9250,22 @@ function _expandByBonds(seeds, adj) {
     return out;
 }
 
+// The adjacency cache is only valid for the exact bead/bond arrays it was built
+// from.  Bug ≤1.16.0: a free draw/erase stroke with Clear path at Molecular
+// granularity compacts the arrays at every bead, but the cache was only reset at
+// stroke/shape start — from the second compaction on it described the OLD
+// indices, so "whole molecule" pulled in unrelated beads and missed real partners
+// (polyline / square / circle compact once per shape, so they were fine).  Now the
+// cache checks itself against cpuSim (the arrays every edit and index refers to;
+// gpuSim adopts them after each edit) and rebuilds whenever N or the bond arrays
+// changed; _compactByIndexSet also drops it explicitly.
 function _expandSelToMols(seeds) {
-    if (!_pdragAdj) _pdragAdj = _buildDragAdj(sim);
+    const c = cpuSim;
+    const a = _pdragAdj;
+    if (!a || a._n !== c.N || a._nb !== (c.nBonds || 0) || a._bi !== c.bondI || a._bj !== c.bondJ) {
+        _pdragAdj = _buildDragAdj(c);
+        _pdragAdj._n = c.N; _pdragAdj._nb = c.nBonds || 0; _pdragAdj._bi = c.bondI; _pdragAdj._bj = c.bondJ;
+    }
     return _expandByBonds(seeds, _pdragAdj);
 }
 
