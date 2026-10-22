@@ -57,7 +57,7 @@
   },
 
   "sim": {
-    "fill":      "Add N new beads to the box (Grid panel). Molecules / assemblies with a ratio above 0 are placed first, at random; single beads then fill the grid. Existing beads stay. Undoable.",
+    "fill":      "Add up to N new beads in the molar ratios of the species list (Grid panel; Ratios over: this fill or the whole box). Molecules / assemblies go first, at random free spots, leaving room for the single beads; if one can't fit any more, the others are scaled back so the ratios hold. Existing beads stay. Undoable.",
     "run":       "Start or stop the simulation (Space, from any mode).",
     "clear":     "Remove all beads, leaving an empty box of size Box L. Undoable.",
     "reset":     "Go back to the starting point: the last loaded state file, or the first fill if nothing was loaded. Undoable.",
@@ -84,6 +84,11 @@
       "_":      "Lattice on which Fill places single beads",
       "square": "Axis-aligned grid: 4 nearest neighbours, each one grid spacing away.",
       "hex":    "Close-packed triangular lattice: 6 nearest neighbours, all exactly one grid spacing away."
+    },
+    "scope": {
+      "_":    "Which beads the molar ratios of the species list apply to when you Fill",
+      "fill": "This fill: the beads Fill adds follow the ratios, whatever is already in the box.",
+      "box":  "Whole box: copies already in the box of the listed species (ratio above 0) count, and Fill adds what is missing to reach the ratios. Species not in the list (ratio 0) are ignored, e.g. a DNA you placed yourself."
     },
     "spacing": "Centre-to-centre distance between grid points for Fill, in simulation units. Keep it ≤ r_cut so Fill’s overlap check stays reliable.",
     "n":       "Number of beads Fill adds (a molecule counts with all its beads). An upper limit: what doesn’t fit is not placed.",
@@ -346,6 +351,7 @@
 
   "grid": {
     "gridtype-select": { "label": "Grid type",    "value": "square", "options": ["square", "hex"] },
+    "fillscope-select": { "label": "Ratios over", "value": "fill",   "options": ["fill", "box"] },
     "spacing-n":       { "label": "Grid spacing", "value": 1,    "slider": [0.5, 5, 0.1],   "step": 0.1, "gt": 0 },
     "N-n":             { "label": "N particles",  "value": 1000, "slider": [0, 10000, 50],  "int": true, "min": 0 },
     "L-n":             { "label": "Box L",        "value": 50,   "slider": [10, 250, 1],    "gt": 0 }
@@ -1889,6 +1895,17 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
                     <button data-v="hex" data-tip="grid.type.hex">Hexagonal</button>
                 </span>
             </div>
+            <div class="control-row" data-tip="grid.scope">
+                <label>Ratios over</label>
+                <select id="fillscope-select" class="param-input" hidden>
+                    <option value="fill">This fill</option>
+                    <option value="box">Whole box</option>
+                </select>
+                <span class="seg-toggle seg-row" data-for="fillscope-select">
+                    <button data-v="fill" data-tip="grid.scope.fill">This fill</button>
+                    <button data-v="box" data-tip="grid.scope.box">Whole box</button>
+                </span>
+            </div>
             <div class="control-row"
                 data-tip="grid.spacing">
                 <label>Grid spacing</label>
@@ -2224,7 +2241,7 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
     </div>
 </div>
 
-<footer id="footer">Mocktini v1.16.2 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license · <a href="https://github.com/BartBruininks/Mocktini">GitHub</a></footer>
+<footer id="footer">Mocktini v1.16.5 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license · <a href="https://github.com/BartBruininks/Mocktini">GitHub</a></footer>
 
 <script>
 'use strict';
@@ -2394,7 +2411,7 @@ function _applyDefaults() {
 }
 _applyDefaults();
 // ════════════════════════════════════════════════════════════════════════════
-//  Mocktini - 2D Molecular Dynamics  —  v1.16.2
+//  Mocktini - 2D Molecular Dynamics  —  v1.16.5
 // ════════════════════════════════════════════════════════════════════════════
 //
 //  OVERVIEW
@@ -2533,7 +2550,7 @@ const URL_PARAMS = [
     {id:'integrator-select', type:'string'},
     {id:'tauT-n', type:'number'}, {id:'tauB-n', type:'number'},
     {id:'autoremove-cb', type:'checkbox'}, {id:'autoremove-n', type:'number'},
-    {id:'gridtype-select', type:'string'},
+    {id:'gridtype-select', type:'string'}, {id:'fillscope-select', type:'string'},
     {id:'selshape-mode', type:'string'},
     {id:'drawshape-mode', type:'string'},
     {id:'dw-type', type:'number'}, {id:'dw-charge', type:'number'},
@@ -9374,7 +9391,7 @@ function _cloneMolDef(def) {
 // are kept out of snapshots, so _applyWorld leaves whatever the user set last.
 const _CREATION_FIELDS = new Set([
     'dw-type', 'dw-charge', 'dw-kpin', 'dw-spacing', 'dw-radius', 'dw-clearpath',
-    'drawshape-mode', 'selshape-mode', 'autoremove-cb', 'autoremove-n',
+    'drawshape-mode', 'selshape-mode', 'autoremove-cb', 'autoremove-n', 'fillscope-select',
 ]);
 
 function _snapWorld() {
@@ -14056,6 +14073,7 @@ _syncDensityUI();
 // Grid type only affects the NEXT Fill (it doesn't move existing particles), so
 // just persist the choice; no re-render needed.
 document.getElementById('gridtype-select').addEventListener('change', saveToURL);
+document.getElementById('fillscope-select').addEventListener('change', saveToURL);
 document.getElementById('boxgrid-check').addEventListener('change', e => {
     _showBoxGrid = e.target.checked;
     // The grid lives on the overlay, so re-running the overlay pass is enough —
@@ -14344,7 +14362,7 @@ async function performFill() {
     const ny = Math.max(1, Math.floor(L / spacing));
 
     // Cell-list for O(1) average distance checks during placement
-    const fcCellSize = cpuSim.rcCut;
+    const fcCellSize = Math.max(cpuSim.rcCut, spacing * 0.5);   // ±1-cell search must cover minD
     const fcNX = Math.max(1, Math.floor(L / fcCellSize));
     const fcNY = fcNX;
     const fcCell = L / fcNX;
@@ -14378,61 +14396,217 @@ async function performFill() {
         return true;
     }
 
-    // ── Molecular ratio allocation for custom molecules ───────────────────
-    // ratio = target molecule count (molar ratio); bead cost = ratio × nBeads.
-    // Formula: nMolsTarget = floor(fillN × ratio / totalBeadW)
-    // where totalBeadW = sum(ratio_i × beadsPerMol_i) across ALL species.
-    // This is consistent with built-ins (builtinW is also bead-weighted).
+    // ── Fill (v1.16.4): targets → lattice sites → molecules → monomers ────
+    // A Fill is a top-off: it tries to add what the species list asks for, as
+    // whole molecules, without exceeding N new beads.  Bentopy-style placement
+    // (marrink-lab/bentopy): try many poses, anchored on still-free sites, and
+    // report target vs placed instead of losing the shortfall silently.
+    //
+    // 1. Integer targets.  Every species with ratio > 0 (molecules: molar ratio,
+    //    beads each; monomer types: 1 bead) is a fill unit.  "Ratios over":
+    //      This fill — the added beads follow the ratios: n_i = k·ratio_i.
+    //      Whole box — copies already in the box (e_i, listed species only;
+    //                  anything with ratio 0, e.g. a DNA, is ignored) count:
+    //                  n_i = max(0, k·ratio_i − e_i).
+    //    k is the largest scale whose new beads Σ n_i·beads_i fit in N; the
+    //    counts are floored and the leftover beads go out by largest remainder.
     const fillN = cpuSim.N;   // target beads to add (from N slider via readUI)
+    const FILL_TRIES_PER_MOL = 300;   // poses tried before a species counts as full
+    const fillGrav = !!cpuSim.gravityOn;   // y not periodic: molecules stay inside (see tryPlace)
+    const fillScope = (document.getElementById('fillscope-select')?.value === 'box') ? 'box' : 'fill';
 
-    const customSpeciesActive = speciesTable
-        .filter(s => s.kind === 'custom' && (s.ratio ?? 0) > 0)
-        .map(s => {
-            const entry  = customMolDefs[s.customIdx];
-            const nBeads = entry && entry.positions ? entry.positions.length : 1;
-            return { s, entry, nBeads };
-        })
-        .filter(c => c.entry);
-    // Largest assembly first — better packing heuristic
-    customSpeciesActive.sort((a, b) => b.nBeads - a.nBeads);
+    const fillUnits = [];
+    for (const s of speciesTable) {
+        const r = Math.max(0, s.ratio ?? 0);
+        if (!(r > 0)) continue;
+        if (s.kind === 'custom') {
+            const entry = customMolDefs[s.customIdx];
+            if (!entry) continue;
+            const b = entry.positions ? entry.positions.length : 1;
+            fillUnits.push({ kind: 'mol', name: entry.name, entry, r, b, e: 0 });
+        } else if (s.kind === 'monomer') {
+            fillUnits.push({ kind: 'mono', name: s.name, t: s.typeIdx & 3, r, b: 1, e: 0 });
+        }
+    }
+    if (fillScope === 'box' && exN > 0) {
+        // Count what is already there: free monomers by type, molecules by molId.
+        const mid = cpuSim.molIdPerParticle, ty = cpuSim.type;
+        const monoHave = [0, 0, 0, 0], molBeads = new Map();
+        for (let i = 0; i < exN; i++) {
+            const m = mid ? mid[i] : 0xFFFFFFFF;
+            if (m === 0xFFFFFFFF) monoHave[ty[i] & 3]++;
+            else molBeads.set(m, (molBeads.get(m) || 0) + 1);
+        }
+        for (const u of fillUnits) {
+            u.e = (u.kind === 'mono') ? monoHave[u.t]
+                                      : Math.floor((molBeads.get(u.entry.molId) || 0) / u.b);
+        }
+    }
+    {
+        const need = k => fillUnits.reduce((acc, u) => acc + Math.max(0, k * u.r - u.e) * u.b, 0);
+        let k = 0;
+        if (fillUnits.length && fillN > 0) {
+            if (fillUnits.every(u => u.e === 0)) {
+                k = fillN / fillUnits.reduce((acc, u) => acc + u.r * u.b, 0);
+            } else {                       // need(k) is monotone: bisect
+                let lo = 0, hi = 1;
+                while (need(hi) < fillN && hi < 1e12) hi *= 2;
+                for (let it = 0; it < 80; it++) { const mid = 0.5 * (lo + hi); if (need(mid) <= fillN) lo = mid; else hi = mid; }
+                k = lo;
+            }
+        }
+        let used = 0;
+        for (const u of fillUnits) {
+            const x = Math.max(0, k * u.r - u.e);
+            u.n = Math.floor(x + 1e-9); u.rem = x - u.n; used += u.n * u.b;
+        }
+        for (const u of [...fillUnits].sort((p, q) => q.rem - p.rem)) {
+            if (u.rem > 1e-9 && used + u.b <= fillN) { u.n++; used += u.b; }
+        }
+    }
+    const fillMols  = fillUnits.filter(u => u.kind === 'mol' && u.n > 0)
+                               .map(u => Object.assign(u, { placed: 0, full: false }));
+    const monoUnits = fillUnits.filter(u => u.kind === 'mono');
+    // Molecules placed / target, lowest over all molecule species (1 = all met).
+    // Monomers are scaled by the same fraction so the ratio holds when space runs
+    // out (the "solvent" step: monomers follow the molecules).
+    let molFrac = 1;
+    // Monomers the ratios ask for when the molecules reach fraction f.
+    const monoNeedAt = f => monoUnits.reduce((acc, u) => acc + Math.round(u.n * f), 0);
 
-    const builtinW = speciesTable.slice(0, 4).reduce((s, sp) => s + sp.ratio, 0);
-    // Custom mol bead weight = ratio (molecule count) × beadsPerMol — same metric as built-ins
-    const customW  = customSpeciesActive.reduce((s, c) => s + (c.s.ratio ?? 0) * c.nBeads, 0);
-    const totalW   = (builtinW + customW) || 1;
+    // 2. Lattice sites (square or hex, `spacing` apart) — shared by molecule
+    //    anchors and monomers.  siteFree[k] = no bead within the overlap
+    //    distance (√minD2) of site k, kept up to date as beads are placed, so
+    //    freeSites is exactly the room left for monomers.  Sites are bucketed in
+    //    the Fill cell list's cells, so a bead only looks at the 3×3 cells round it.
+    let sites = [], siteFree = null, freeSites = 0;
+    const siteCells = new Map();
+    const _fcIdx = (px, py) => {
+        const ci = Math.min(fcNX - 1, Math.max(0, Math.floor(px / fcCell)));
+        const cj = Math.min(fcNY - 1, Math.max(0, Math.floor(py / fcCell)));
+        return cj * fcNX + ci;
+    };
+    function buildSites() {
+        const gridType = (document.getElementById('gridtype-select')?.value) || 'square';
+        // In both lattices `spacing` is the centre-to-centre nearest-neighbour distance:
+        //   square — axis-aligned; points at cell centres, dx = dy = spacing.
+        //   hex    — rows compressed to dy = spacing·√3/2, alternate rows shifted
+        //            by spacing/2, so all 6 neighbours sit exactly `spacing` away.
+        if (gridType === 'hex') {
+            const dy    = spacing * Math.sqrt(3) / 2;
+            let   nRows = Math.max(1, Math.floor(L / dy));
+            const nCols = Math.max(1, Math.floor(L / spacing));
+            // Periodic seam guard: if the wrapped gap between the top and bottom
+            // rows would be smaller than a row height, drop the last row (a wider
+            // seam is harmless; beads too close would spike the initial forces).
+            if (nRows > 1 && (L - nRows * dy) < dy * 0.5) nRows -= 1;
+            for (let r = 0; r < nRows; r++) {
+                const yc  = (r + 0.5) * dy;
+                const off = (r & 1) ? spacing * 0.5 : 0;
+                for (let cX = 0; cX < nCols; cX++)
+                    sites.push({ x: (((cX + 0.5) * spacing + off) % L + L) % L, y: yc });
+            }
+        } else {
+            for (let iy = 0; iy < ny; iy++)
+                for (let ix = 0; ix < nx; ix++)
+                    sites.push({ x: (ix + 0.5) * spacing, y: (iy + 0.5) * spacing });
+        }
+        siteFree = new Uint8Array(sites.length);
+        sites.forEach((p, k) => {
+            if (_fcClear(p.x, p.y)) { siteFree[k] = 1; freeSites++; }
+            const c = _fcIdx(p.x, p.y);
+            const arr = siteCells.get(c);
+            if (arr) arr.push(k); else siteCells.set(c, [k]);
+        });
+    }
+    // Add to `out` every still-free site that a bead at (px, py) would block.
+    function sitesBlockedBy(px, py, out) {
+        const ci = Math.floor(px / fcCell), cj = Math.floor(py / fcCell);
+        for (let dj = -1; dj <= 1; dj++) {
+            const cjj = ((cj + dj) % fcNY + fcNY) % fcNY;
+            for (let di = -1; di <= 1; di++) {
+                const cii = ((ci + di) % fcNX + fcNX) % fcNX;
+                const ks = siteCells.get(cjj * fcNX + cii);
+                if (!ks) continue;
+                for (const k of ks) {
+                    if (!siteFree[k]) continue;
+                    let dx = px - sites[k].x; if (dx >  h) dx -= L; if (dx < -h) dx += L;
+                    let dy = py - sites[k].y; if (dy >  h) dy -= L; if (dy < -h) dy += L;
+                    if (dx * dx + dy * dy < minD2) out.add(k);
+                }
+            }
+        }
+    }
+    function occupySites(set) { for (const k of set) { siteFree[k] = 0; freeSites--; } }
 
-    const customMolTargets = customSpeciesActive.map(c => ({
-        ...c,
-        // nMolsTarget: how many molecules fit in this species' bead budget share
-        nMolsTarget: Math.max(0, Math.floor(fillN * (c.s.ratio ?? 0) / totalW)),
-    }));
-    const customBeadTarget = customMolTargets.reduce((s, c) => s + c.nMolsTarget * c.nBeads, 0);
-    const adjustedFillN    = Math.max(0, fillN - customBeadTarget);
+    // 3. Molecules.  Always place next for the species furthest behind its target
+    //    (larger molecules first on ties).  A pose is accepted only if (a) it
+    //    overlaps nothing and (b) it leaves enough free sites for the monomers the
+    //    ratios then ask for — so poses that pack against what is already there
+    //    (blocking fewer fresh sites) win when room gets tight.  A species that
+    //    can't be placed any more is "full" at fraction f, and the others stop at
+    //    f too, so the molar ratio between molecule species is kept.
+    function placeCustomMols(newXY, newBonds, newAngles) {
+        if (!fillMols.length) return;
 
-    // ── Shared custom-molecule placement helper ───────────────────────────
-    // Runs single-attempt random placements for each target species.
-    // Mutates newXY / newBonds / newAngles in place.
-    function placeCustomMols(newXY, newBonds, newAngles, exOffset) {
-        for (const cm of customMolTargets) {
-            if (!cm.entry || cm.nMolsTarget === 0) continue;
+        // Anchors: free sites, shuffled, popped one per try (skipping sites taken
+        // since).  Rebuilt when the list runs dry — but only if something was
+        // placed since the last rebuild (otherwise there is no room left).
+        let anchors = [], ai = 0, placedSinceRenew = 1;
+        const renew = () => {
+            anchors = [];
+            for (let k = 0; k < sites.length; k++) if (siteFree[k]) anchors.push(k);
+            for (let i = anchors.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [anchors[i], anchors[j]] = [anchors[j], anchors[i]];
+            }
+            ai = 0; placedSinceRenew = 0;
+        };
+        const nextAnchor = () => {
+            for (;;) {
+                while (ai < anchors.length) {
+                    const k = anchors[ai++];
+                    if (siteFree[k]) return sites[k];
+                }
+                if (placedSinceRenew === 0) return null;
+                renew();
+            }
+        };
+
+        const tryPlace = (cm) => {
             const positions = cm.entry.positions || [{ x: 0, y: 0 }];
             const molDef    = cm.entry.molDef || { beadTypes: [], bonds: [], angles: [] };
             const nB        = positions.length;
-
-            for (let attempt = 0; attempt < cm.nMolsTarget; attempt++) {
-                const tx   = Math.random() * L;
-                const ty   = Math.random() * L;
+            // Monomers needed once this molecule is in (fraction after placing it).
+            const fAfter = Math.min(...fillMols.map(m => (m.placed + (m === cm ? 1 : 0)) / m.n));
+            const monoNeed = monoNeedAt(fAfter);
+            for (let attempt = 0; attempt < FILL_TRIES_PER_MOL; attempt++) {
+                const anc = nextAnchor();
+                if (!anc) return false;
+                // Jitter within the site so molecules don't sit on the lattice.
+                const tx   = anc.x + (Math.random() - 0.5) * spacing;
+                const ty   = anc.y + (Math.random() - 0.5) * spacing;
                 const rot  = Math.random() * 6.28318;
                 const cosR = Math.cos(rot), sinR = Math.sin(rot);
-                const beadPos = positions.map(p => ({
-                    x: ((tx + p.x * cosR - p.y * sinR) % L + L) % L,
-                    y: ((ty + p.x * sinR + p.y * cosR) % L + L) % L,
-                }));
+                // Under gravity y is not periodic (floor at 0, ceiling at L): a
+                // molecule must not wrap across it, or it would be split between
+                // the bottom and the top.  Keep every bead half a spacing inside,
+                // like the lattice rows.
+                const beadPos = positions.map(p => {
+                    const y = ty + p.x * sinR + p.y * cosR;
+                    return { x: ((tx + p.x * cosR - p.y * sinR) % L + L) % L,
+                             y: fillGrav ? y : (y % L + L) % L };
+                });
                 let ok = true;
                 for (const bp of beadPos) {
+                    if (fillGrav && (bp.y < 0.5 * spacing || bp.y > L - 0.5 * spacing)) { ok = false; break; }
                     if (!_fcClear(bp.x, bp.y)) { ok = false; break; }
                 }
                 if (!ok) continue;
+                // Room for the monomers?
+                const blocked = new Set();
+                for (const bp of beadPos) sitesBlockedBy(bp.x, bp.y, blocked);
+                if (freeSites - blocked.size < monoNeed) continue;
 
                 const base = newXY.length;
                 for (let b = 0; b < nB; b++) {
@@ -14452,6 +14626,7 @@ async function performFill() {
                                  molId: cm.entry.molId ?? 0xFFFFFFFF });
                     _fcAdd(beadPos[b].x, beadPos[b].y);
                 }
+                occupySites(blocked);
                 for (const bond of (molDef.bonds || [])) {
                     // Rest length from the molecule's own local template geometry
                     // (positions[i]/positions[j] before rotation/translation), NOT
@@ -14469,8 +14644,28 @@ async function performFill() {
                 for (const ang of (molDef.angles || []))
                     newAngles.push({ i: base + ang.i, j: base + ang.j, k: base + ang.k,
                                      kAngle: ang.kAngle, theta0: ang.theta0 });
+                placedSinceRenew++;
+                return true;
             }
+            return false;
+        };
+
+        renew(); placedSinceRenew = 0;
+        for (;;) {
+            const fullFr = fillMols.filter(m => m.full).map(m => m.placed / m.n);
+            const cap = fullFr.length ? Math.min(...fullFr) : 1;
+            let pick = null, pickF = Infinity;
+            for (const m of fillMols) {
+                if (m.full || m.placed >= m.n) continue;
+                const f = m.placed / m.n;
+                if (f >= cap) continue;                       // keep the molar ratio
+                if (f < pickF - 1e-12 || (Math.abs(f - pickF) <= 1e-12 && m.b > pick.b)) { pick = m; pickF = f; }
+            }
+            if (!pick) break;
+            if (tryPlace(pick)) pick.placed++;
+            else pick.full = true;
         }
+        molFrac = Math.min(...fillMols.map(m => m.placed / m.n));
     }
 
     // ── Shared particle-array append helper ──────────────────────────────
@@ -14584,115 +14779,54 @@ async function performFill() {
     const newBonds  = [];
     const newAngles = [];
 
-    // ── Step 3: custom molecules first (largest first, already sorted) ────
+    // ── Step 3: lattice sites, then molecules (see placeCustomMols) ───────
+    buildSites();
     placeCustomMols(newXY, newBonds, newAngles);
 
-    // ── Step 4: single beads (monomers) on the spacing grid ──────────────
-    // Polymers are gone; monomers fill their ratio-share of the bead budget.
-    // N is an upper limit — leftover budget that doesn't tile cleanly is left
-    // unplaced (we never pad the box with stray beads).
-    //
-    // Two lattices are supported (Grid type selector). In BOTH, `spacing` is the
-    // centre-to-centre nearest-neighbour distance:
-    //   square — axis-aligned; candidate points at cell centres, dx = dy = spacing.
-    //   hex    — rows compressed to dy = spacing·√3/2 and alternate rows shifted
-    //            by spacing/2 in x, so each point has 6 neighbours all exactly
-    //            `spacing` away (close-packed triangular lattice).
+    // ── Step 4: single beads (monomers) on the free lattice sites ─────────
+    // Counts per type: their targets × molFrac (the fraction of the molecule
+    // targets that could be placed), so the molar ratio between monomers and
+    // molecules holds.  The molecules already left exactly that much room (see
+    // tryPlace), so these normally all fit.  N is an upper limit: nothing pads.
     {
-        // Monomer bead budget = the monomer species' ratio share of the built-in
-        // budget. builtinW is the sum of monomer ratios (computed above).
-        const monoW    = speciesTable.slice(0, 4).reduce((s, sp) => s + (sp.ratio ?? 0), 0);
-        const nSingles = builtinW > 0 ? Math.floor(adjustedFillN * monoW / builtinW) : 0;
-
-        const gridType = (document.getElementById('gridtype-select')?.value) || 'square';
-
-        // Build the list of candidate lattice points {x,y} for the chosen grid.
-        // Points are wrapped into [0,L). For the SQUARE lattice we keep a coarse
-        // "occupied" set (indexed on the square cell a point falls in) seeded from
-        // existing + custom-mol beads, so monomers avoid taken cells — the
-        // original fast dedup. The HEX lattice does NOT use this cell dedup:
-        // several hex points can map into one square cell (rows are offset and
-        // compressed), so cell-dedup would wrongly reject valid hex sites. Hex
-        // relies solely on the exact _fcClear distance test below, which already
-        // enforces the real minimum-separation rule.
-        const useCellDedup = (gridType !== 'hex');
-        const occupied = new Set();
-        const occKey = (x, y) => {
-            const ix = Math.min(nx-1, Math.max(0, Math.floor(x / spacing)));
-            const iy = Math.min(ny-1, Math.max(0, Math.floor(y / spacing)));
-            return ix * ny + iy;
-        };
-        if (useCellDedup) {
-            for (let i = 0; i < exN; i++)   occupied.add(occKey(snapX[i], snapY[i]));
-            for (const p of newXY)          occupied.add(occKey(p.x, p.y));
+        const monoCnt = [0, 0, 0, 0], monoPlaced = [0, 0, 0, 0];
+        for (const u of monoUnits) monoCnt[u.t] += Math.round(u.n * molFrac);
+        const sTypes = [];
+        for (let ty = 0; ty < 4; ty++) for (let k = 0; k < monoCnt[ty]; k++) sTypes.push(ty);
+        for (let i = sTypes.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [sTypes[i], sTypes[j]] = [sTypes[j], sTypes[i]];
         }
-
-        const candidates = [];
-        if (gridType === 'hex') {
-            const dy    = spacing * Math.sqrt(3) / 2;      // compressed row height
-            let   nRows = Math.max(1, Math.floor(L / dy));
-            const nCols = Math.max(1, Math.floor(L / spacing));
-            // Periodic seam guard: the box height L is generally not an exact
-            // multiple of dy, so the top row wraps to sit some distance from
-            // row 0. If that wrapped vertical gap is smaller than the row height
-            // (i.e. the leftover L - nRows·dy is too small), the top and bottom
-            // rows would end up closer than `spacing`. Drop the last row in that
-            // case: a slightly wider seam gap is harmless (MD closes it in a step)
-            // whereas beads placed too close would spike the initial forces.
-            if (nRows > 1 && (L - nRows * dy) < dy * 0.5) nRows -= 1;
-            for (let r = 0; r < nRows; r++) {
-                const yc  = (r + 0.5) * dy;
-                const off = (r & 1) ? spacing * 0.5 : 0;   // stagger odd rows
-                for (let cX = 0; cX < nCols; cX++) {
-                    // Wrap x so the half-spacing offset on odd rows doesn't spill
-                    // past L; keeps the lattice periodic-consistent with the box.
-                    const xc = (((cX + 0.5) * spacing + off) % L + L) % L;
-                    candidates.push({ x: xc, y: yc });
-                }
+        if (sTypes.length) {
+            // Free sites in random order, so the placed subset is spatially uniform.
+            const free = [];
+            for (let k = 0; k < sites.length; k++) if (siteFree[k]) free.push(k);
+            for (let i = free.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [free[i], free[j]] = [free[j], free[i]];
             }
-        } else {
-            // Square lattice — cell centres, exactly as before.
-            for (let iy = 0; iy < ny; iy++)
-                for (let ix = 0; ix < nx; ix++)
-                    candidates.push({ x: (ix + 0.5) * spacing, y: (iy + 0.5) * spacing });
-        }
-
-        // Single beads
-        if (nSingles > 0) {
-            const srat = cpuSim.ratios || [0.25,0.25,0.25,0.25];
-            const rsum = srat.reduce((a,b) => a+b, 0) || 1;
-            const norm = srat.map(r => r/rsum);
-            const cnt  = norm.map(r => Math.floor(r * nSingles));
-            let assigned = cnt.reduce((a,b)=>a+b,0), iFix=0;
-            while (assigned < nSingles) { cnt[iFix++ %4]++; assigned++; }
-            const sTypes = [];
-            for (let t=0;t<4;t++) for (let k=0;k<cnt[t];k++) sTypes.push(t);
-            for (let i=sTypes.length-1;i>0;i--) {
-                const j=Math.floor(Math.random()*(i+1));
-                [sTypes[i],sTypes[j]]=[sTypes[j],sTypes[i]];
-            }
-
-            // Drop candidates whose square cell is already occupied (square
-            // lattice only), then shuffle so the placed subset is spatially
-            // uniform rather than row-ordered.
-            const freeCells = useCellDedup
-                ? candidates.filter(p => !occupied.has(occKey(p.x, p.y)))
-                : candidates.slice();
-            for (let i=freeCells.length-1;i>0;i--) {
-                const j=Math.floor(Math.random()*(i+1));
-                [freeCells[i],freeCells[j]]=[freeCells[j],freeCells[i]];
-            }
-            let tIdx=0;
-            for (const cell of freeCells) {
+            let tIdx = 0;
+            for (const k of free) {
                 if (tIdx >= sTypes.length) break;
-                const bx=cell.x, by=cell.y;
-                if (!_fcClear(bx, by)) continue;
+                const bx = sites[k].x, by = sites[k].y;
+                if (!_fcClear(bx, by)) continue;          // safety: free flags are exact
+                monoPlaced[sTypes[tIdx]]++;
                 newXY.push({ x: bx, y: by, type: sTypes[tIdx++], molId: 0xFFFFFFFF });
-                if (useCellDedup) occupied.add(occKey(bx, by));
                 _fcAdd(bx, by);
+                siteFree[k] = 0; freeSites--;
             }
         }
-    }   // end Step 4 (monomer grid placement)
+
+        // Fill summary (Bentopy-style): target vs placed per species.  Kept on
+        // window for inspection / benchmarks; printed to the console.
+        const rows = fillUnits.map(u => ({
+            species: u.name, beads: u.b, inBox: u.e, target: u.n,
+            placed: u.kind === 'mol' ? (u.placed ?? 0) : monoPlaced[u.t] }));
+        window._lastFillSummary = { N: fillN, scope: fillScope, molFrac, freeSitesLeft: freeSites, rows,
+            beadsPlaced: rows.reduce((a, r) => a + r.placed * r.beads, 0) };
+        if (rows.length) console.info('[fill] N=' + fillN + ' (ratios over ' + (fillScope === 'box' ? 'whole box' : 'this fill') +
+                                      '), molecules at ' + (100 * molFrac).toFixed(1) + '% of target', rows);
+    }   // end Step 4 (monomer placement)
 
     // ── Step 5: append all new particles and rebuild simulation state ─────
     appendNewParticles(baseN, newXY, newBonds, newAngles);
