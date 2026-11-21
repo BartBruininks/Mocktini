@@ -2473,7 +2473,7 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
     </div>
 </div>
 
-<footer id="footer">Mocktini v1.24.5 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license · <a href="https://github.com/BartBruininks/Mocktini">GitHub</a></footer>
+<footer id="footer">Mocktini v1.24.6 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license · <a href="https://github.com/BartBruininks/Mocktini">GitHub</a></footer>
 
 <script>
 'use strict';
@@ -2653,9 +2653,9 @@ function _applyDefaults() {
     _syncSliders();
 }
 _applyDefaults();
-const MOCKTINI_VERSION = '1.24.5';
+const MOCKTINI_VERSION = '1.24.6';
 // ════════════════════════════════════════════════════════════════════════════
-//  Mocktini - 2D Molecular Dynamics  —  v1.24.5
+//  Mocktini - 2D Molecular Dynamics  —  v1.24.6
 // ════════════════════════════════════════════════════════════════════════════
 //
 //  OVERVIEW
@@ -2768,6 +2768,11 @@ const MOCKTINI_VERSION = '1.24.5';
 //    paused (checked v1.24.2).  bondParamTable is ONE array shared by both
 //    engines; a GPU reaction may overwrite a slot that only cpuSim's stale copy
 //    still references — harmless under the rule above.
+//  • stopLoop() returns only after the GPU frame in flight has finished
+//    (_gpuFrameInFlight, v1.24.6).  Every edit path stops first, so no edit can
+//    re-create a GPU buffer while a frame still awaits a readback on it.  Map
+//    readback buffers through gpuSim._mapRead (all-or-nothing, recovers a buffer
+//    left mapped).  A frame that throws stops the run visibly (console error).
 //  • SYSTEM edits vs RUN parameters (v1.13.12).
 //    A SYSTEM edit changes what the simulated system IS: the particle set and
 //    positions, topology (bonds, angles, exclusions) and their parameters, and
@@ -8212,8 +8217,16 @@ class MD2D_WebGPU {
     async _submitAndReadStats(encoder, wgN, label = 'stats') {
         const info = this._encodeStats(encoder, wgN, label);
         this.device.queue.submit([encoder.finish()]);
-        await this.reductionReadback.mapAsync(GPUMapMode.READ);
+        await this._mapRead(this.reductionReadback);
         this._parseStats(info);
+    }
+    // Map readback buffers for reading, all-or-nothing: a buffer left mapped by an
+    // earlier failure is unmapped first (else submit/mapAsync fail forever after),
+    // and if any map fails the others are unmapped before the error goes on.
+    async _mapRead(...bufs) {
+        for (const b of bufs) if (b.mapState === 'mapped') b.unmap();
+        try { await Promise.all(bufs.map(b => b.mapAsync(GPUMapMode.READ))); }
+        catch (e) { for (const b of bufs) if (b.mapState === 'mapped') b.unmap(); throw e; }
     }
     // Stats reduction passes + copies into reductionReadback (no submit).  Split
     // out (v1.24.4) so a reaction check can read the stats AND its event list
@@ -8638,8 +8651,7 @@ class MD2D_WebGPU {
         enc.copyBufferToBuffer(this._rxOutBuffer, 0, this._rxReadback, 0, 16 + CAP * 16);
         dev.queue.submit([enc.finish()]);
         const tSub = P ? now() : 0;
-        await Promise.all([this._rxReadback.mapAsync(GPUMapMode.READ),
-                           this.reductionReadback.mapAsync(GPUMapMode.READ)]);
+        await this._mapRead(this._rxReadback, this.reductionReadback);
         const tMap = P ? now() : 0;
         this._parseStats(sInfo);   // PE before = this.potentialEnergy, at these positions
         const raw = new Uint32Array(this._rxReadback.getMappedRange().slice(0));
@@ -8694,6 +8706,10 @@ class MD2D_WebGPU {
             peBuf.unmap();
             this.rxEnergy = (this.rxEnergy || 0) + (pe + bg - PE0);
             this._rxPeFree.push(peBuf);
+        }, () => {
+            // Map failed (device lost / buffer gone): drop this energy-after value
+            // and the buffer rather than reusing a buffer in an unknown state.
+            if (peBuf.mapState === 'mapped') peBuf.unmap();
         });
         this._rxPending.push(done);
         if (P) { P.upload += tU - tA; P.recompute += now() - tU; P.evChecks++;
@@ -8794,7 +8810,7 @@ class MD2D_WebGPU {
         encoder.copyBufferToBuffer(this.particleBuffer, 0, this.readbackBuffer, 0, this.N * 32);
         this.device.queue.submit([encoder.finish()]);
 
-        await this.readbackBuffer.mapAsync(GPUMapMode.READ);
+        await this._mapRead(this.readbackBuffer);
         const array = new Float32Array(this.readbackBuffer.getMappedRange());
         for (let i = 0; i < this.N; i++) {
             this.x[i]    = array[i*8 + 0]; this.y[i]  = array[i*8 + 1];
@@ -17064,11 +17080,19 @@ stateFileInput.addEventListener('change', e => {
     e.target.value = '';
 });
 
+// The GPU frame currently in flight (sim.step's promise), or null.  stopLoop
+// waits for it: a frame awaits several readbacks (stats, reaction checks), and an
+// edit right after Stop (Fill, Load, Clear, …) re-creates GPU buffers — destroying
+// a buffer whose mapAsync is still pending aborts that frame halfway and leaves
+// buffers mapped, after which every later run fails (v1.24.6).
+let _gpuFrameInFlight = null;
+
 async function stopLoop() {
     const wasRunning = running;
     running = false;
     if (wasRunning) _statsRecPaused();
     if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
+    if (_gpuFrameInFlight) { try { await _gpuFrameInFlight; } catch (e) { /* reported by loop() */ } }
     btnRun.textContent = 'Run'; btnRun.classList.remove('btn-danger');
     document.querySelector('.sc-tabs')?.classList.remove('tabs-running');
     // Sync GPU → CPU before restoring the previous mode.  Without this, any
@@ -17167,7 +17191,18 @@ async function startLoop() {
             draw(sim, colorSpd, radius);
             if (_pOn) _tRend = performance.now();
         } else {
-            await sim.step(spf, thOn ? { enabled: true, interval: thInt } : null);
+            // Track the frame so stopLoop can wait for it (see _gpuFrameInFlight).
+            // A frame that fails stops the run visibly instead of dying silently.
+            const fr = _gpuFrameInFlight = sim.step(spf, thOn ? { enabled: true, interval: thInt } : null);
+            try { await fr; }
+            catch (e) {
+                console.error('[run] GPU frame failed — run stopped:', e);
+                if (_gpuFrameInFlight === fr) _gpuFrameInFlight = null;
+                if (running) stopLoop();
+                return;
+            }
+            if (_gpuFrameInFlight === fr) _gpuFrameInFlight = null;
+            if (!running) return;   // stopped during the frame: stopLoop takes over
             if (_pOn) _tPhys = performance.now();
             sim.renderGPU(colorSpd, radius);
             if (_pOn) { _tRend = performance.now(); sim.profFrameEnd(); }
