@@ -47,6 +47,8 @@
     "p":      "Instantaneous pressure from the virial: P = (KE + ½·Σ r_ij·F_ij) / L², with the pair, electrostatic, bond and pin forces (angles add no virial). Fluctuates strongly — use ⟨P⟩. With gravity on it is the same virial pressure: the average over the whole box, including any empty space (wall and gravity forces are not counted).",
     "pAvg":   "Mean of P over the last 100 drawn frames while the simulation runs (fewer right after a reset). Emptied when T set, N, L, gravity or the engine changes. Click to empty it.",
     "n":      "Number of beads in the box.",
+    "rx":     "Reactions: bonds made and broken since Clear / Load (shown when reaction rules exist).",
+    "eRx":    "Energy (in ε) the reactions put into the system, per bead, summed since Clear / Load: the jump in potential energy at each bonding / breaking (bond energy appears or disappears, and the pair interaction is switched off or on). Positive = the system gained energy (it warms up); negative = it lost energy. Without a thermostat, E tot / N drifts by this amount.",
     "q":      "Net charge Σq of the box: green = neutral, red = net charge present. DSF assumes a neutral box; PME handles net charge with a uniform neutralizing background.",
     "ms":     "Wall-clock time to compute and draw one frame (all the steps of that frame).",
     "dt":     "Current timestep. Orange while the dt ramp eases it up toward the set dt.",
@@ -119,7 +121,8 @@
       "type":   "Colour by bead type — the four type colours (click a type dot to change one).",
       "mol":    "Molecule: each molecule / assembly in its own colour; free beads keep their type colour.",
       "vel":    "Velocity: speed heat map — blue = slow, light grey = mean, red = fast. The scale width is Vel. range ±σ. Frozen beads are black.",
-      "charge": "Charge map: blue = negative, yellow = neutral, red = positive (saturates at |q| = 2)."
+      "charge": "Charge map: blue = negative, yellow = neutral, red = positive (saturates at |q| = 2).",
+      "react":  "Reactive tag: dark grey = 0 (not reactive); every other tag its own colour (1 red, 2 blue, 3 green, …)."
     },
     "velRange":      "Width of the velocity colour scale, in standard deviations of the mobile bead speeds: full blue at mean − k·σ, full red at mean + k·σ. Smaller = more contrast between similar speeds.",
     "radius":        "Drawn bead radius, as a fraction of each type’s σ. Display only.",
@@ -184,6 +187,20 @@
     },
     "setRegion": "Click, then drag a rectangle on the canvas. A running simulation pauses and the mode goes to Idle; click again to cancel.",
     "remove":    "Remove this booster."
+  },
+
+  "react": {
+    "header": "Reactions: beads with a reactive tag (set per bead, 0 = not reactive) bond and unbond by tag pair while the simulation runs. Works on CPU and GPU.",
+    "add":    "Add a reaction rule (up to {reactRuleMax}).",
+    "every":  "How often reactions are checked, in integration steps. Together with r form this sets how fast bonds form: a pair only reacts if it is close enough on a check step. Independent of Steps / frame.",
+    "rule":   "One reaction rule: a tag-A bead and a tag-B bead bond when closer than r form, and their bond breaks when longer than r break. Each bead holds at most one bond per rule (valence 1). Order of A and B doesn’t matter.",
+    "on":     "Switch this reaction on or off.",
+    "tags":   "The two reactive tags (1–{reactTagMax}) this rule joins. A = B is allowed (e.g. 1 + 1 dimerises). One rule per tag pair.",
+    "dist":   "r form (in σ): bond when closer than this (≤ r_cut). r break (in σ): the bond breaks when longer than this. r form must be smaller than r break, or a new bond would break at once.",
+    "bond":   "Rest length r₀ (in σ) and force constant k (in ε/σ²) of a bond made by this rule.",
+    "overflow": "More events in one check than the GPU event list holds ({cap}); the rest are handled at the next check. Reactions still run, just a little later for some pairs. A larger Check every interval or fewer reactive beads avoids it.",
+    "inactive": "Inactive: r form is larger than r_cut. Raise r_cut or lower r form.",
+    "remove": "Remove this reaction rule."
   },
 
   "elec": {
@@ -265,6 +282,7 @@
   "bead": {
     "type":   "Bead type (1–4) of the selected beads; – = mixed. Enter a type to apply it to all.",
     "charge": "Charge q of the selected beads; – = mixed. Enter applies it to all.",
+    "react":  "Reactive tag (0–{reactTagMax}) of the selected beads; – = mixed. 0 = not reactive. Reactions bond and unbond beads by tag pair. Enter applies it to all.",
     "state": {
       "_":      "Mobility of the selected beads (none highlighted = mixed)",
       "mobile": "Mobile: normal dynamics.",
@@ -351,6 +369,7 @@
     },
     "type":   "Type (1–4) of the beads you draw.",
     "charge": "Charge of the beads you draw.",
+    "react":  "Reactive tag (0–{reactTagMax}) of the beads you draw. 0 = not reactive.",
     "state": {
       "_":      "Mobility of the beads you draw",
       "mobile": "Mobile: normal dynamics.",
@@ -417,7 +436,7 @@
   },
 
   "rendering": {
-    "colormode-select": { "label": "Colour mode",     "value": "type", "options": ["type", "mol", "vel", "charge"] },
+    "colormode-select": { "label": "Colour mode",     "value": "type", "options": ["type", "mol", "vel", "charge", "react"] },
     "velrange-n":       { "label": "Vel. range ±σ",   "value": 2.5,  "slider": [0.25, 4, 0.25],  "step": 0.25, "min": 0.1, "max": 10, "showIf": { "colormode-select": "vel" } },
     "pr-n":             { "label": "Particle radius", "value": 0.45, "slider": [0.05, 1.5, 0.05], "step": 0.05, "gt": 0 },
     "boxgrid-check":    { "label": "Box grid",        "value": true, "tier": "advanced" },
@@ -442,6 +461,16 @@
   "gravity": {
     "gravity-cb": { "label": "Enable gravity", "value": false },
     "gravity-n":  { "label": "g (accel.)",     "value": 0.0005, "slider": [0, 0.01, 0.0005], "step": 0.0005, "min": 0, "showIf": { "gravity-cb": true } }
+  },
+
+  "reactions": {
+    "react-every-n": { "label": "Check every",   "value": 20,  "slider": [1, 1000, 1], "int": true, "min": 1, "tier": "advanced", "showIf": { "react-has-rules": true } },
+    "react-has-rules": { "label": "Reaction rules exist (derived, not user-set)", "value": false },
+    "reactRuleTag":  { "label": "Reaction tag",  "value": 1,   "int": true, "min": 1 },
+    "reactRf":       { "label": "r form",        "value": 1.0, "step": 0.05, "gt": 0 },
+    "reactRd":       { "label": "r break",       "value": 1.3, "step": 0.05, "gt": 0 },
+    "reactR0":       { "label": "Reaction bond r₀", "value": 1.0, "step": 0.05, "gt": 0 },
+    "reactK":        { "label": "Reaction bond k",  "value": 100, "step": 1,   "min": 0 }
   },
 
   "electrostatics": {
@@ -493,6 +522,8 @@
   "drawPencil": {
     "dw-type":        { "label": "Type of drawn beads (1–4)", "value": 1, "int": true, "min": 1, "max": 4 },
     "dw-charge":      { "label": "Charge of drawn beads",     "value": 0, "step": 0.1 },
+    "dw-react":       { "label": "Reactive tag of drawn beads", "value": 0, "int": true, "min": 0 },
+    "reactTag":       { "label": "Reactive tag",              "value": 0, "int": true, "min": 0, "max": 255 },
     "dw-kpin":        { "label": "Pin k of drawn beads",      "value": 100, "step": 1, "gt": 0 },
     "dw-spacing":     { "label": "Spacing",                   "value": 1.2, "step": 0.1, "min": 0.1 },
     "dw-radius":      { "label": "Erase r",                   "value": 3,   "step": 0.5, "min": 0.5 },
@@ -1542,6 +1573,8 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
 }
 .booster-item .seg-toggle button + button { border-left: 1px solid var(--blue-pale); }
 .booster-item .seg-toggle button.active { background: var(--blue); color: #fff; }
+.react-item .rx-tag { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.35); vertical-align: middle; }
+.react-item.rx-inactive { opacity: 0.6; }
 /* hide spinners on inspect inputs */
 .inspect-input::-webkit-inner-spin-button,
 .inspect-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
@@ -1631,6 +1664,14 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
                 <span class="stat-key">Σq</span>
                 <span class="stat-val" id="s-Q">0</span>
             </div>
+            <div class="stat-item" data-tip="stats.rx" id="s-rx-item" style="display:none">
+                <span class="stat-key">Bonds made / broken</span>
+                <span class="stat-val" id="s-rx">0 / 0</span>
+            </div>
+            <div class="stat-item" data-tip="stats.eRx" id="s-erx-item" style="display:none">
+                <span class="stat-key">E rx / N</span>
+                <span class="stat-val" id="s-erx">0</span>
+            </div>
             <div class="stat-item" data-tip="stats.ms">
                 <span class="stat-key">ms / frame</span>
                 <span class="stat-val" id="s-ms">—</span>
@@ -1709,6 +1750,9 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
                 <span class="stat-key">Q</span>
                 <span class="ib-type-swatch" id="ip-qswatch"></span>
                 <input type="number" class="inspect-input" id="ip-charge" step="0.1" data-tip="bead.charge">
+                <span class="stat-key">Tag</span>
+                <span class="ib-type-swatch" id="ip-rswatch"></span>
+                <input type="number" class="inspect-input" id="ip-react" data-def="reactTag" step="1" style="width:48px" data-tip="bead.react">
                 <span class="stat-key">State</span>
                 <span class="seg-toggle" id="ip-state-toggle" data-tip="bead.state">
                     <button id="ip-state-mobile" data-state="mobile" data-tip="bead.state.mobile">Mobile</button>
@@ -1745,6 +1789,9 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
                 <span class="stat-key">Q</span>
                 <span class="ib-type-swatch" id="dw-qswatch"></span>
                 <input type="number" class="inspect-input" id="dw-charge" data-tip="draw.charge">
+                <span class="stat-key">Tag</span>
+                <span class="ib-type-swatch" id="dw-rswatch"></span>
+                <input type="number" class="inspect-input" id="dw-react" step="1" style="width:48px" data-tip="draw.react">
                 <span class="stat-key">State</span>
                 <span class="seg-toggle" id="dw-state-toggle" data-tip="draw.state">
                     <button id="dw-state-mobile" data-dwstate="mobile" data-tip="draw.state.mobile">Mobile</button>
@@ -2027,12 +2074,14 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
                     <option value="mol"             >Molecule</option>
                     <option value="vel"             >Velocity</option>
                     <option value="charge"          >Charge</option>
+                    <option value="react"           >Tag</option>
                 </select>
                 <span class="seg-toggle seg-row seg-fit" data-for="colormode-select">
                     <button data-v="type" data-tip="render.colour.type">Type</button>
                     <button data-v="mol" data-tip="render.colour.mol">Mol</button>
                     <button data-v="vel" data-tip="render.colour.vel">Vel</button>
                     <button data-v="charge" data-tip="render.colour.charge">Charge</button>
+                    <button data-v="react" data-tip="render.colour.react">Tag</button>
                 </span>
             </div>
             <div class="control-row" id="velrange-row" data-tip="render.velRange">
@@ -2236,6 +2285,21 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
                 <button id="booster-add" data-tip="booster.add">+ Add booster</button>
             </div>
 
+            <div class="sub-header" data-tip="react.header">Reactions</div>
+            <input type="checkbox" id="react-has-rules" hidden>
+            <div data-tip="react.every" class="control-row">
+                <label>Check every</label>
+                <input type="range" id="react-every-s">
+                <input type="number" class="param-input" id="react-every-n">
+            </div>
+            <div id="react-list"></div>
+            <div class="control-row" id="react-overflow-warn" data-tip="react.overflow" style="display:none;background:rgba(255,107,107,0.15);border:1px solid var(--red,#ff6b6b);border-radius:4px;padding:5px 7px;">
+                <span class="stat-val" style="font-size:0.85em">GPU event list full — some reactions wait for the next check</span>
+            </div>
+            <div class="control-row">
+                <button id="react-add" data-tip="react.add">+ Add reaction</button>
+            </div>
+
             <div class="sub-header" data-tip="elec.header">Electrostatics</div>
             <div class="control-row" data-tip="elec.method">
                 <label>Method</label>
@@ -2409,7 +2473,7 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
     </div>
 </div>
 
-<footer id="footer">Mocktini v1.23.0 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license · <a href="https://github.com/BartBruininks/Mocktini">GitHub</a></footer>
+<footer id="footer">Mocktini v1.24.5 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license · <a href="https://github.com/BartBruininks/Mocktini">GitHub</a></footer>
 
 <script>
 'use strict';
@@ -2451,11 +2515,16 @@ const _TIPS = (() => {
     return flat;
 })();
 const _tipsUsed = new Set();
+// Values a tooltip may quote that live in code or in the defaults registry
+// ({name} placeholders).  Filled in as those values become known, after which
+// _applyTips() runs again — so a limit is stated in ONE place, never in the text.
+const _TIP_VARS = {};
 function tip(key, vars) {
     _tipsUsed.add(key);
     const s = _TIPS[key];
     if (s === undefined) { console.warn('[tips] missing key:', key); return ''; }
-    return vars ? s.replace(/\{(\w+)\}/g, (m, v) => (v in vars ? String(vars[v]) : m)) : s;
+    const all = vars ? { ..._TIP_VARS, ...vars } : _TIP_VARS;
+    return s.replace(/\{(\w+)\}/g, (m, v) => (v in all ? String(all[v]) : m));
 }
 // For tooltips inside HTML template strings: escaped for an attribute value.
 function tipAttr(key, vars) {
@@ -2527,8 +2596,14 @@ function _defValid(el, v) {
     if (s.gt  !== undefined && !(v > s.gt)) return false;
     if (s.lt  !== undefined && !(v < s.lt)) return false;
     const other = id => parseFloat(document.getElementById(id)?.value);
-    if (s.gtField && Number.isFinite(other(s.gtField)) && !(v > other(s.gtField))) return false;
-    if (s.ltField && Number.isFinite(other(s.ltField)) && !(v < other(s.ltField))) return false;
+    // Cross-field limits: the registry entry names the other field, or — for rows
+    // built in code, where one entry serves many rows — the element itself does
+    // (data-gt-field / data-lt-field / data-max-field, v1.24.2).  max = inclusive.
+    const gtF = el.dataset.gtField || s.gtField, ltF = el.dataset.ltField || s.ltField;
+    const maxF = el.dataset.maxField || s.maxField;
+    if (gtF && Number.isFinite(other(gtF)) && !(v > other(gtF))) return false;
+    if (ltF && Number.isFinite(other(ltF)) && !(v < other(ltF))) return false;
+    if (maxF && Number.isFinite(other(maxF)) && !(v <= other(maxF))) return false;
     return true;
 }
 function _sliderFor(n) {
@@ -2578,9 +2653,9 @@ function _applyDefaults() {
     _syncSliders();
 }
 _applyDefaults();
-const MOCKTINI_VERSION = '1.23.0';
+const MOCKTINI_VERSION = '1.24.5';
 // ════════════════════════════════════════════════════════════════════════════
-//  Mocktini - 2D Molecular Dynamics  —  v1.23.0
+//  Mocktini - 2D Molecular Dynamics  —  v1.24.5
 // ════════════════════════════════════════════════════════════════════════════
 //
 //  OVERVIEW
@@ -2630,8 +2705,10 @@ const MOCKTINI_VERSION = '1.23.0';
 //
 //  KNOWN CONTRACTS (must be maintained across edits)
 //  --------------------------------------------------
-//  • bondExclude keys are encoded as  min(i,j)*N + max(i,j).  N is baked in.
-//    Always call _rebuildExcl() before changing cpuSim.N.
+//  • Exclusions live ONLY in the CSR exclOffsets (length N+1) / exclList, each
+//    bead's slice sorted and duplicate-free; membership = _exclHas (CPU) /
+//    excl_contains (GPU), both binary searches.  The CSR is sized by N: always
+//    call _rebuildExcl() after a topology change and before changing cpuSim.N.
 //  • After gpuSim.uploadFromCPU(c), gpuSim's JS array fields (x/y/vx/vy/...)
 //    still point at its own arrays, NOT c's. Any caller that needs live position
 //    reads must re-point them at c — call _gpuAdoptCpuArrays(c), the single
@@ -2651,20 +2728,54 @@ const MOCKTINI_VERSION = '1.23.0';
 //    _selection.
 //  • charge is a per-bead instance property (Float32Array, parallel to type),
 //    NOT a per-type property.  It must be carried through every site that
-//    reindexes/grows the particle arrays (the 3 compaction blocks, ghost place,
-//    paste, appendNewParticles) exactly like type.  On the GPU it is packed —
-//    together with the pin state (refX,refY,kpin,frozen) — into
+//    reindexes/grows the particle arrays (the compaction in _compactByIndexSet,
+//    ghost place, paste, draw, appendNewParticles) exactly like type.  On the
+//    GPU it is packed — together with the pin state (refX,refY,kpin,frozen) — into
 //    the shared beadDataBuffer (2×vec4/bead; charge in the aux half), bound at
 //    compute binding 8 and render/bond binding 7.  This single buffer keeps the
 //    compute stage at the 8-storage-buffer per-stage floor.  It is NOT packed
 //    into the 8-float Particle struct, so readback offsets are unaffected.
 //    coulombK/coulombAlpha ride in the Params uniform (floats
 //    53/54) and flow live via updateParamsLive().
+//  • react (v1.24.0) is a per-bead reactive tag (Uint8Array 0..REACT_TAG_MAX,
+//    0 = not reactive), carried through the SAME sites as charge (grow, compaction,
+//    ghost place, paste/clipboard, draw, Fill, MolDef.beadReact, snapshot, state
+//    file particles.react).  gpuSim keeps its own copy (uploadFromCPU) so GPU→CPU
+//    sync doesn't zero it; on the GPU it rides in beadData aux .y (bd_react).
+//  • Reactions (v1.24.0): cpuSim.reactions + reactEvery are RUN parameters
+//    (snapshot params + state file, no checkpoint on edit).  _reactApply(s, …)
+//    is the ONE place a run changes topology (both engines call it: CPU via
+//    _reactCheck, GPU via _reactCheckGPU).  It ends with _rebuildExcl; the caller
+//    then recomputes the forces (the next VV half-kick needs fresh ones) and
+//    banks the exact ΔPE (PE after − PE before, same positions) in s.rxEnergy.
+//    Made bonds reuse unreferenced bondParamTable slots.
+//    GPU: the rxDetect kernel (own module) only lists events; uploadTopologyLive()
+//    refreshes the topology without touching the particle buffer;
+//    step() cuts its batches at multiples of M, so the check sees exact positions.
+//    ONE round trip per check (v1.24.4): the batch's stats pass and the detection
+//    kernel share a submission and a readback.  After a change, the force
+//    recompute is queued before the next steps; the energy-after is read back
+//    WITHOUT waiting and settled into s.rxEnergy by _rxSettle() at the end of
+//    step() — exact, just a moment later.  (GPU ΔPE is a difference of f32
+//    sums, so it carries f32 rounding the CPU's f64 ledger doesn't.)
+//    Limits: REACT_TAG_MAX comes from the registry (reactTag.max, ≤ 255 for the
+//    Uint8 tag); REACT_RULE_MAX is a layout constant (WGSL RxParams arrays and
+//    the per-bead u32 rule mask), so it lives in code; tooltips read both.
+//  • During a GPU run gpuSim OWNS the topology, as it owns the positions: after
+//    the first reaction gpuSim.bondI/bondJ/bondParamId are no longer cpuSim's
+//    arrays, and cpuSim's topology is stale until stopLoop → syncCPUfromGPU.
+//    Nothing may read cpuSim topology mid-run, and every uploadFromCPU site runs
+//    paused (checked v1.24.2).  bondParamTable is ONE array shared by both
+//    engines; a GPU reaction may overwrite a slot that only cpuSim's stale copy
+//    still references — harmless under the rule above.
 //  • SYSTEM edits vs RUN parameters (v1.13.12).
 //    A SYSTEM edit changes what the simulated system IS: the particle set and
 //    positions, topology (bonds, angles, exclusions) and their parameters, and
-//    per-bead properties (type, charge, mobility state, pin k and pin anchors),
-//    assemblies, and the box size.  Every system edit must:
+//    per-bead properties (type, charge, reactive tag, mobility state, pin k and
+//    pin anchors),
+//    assemblies, and the box size.  (During a RUN positions evolve — and, with
+//    reactions, topology too: that is dynamics, not an edit.  Undo reverts it
+//    with the positions, back to the last checkpoint.)  Every system edit must:
 //      1. run paused — call _prepareForEdit() first (stops the loop, syncs
 //         GPU → CPU);
 //      2. bank exactly ONE undo checkpoint (_checkpoint / _pushUndo) BEFORE it
@@ -2726,6 +2837,7 @@ const URL_PARAMS = [
     {id:'eps-sym-check',type:'checkbox'},
     {id:'thermo-cb',type:'checkbox'},{id:'gravity-cb',type:'checkbox'},
     {id:'gravity-n',type:'number'},
+    {id:'react-every-n',type:'number'},
     {id:'coulombK-n',type:'number'},
     {id:'coulombAlpha-n',type:'number'},
     {id:'coulomb-method',type:'string'},
@@ -2739,7 +2851,7 @@ const URL_PARAMS = [
     {id:'gridtype-select', type:'string'}, {id:'fillscope-select', type:'string'},
     {id:'selshape-mode', type:'string'},
     {id:'drawshape-mode', type:'string'},
-    {id:'dw-type', type:'number'}, {id:'dw-charge', type:'number'},
+    {id:'dw-type', type:'number'}, {id:'dw-charge', type:'number'}, {id:'dw-react', type:'number'},
     {id:'dw-kpin', type:'number'}, {id:'dw-spacing', type:'number'},
     {id:'dw-radius', type:'number'}, {id:'dw-clearpath', type:'checkbox'},
     {id:'tz-depth', type:'number'}, {id:'tz-waist', type:'number'},
@@ -3429,11 +3541,12 @@ function updateRealizedPcts() {
 class MolDef {
     constructor({ name = '', nBeads = 1, beadTypes = [],
                   bonds = [], angles = [], exclusions = [], beadCharges = [],
-                  beadKpin = [], beadFrozen = [], beadPinOff = [] } = {}) {
+                  beadKpin = [], beadFrozen = [], beadPinOff = [], beadReact = [] } = {}) {
         this.name       = name;
         this.nBeads     = nBeads;
         this.beadTypes  = beadTypes;
         this.beadCharges = beadCharges;   // per-bead charge, parallel to beadTypes (default [] → 0)
+        this.beadReact   = beadReact;     // per-bead reactive tag 0..255, parallel to beadTypes (default [] → 0)
         // Mobility state (parallel to beadTypes): kpin (0=mobile), frozen (0/1),
         // and the pin anchor's offset from the bead {dx,dy} so a placed copy keeps
         // the same spring stretch shape.  All default to unpinned/mobile.
@@ -3453,6 +3566,8 @@ class MolDef {
             // Omit when all-zero to keep files small; loader defaults missing → 0.
             beadCharges: (this.beadCharges && this.beadCharges.some(q => q !== 0))
                          ? Array.from(this.beadCharges) : undefined,
+            beadReact: (this.beadReact && this.beadReact.some(t => t))
+                       ? Array.from(this.beadReact) : undefined,
             // Mobility — omitted when everything is mobile/unpinned (common case).
             beadKpin: (this.beadKpin && this.beadKpin.some(k => k > 0))
                       ? Array.from(this.beadKpin) : undefined,
@@ -3479,6 +3594,7 @@ class MolDef {
             nBeads:    obj.nBeads ?? 1,
             beadTypes: obj.beadTypes ? [...obj.beadTypes] : [],
             beadCharges: obj.beadCharges ? [...obj.beadCharges] : [],
+            beadReact:   obj.beadReact   ? obj.beadReact.map(t => _clampReactTag(t)) : [],
             beadKpin:    obj.beadKpin   ? [...obj.beadKpin]   : [],
             beadFrozen:  obj.beadFrozen ? [...obj.beadFrozen] : [],
             beadPinOff:  obj.beadPinOff ? obj.beadPinOff.map(o => ({ dx: o?.dx ?? 0, dy: o?.dy ?? 0 })) : [],
@@ -3788,7 +3904,7 @@ function _syncRampUI() {
 function getColorMode() {
     return document.getElementById('colormode-select').value;
 }
-const COLOR_MODE_GPU = { type: 0.0, mol: 1.0, vel: 2.0, charge: 3.0 };
+const COLOR_MODE_GPU = { type: 0.0, mol: 1.0, vel: 2.0, charge: 3.0, react: 4.0 };
 
 // Velocity heatmap display policy.  The neutral point is the population mean
 // speed; the useful colour range extends symmetrically around that mean.
@@ -3819,6 +3935,25 @@ const VELOCITY_HEATMAP_MIN_ABSOLUTE_RANGE = 1e-6;
 //   VELOCITY_MAP: blue (slow) → grey (mean) → red (fast)
 const CHARGE_MAP   = { MID: [245, 217, 56], BLUE: [77, 115, 242], RED: [242, 77, 77] };
 const VELOCITY_MAP = { BLUE: [49, 104, 189], MID: [245, 245, 245], RED: [214, 64, 64] };
+//   (reaction limits, used by the shaders below — see the Reactions contract)
+//   REACT_TAG_MAX  the largest tag: the registry's reactTag.max, capped at 255
+//                  (tags are Uint8); the other tag fields (pencil, rule tags)
+//                  take their max from it.
+//   REACT_RULE_MAX rules at most: a LAYOUT constant (WGSL RxParams arrays, the
+//                  kernel's u32 per-bead rule mask), so it lives here, not in
+//                  the registry.  ≤ 32 because of that mask.
+//   REACT_MAP:    tag 0 → NONE (dark grey, not reactive); tag t ≥ 1 → hue stepped
+//                 by the golden ratio, h = fract((t−1)·STEP), at fixed SAT/VAL, so
+//                 neighbouring tags are always far apart (1 red, 2 blue, 3 green…).
+//                 Same float formula in JS and WGSL (reactColorWGSL).
+const REACT_MAP    = { NONE: [70, 70, 70], SAT: 0.7, VAL: 0.92, STEP: 0.6180339887 };
+const REACT_TAG_MAX  = Math.min(255, Math.max(1, ((_DEFS.reactTag && _DEFS.reactTag.max) | 0) || 255));
+const REACT_RULE_MAX = 16;
+if (_DEFS['dw-react'])  _DEFS['dw-react'].max  = REACT_TAG_MAX;
+if (_DEFS.reactRuleTag) _DEFS.reactRuleTag.max = REACT_TAG_MAX;
+const REACT_GPU_CAP  = 8192;   // events per GPU check (rxOut list); overflow → next check
+Object.assign(_TIP_VARS, { reactTagMax: REACT_TAG_MAX, reactRuleMax: REACT_RULE_MAX, cap: REACT_GPU_CAP });
+_applyTips();
 
 // Format a 0-255 RGB triple as a WGSL vec3<f32> literal (0-1 range), e.g.
 // [245,217,56] → "vec3<f32>(0.960784, 0.850980, 0.219608)".
@@ -3847,6 +3982,28 @@ const velocityColorWGSL = (ret) => `
     let RED  = ${wgslVec3(VELOCITY_MAP.RED)};
     if (t < 0.5) { ${ret('mix(BLUE, MID, t * 2.0)')} }
     ${ret('mix(MID, RED, (t - 0.5) * 2.0)')}`;
+
+// WGSL body shared by every reactive-tag colour helper; `t` is the tag (u32).
+const reactColorWGSL = (ret) => `
+    if (t == 0u) { ${ret(wgslVec3(REACT_MAP.NONE))} }
+    let h = fract(f32(t - 1u) * ${REACT_MAP.STEP.toFixed(10)});
+    let k = (vec3<f32>(5.0, 3.0, 1.0) + h * 6.0) % vec3<f32>(6.0);
+    let c = ${REACT_MAP.VAL.toFixed(6)} - ${(REACT_MAP.VAL * REACT_MAP.SAT).toFixed(6)} *
+            max(vec3<f32>(0.0), min(min(k, 4.0 - k), vec3<f32>(1.0)));
+    ${ret('c')}`;
+
+// CPU twin of reactColorWGSL (same HSV formula, rounded to 0-255).
+function reactColorRgb(t) {
+    t = t | 0;
+    if (t <= 0) return REACT_MAP.NONE.slice();
+    const x = (t - 1) * REACT_MAP.STEP, h = x - Math.floor(x);
+    const V = REACT_MAP.VAL, VS = REACT_MAP.VAL * REACT_MAP.SAT;
+    return [5, 3, 1].map(n => {
+        const k = (n + h * 6) % 6;
+        return Math.round(255 * (V - VS * Math.max(0, Math.min(k, 4 - k, 1))));
+    });
+}
+function reactColorCss(t) { const [r, g, b] = reactColorRgb(t); return `rgb(${r},${g},${b})`; }
 
 function velocityHeatmapColorCss(t) {
     t = Math.max(0, Math.min(1, t));
@@ -4464,6 +4621,18 @@ class MD2D_CPU {
     this._boostT  = NaN;
     this._boostTBox = [];
 
+    // ── Reactions (v1.24.0) ──
+    // reactions: up to REACT_RULE_MAX rules {a, b, rf, rd, r0, k, on} — tags a,b
+    //   (1..255, unordered pair, one rule per pair), form distance rf, break
+    //   distance rd (rf < rd), and the r0/k of a bond the rule makes.  A rule
+    //   with rf > rcCut is inactive (detection reuses the rc-sized cell list).
+    // reactEvery: check interval M in integration steps (independent of spf).
+    this.reactions  = [];
+    this.reactEvery = DEF('react-every-n');
+    // Reaction ledger (cumulative since Clear / Load): bonds formed / broken and
+    // the potential-energy jump the events caused (Σ ΔPE, see _reactCheck).
+    this.rxFormed = 0; this.rxBroken = 0; this.rxEnergy = 0;
+
     // Optical tweezers state (v1.21.1) — see "Optical tweezers — shared state".
     _tweezersInit(this);
 
@@ -4477,7 +4646,6 @@ class MD2D_CPU {
     this.bondJ         = null;
     this.bondParamId   = null;
     this.bondR0        = 0;
-    this.bondExclude   = null;
     this.bondParamTable  = [];
     this.angleParamTable = [];
     this.exclOffsets   = null;
@@ -4497,6 +4665,12 @@ class MD2D_CPU {
     // coulombAlpha : α, the DSF damping (inverse screening length, non-linear).
     //   Both default 1.0.  When all charges are 0 the NB loop skips the term.
     this.charge       = null;
+
+    // ── Reactive tag (v1.24.0) ──
+    // react: per-bead Uint8 tag 0..255, 0 = not reactive.  Instance property
+    //   like charge, carried through every grow/reindex site.  Reactions
+    //   (cpuSim.reactions) bond/unbond beads by tag pair; see the reaction step.
+    this.react        = null;
 
     // ── pin + frozen state (per-bead instance properties) ──
     // kpin : harmonic force constant tethering a bead to its reference point.
@@ -4580,6 +4754,7 @@ class MD2D_CPU {
         this.next = new Int32Array(N);
         this.type = new Int8Array(N);
         this.charge = new Float32Array(N);   // per-bead charge, default 0
+        this.react  = new Uint8Array(N);     // per-bead reactive tag, 0 = not reactive
         this.kpin   = new Float32Array(N);   // per-bead pin force constant, 0 = unpinned
         this.refX   = new Float32Array(N);   // per-bead pin anchor x (absolute)
         this.refY   = new Float32Array(N);   // per-bead pin anchor y (absolute)
@@ -4602,6 +4777,7 @@ class MD2D_CPU {
         this.vy     = new Float32Array(src.vy);
         this.type   = new Int8Array(src.type);
         this.charge = src.charge ? new Float32Array(src.charge) : new Float32Array(N);
+        this.react  = src.react  ? new Uint8Array(src.react)    : new Uint8Array(N);
         // Pin/frozen state.  Back-compat: a src without these (older snapshot or
         // sim) defaults kpin/frozen to 0 (unpinned, mobile) and the anchor to the
         // bead's own position, so a bead pinned later starts tethered where it is.
@@ -4638,6 +4814,7 @@ class MD2D_CPU {
         this._alloc(0);
         this.stepCount = 0;
         this.simTime   = 0;
+        this.rxFormed = 0; this.rxBroken = 0; this.rxEnergy = 0;
         this._setupCells();
         this.nBonds  = 0; this.nAngles = 0;
         this.bondI   = new Int32Array(1);  this.bondJ  = new Int32Array(1);
@@ -4647,7 +4824,6 @@ class MD2D_CPU {
         this.angleParamId = new Uint32Array(1);
         this.bondParamTable  = [];
         this.angleParamTable = [];
-        this.bondExclude     = new Set();
         this.molIdPerParticle = new Uint32Array(0);
         this.exclOffsets = new Uint32Array(1);
         this.exclList    = new Uint32Array(1);
@@ -4799,10 +4975,10 @@ class MD2D_CPU {
                                 const r2 = dx * dx + dy * dy;
                                 if (r2 >= rc2 || r2 < 1e-12) continue;
                                 // Exclusion test AFTER the cutoff gate: only in-range
-                                // pairs consult the set, mirroring the GPU reorder.
-                                // CONTRACT: key encodes N — valid only while N matches
-                                // the N used in _rebuildExcl(); rebuild before changing N.
-                                if (hasExI && this.bondExclude && this.bondExclude.has(i * this.N + j)) continue;
+                                // pairs consult the CSR, mirroring the GPU reorder.
+                                // Binary search of i's sorted slice (v1.24.2; was a Set
+                                // of i·N+j keys — ~2× slower force loop when bonded).
+                                if (hasExI && _exclHas(exO, this.exclList, i, j)) continue;
 
                                 const tj   = this.type[j];
                                 const sig2 = sigRow[tj];           // σ_mix²
@@ -4851,7 +5027,7 @@ class MD2D_CPU {
                                 pot += uPair;
 
                                 // ── DSF electrostatics (1/r, damped shifted force) ──
-                                // Reuses dx,dy,r2 and the same bondExclude skip above.
+                                // Reuses dx,dy,r2 and the same exclusion skip above.
                                 if (useCoul) {
                                     const qq = q[i] * q[j];
                                     if (qq !== 0) {
@@ -5386,6 +5562,10 @@ struct Particle {
 @group(0) @binding(8) var<storage, read> drawOrder:    array<u32>;
 fn bd_pin(i: u32)    -> vec4<f32> { return beadData[i * 2u]; }
 fn bd_charge(i: u32) -> f32       { return beadData[i * 2u + 1u].x; }
+fn bd_react(i: u32)  -> u32       { return u32(beadData[i * 2u + 1u].y + 0.5); }
+
+fn reactColor(t: u32) -> vec4<f32> {${reactColorWGSL(v => `return vec4<f32>(${v}, 1.0);`)}
+}
 
 // Diverging charge colour map: blue (−) → yellow (0) → red (+), clamped at ±3.
 // Body shared with the bond shader — see chargeColorWGSL / CHARGE_MAP.
@@ -5437,6 +5617,7 @@ fn vs_main(@builtin(vertex_index) idx: u32, @builtin(instance_index) slot: u32) 
         if (bd_pin(instance).w > 0.5) { finalColor = vec4<f32>(0.0, 0.0, 0.0, 1.0); }
         else { finalColor = velocityColor(length(p.vel), mean_speed, heatmap_half_range); }
     } else if (mode == 3u) { finalColor = chargeColor(bd_charge(instance));
+    } else if (mode == 4u) { finalColor = reactColor(bd_react(instance));
     } else                 { finalColor = typeColor(pType); }
 
     // Desaturate non-selected particles (selBuf < 0.5 means dimmed).
@@ -5545,6 +5726,9 @@ struct Particle {
 @group(0) @binding(6) var<storage, read> molPalette: array<vec4<f32>>; // 256 entries; indexed by molId
 @group(0) @binding(7) var<storage, read> beadData:   array<vec4<f32>>; // 2×vec4/bead; .[i*2+1].x = charge
 fn bd_charge(i: u32) -> f32 { return beadData[i * 2u + 1u].x; }
+fn bd_react(i: u32)  -> u32 { return u32(beadData[i * 2u + 1u].y + 0.5); }
+fn reactColor(t: u32) -> vec4<f32> {${reactColorWGSL(v => `return vec4<f32>(${v}, 1.0);`)}
+}
 
 fn chargeColor(q: f32) -> vec4<f32> {${chargeColorWGSL(v => `return vec4<f32>(${v}, 1.0);`)}
 }
@@ -5572,6 +5756,7 @@ fn particleColor(idx: u32) -> vec4<f32> {
         if (beadData[idx * 2u].w > 0.5) { col = vec4<f32>(0.0, 0.0, 0.0, 1.0); }   // frozen: black
         else { col = velocityColor(length(p.vel), bondRP.meanSpeed, bondRP.heatmapHalfRange); }
     } else if (bondRP.mode == 3u) { col = chargeColor(bd_charge(idx));
+    } else if (bondRP.mode == 4u) { col = reactColor(bd_react(idx));
     } else                        { col = typeColor(u32(p.pType)); }
     if (selBuf[idx] < 0.5) {
         let lum = dot(col.rgb, vec3<f32>(0.299, 0.587, 0.114));
@@ -5866,6 +6051,147 @@ fn pmeGather(@builtin(global_invocation_id) gid: vec3<u32>) {
     // share — here the mesh, self and exclusion parts; the real-space pairs do the
     // same in computeForces, and the host adds the background.
     reductionBuffer[pp.virBase + i].virial += pe;
+}
+`;
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Reactions on the GPU (v1.24.0) — candidate detection kernel
+// ════════════════════════════════════════════════════════════════════════════
+// Own module + auto layout (6 storage buffers), so the main compute layout stays
+// at its 8-storage-buffer floor.  One thread per bead with a tag in some active
+// rule.  It only FINDS events; the JS side (_reactApply) decides, exactly as on
+// the CPU, then refreshes the topology and recomputes the forces.
+//   kind 2 (break): a bond of i (i < partner) matching rule R, longer than r break.
+//   kind 1 (form):  pair i < j matching rule R, closer than r form, not frozen↔
+//                   frozen, not already bonded, and both slots in R free (a slot
+//                   is taken by a bond in R that stays, i.e. length ≤ r break).
+// Entries: vec4<u32>(kind << 16 | ruleSlot, i | bondIdx, j, bitcast(r²)).  The
+// rule slot indexes the ACTIVE-rule list sent in RxParams (tags.z = real index).
+// The grid is the one binned by the last step — valid, positions haven't moved.
+// RxParams byte size: 16-byte header + two vec4 arrays of REACT_RULE_MAX.
+const REACT_PARAMS_BYTES = 16 + 2 * 16 * REACT_RULE_MAX;
+const wgslReactCode = `
+${WGSL_PARAMS_STRUCT}
+@group(0) @binding(0) var<uniform> params: Params;
+struct Particle {
+    pos: vec2<f32>, vel: vec2<f32>, force: vec2<f32>, pe: f32, pType: f32,
+}
+@group(0) @binding(1) var<storage, read> particles:    array<Particle>;
+@group(0) @binding(2) var<storage, read> gridCounters: array<u32>;
+@group(0) @binding(3) var<storage, read> gridCells:    array<u32>;
+@group(0) @binding(4) var<storage, read> beadData:     array<vec4<f32>>;
+@group(0) @binding(5) var<storage, read> topoBuffer:   array<u32>;
+struct RxParams {
+    nRules: u32, cap: u32, offBondCSR: u32, offBondOff: u32,
+    tags: array<vec4<u32>, ${REACT_RULE_MAX}>,   // a, b, real rule index, 0
+    dist: array<vec4<f32>, ${REACT_RULE_MAX}>,   // r form², r break², 0, 0
+}
+@group(0) @binding(6) var<uniform> rx: RxParams;
+struct RxOut { count: atomic<u32>, _p0: u32, _p1: u32, _p2: u32, e: array<vec4<u32>>, }
+@group(0) @binding(7) var<storage, read_write> rxOut: RxOut;
+
+fn rx_frozen(i: u32) -> bool { return beadData[i * 2u].w > 0.5; }
+fn rx_tag(i: u32)    -> u32  { return u32(beadData[i * 2u + 1u].y + 0.5); }
+fn rx_d2(i: u32, j: u32) -> f32 {
+    var d = particles[i].pos - particles[j].pos;
+    let L = params.L;
+    if (d.x >  0.5 * L) { d.x -= L; } else if (d.x < -0.5 * L) { d.x += L; }
+    if (params.gravityOn == 0u) {
+        if (d.y >  0.5 * L) { d.y -= L; } else if (d.y < -0.5 * L) { d.y += L; }
+    }
+    return dot(d, d);
+}
+fn rx_rule(ta: u32, tb: u32) -> i32 {
+    for (var r = 0u; r < rx.nRules; r++) {
+        let t = rx.tags[r];
+        if ((t.x == ta && t.y == tb) || (t.x == tb && t.y == ta)) { return i32(r); }
+    }
+    return -1;
+}
+fn rx_emit(v: vec4<u32>) {
+    let k = atomicAdd(&rxOut.count, 1u);
+    if (k < rx.cap) { rxOut.e[k] = v; }
+}
+fn rx_partner(e: u32, b: u32) -> u32 {
+    let base = topoBuffer[rx.offBondCSR + e] * 4u;
+    let p0 = topoBuffer[base];
+    return select(p0, topoBuffer[base + 1u], p0 == b);
+}
+// Is bead b's slot in rule R taken by a bond that stays (length ≤ r break)?
+fn rx_occupied(b: u32, R: i32) -> bool {
+    let tb = rx_tag(b);
+    let lo = topoBuffer[rx.offBondOff + b];
+    let hi = topoBuffer[rx.offBondOff + b + 1u];
+    for (var e = lo; e < hi; e++) {
+        let p = rx_partner(e, b);
+        if (rx_rule(tb, rx_tag(p)) == R && rx_d2(b, p) <= rx.dist[u32(R)].y) { return true; }
+    }
+    return false;
+}
+fn rx_bonded(i: u32, j: u32) -> bool {
+    let lo = topoBuffer[rx.offBondOff + i];
+    let hi = topoBuffer[rx.offBondOff + i + 1u];
+    for (var e = lo; e < hi; e++) { if (rx_partner(e, i) == j) { return true; } }
+    return false;
+}
+
+@compute @workgroup_size(64)
+fn rxDetect(@builtin(global_invocation_id) id: vec3<u32>) {
+    let i = id.x;
+    if (i >= params.N) { return; }
+    let ti = rx_tag(i);
+    if (ti == 0u) { return; }
+    var hit = false;
+    for (var r = 0u; r < rx.nRules; r++) { if (rx.tags[r].x == ti || rx.tags[r].y == ti) { hit = true; } }
+    if (!hit) { return; }
+
+    // Breaks (reported once, by the lower index) + i's occupied rule slots.
+    var occI = 0u;
+    let lo = topoBuffer[rx.offBondOff + i];
+    let hi = topoBuffer[rx.offBondOff + i + 1u];
+    for (var e = lo; e < hi; e++) {
+        let p = rx_partner(e, i);
+        let R = rx_rule(ti, rx_tag(p));
+        if (R < 0) { continue; }
+        let dd = rx_d2(i, p);
+        if (dd > rx.dist[u32(R)].y) {
+            if (i < p) {
+                rx_emit(vec4<u32>((2u << 16u) | u32(R), topoBuffer[rx.offBondCSR + e], 0u, bitcast<u32>(dd)));
+            }
+        } else {
+            occI = occI | (1u << u32(R));
+        }
+    }
+
+    // Formation candidates from the 3×3 neighbour cells.
+    let fi = rx_frozen(i);
+    let pi = particles[i].pos;
+    var cx = u32(pi.x / params.cellSize);
+    var cy = u32(pi.y / params.cellSize);
+    if (cx >= params.nx) { cx = params.nx - 1u; }
+    if (cy >= params.ny) { cy = params.ny - 1u; }
+    for (var dcx: i32 = -1; dcx <= 1; dcx++) {
+        for (var dcy: i32 = -1; dcy <= 1; dcy++) {
+            let ncx = u32((i32(cx) + dcx + i32(params.nx)) % i32(params.nx));
+            let ncy = u32((i32(cy) + dcy + i32(params.ny)) % i32(params.ny));
+            let c = ncx + ncy * params.nx;
+            let cnt = min(gridCounters[c], params.maxPerCell);
+            for (var k = 0u; k < cnt; k++) {
+                let j = gridCells[c * params.maxPerCell + k];
+                if (j <= i) { continue; }
+                let tj = rx_tag(j);
+                if (tj == 0u) { continue; }
+                let R = rx_rule(ti, tj);
+                if (R < 0) { continue; }
+                if (fi && rx_frozen(j)) { continue; }
+                if (((occI >> u32(R)) & 1u) != 0u) { continue; }
+                let dd = rx_d2(i, j);
+                if (dd >= rx.dist[u32(R)].x) { continue; }
+                if (rx_bonded(i, j) || rx_occupied(j, R)) { continue; }
+                rx_emit(vec4<u32>((1u << 16u) | u32(R), i, j, bitcast<u32>(dd)));
+            }
+        }
+    }
 }
 `;
 
@@ -6685,6 +7011,7 @@ class MD2D_WebGPU {
         this.pmeTol        = DEF('pme-tol-n');
         this.pmeSpacing    = DEF('pme-mesh-n');
         this.charge       = null;  // per-bead charge; packed into beadDataBuffer aux half
+        this.react        = null;  // per-bead reactive tag (Uint8); packed into beadData aux .y
         this.pinData      = null;  // packed 4-float/bead (refX,refY,kpin,frozen); into beadDataBuffer pin half
         this.potentialEnergy = 0;
         this._virial = 0;
@@ -7116,6 +7443,28 @@ class MD2D_WebGPU {
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
         });
 
+        this._buildTopologyBuffers();
+        this.updateIntegratorParams();
+        const N = this.N;
+
+        // CONTRACT: these JS arrays are reset to fresh empty Float32Arrays here.
+        // Any caller that needs live position reads afterwards must re-point them
+        // (e.g. gpuSim.x = cpuSim.x).  See _finalizeEdit() for the pattern.
+        this.x = new Float32Array(N); this.y  = new Float32Array(N);
+        this.vx= new Float32Array(N); this.vy = new Float32Array(N);
+        this.type = new Int8Array(N);
+
+        this._rebuildComputeBindGroup();
+        this._setupRenderBindGroup();
+        this._setupBondRenderBindGroup();
+    }
+
+    // Topology buffers (bond/angle parameter tables, the packed topo buffer with
+    // bond pairs, angle triples, CSR lists and exclusions, and bondedParams).
+    // Split out of setupBuffers (v1.24.0) so reactions can refresh the topology
+    // mid-run WITHOUT touching the particle buffer (positions live on the GPU).
+    // Callers that rebuild mid-run use uploadTopologyLive(), which also rebinds.
+    _buildTopologyBuffers() {
         const bpLen = Math.max(1, this.bondParamTable  ? this.bondParamTable.length  : 1);
         const apLen = Math.max(1, this.angleParamTable ? this.angleParamTable.length : 1);
         if (this.bondParamsBuffer)  this.bondParamsBuffer.destroy();
@@ -7225,18 +7574,17 @@ class MD2D_WebGPU {
         this.updateBondedParams();
         this.updateBondParams();
         this.updateAngleParams();
-        this.updateIntegratorParams();
+    }
 
-        // CONTRACT: these JS arrays are reset to fresh empty Float32Arrays here.
-        // Any caller that needs live position reads afterwards must re-point them
-        // (e.g. gpuSim.x = cpuSim.x).  See _finalizeEdit() for the pattern.
-        this.x = new Float32Array(N); this.y  = new Float32Array(N);
-        this.vx= new Float32Array(N); this.vy = new Float32Array(N);
-        this.type = new Int8Array(N);
-
+    // Mid-run topology refresh (reactions): rebuild the topology buffers from the
+    // JS arrays and rebind everything that references them.  The PME bind group
+    // re-keys itself on buffer identity in _pmePrepare.
+    uploadTopologyLive() {
+        if (!this.ready) return;
+        this._buildTopologyBuffers();
         this._rebuildComputeBindGroup();
-        this._setupRenderBindGroup();
         this._setupBondRenderBindGroup();
+        this._pmePrepare();   // no-op unless PME is on; re-keys its bind group
     }
 
     _buildParamsData(nx, ny, actualCell) {
@@ -7471,6 +7819,11 @@ class MD2D_WebGPU {
         // Boosters (mirrored so the GPU force kernel applies them).  Deep-clone the
         // box objects so gpuSim and cpuSim don't share references.
         this.boosters = (cpuSim.boosters || []).map(b => ({ ...b }));
+        this.reactions  = (cpuSim.reactions || []).map(r => ({ ...r }));
+        this.reactEvery = cpuSim.reactEvery ?? DEF('react-every-n');
+        this.rxFormed = cpuSim.rxFormed || 0; this.rxBroken = cpuSim.rxBroken || 0;
+        this.rxEnergy = cpuSim.rxEnergy || 0;
+        this._rxOverflow = false;
         _tweezersCopy(this, cpuSim);   // optical tweezers (v1.21.1)
         this.rcCut     = cpuSim.rcCut;
         this.potentialType = cpuSim.potentialType ?? 'mie';
@@ -7489,6 +7842,11 @@ class MD2D_WebGPU {
         this.charge = (cpuSim.charge && cpuSim.charge.length >= cpuSim.N)
             ? new Float32Array(cpuSim.charge.subarray(0, cpuSim.N))
             : new Float32Array(cpuSim.N);
+        // Reactive tag: kept on gpuSim so it is a faithful _adoptArrays source on
+        // GPU→CPU sync (tags never change on the GPU).
+        this.react = (cpuSim.react && cpuSim.react.length >= cpuSim.N)
+            ? new Uint8Array(cpuSim.react.subarray(0, cpuSim.N))
+            : new Uint8Array(cpuSim.N);
 
         // Pack the four parallel pin arrays (refX, refY, kpin, frozen) into one
         // interleaved vec4/bead block matching the GPU `pins` buffer layout.
@@ -7539,7 +7897,6 @@ class MD2D_WebGPU {
         this.exclList    = cpuSim.exclList    ? new Uint32Array(cpuSim.exclList)   : new Uint32Array(1);
         this.bondParamTable  = cpuSim.bondParamTable  || [];
         this.angleParamTable = cpuSim.angleParamTable || [];
-        this.bondExclude = cpuSim.bondExclude ? new Set(cpuSim.bondExclude) : new Set();
         this.bondR0 = cpuSim.bondR0 || Math.pow(2, 1/6) * Math.max(...this.sigmaPerType);
 
         this.molIdPerParticle = cpuSim.molIdPerParticle
@@ -7702,6 +8059,9 @@ class MD2D_WebGPU {
     _cpass(enc, label, reserve = false) {
         const pr = this._prof;
         if (!pr) return enc.beginComputePass();
+        // Reaction passes (rx-*) run a few times per frame: give them the reserved
+        // once-per-frame slots so the per-step passes can't crowd them out.
+        if (label.charCodeAt(0) === 114 && label.startsWith('rx-')) reserve = true;
         const lim = reserve ? PROF_SLOTS : PROF_SLOTS - PROF_RESERVE;
         if (pr.slot + 2 > lim) return enc.beginComputePass();
         const s = pr.slot; pr.slot += 2; pr.labels.push(label);
@@ -7801,35 +8161,7 @@ class MD2D_WebGPU {
                                        this.paramsBuffer, GPU_TZ_OFF * 4, 8);
             this._tzStepIdx++;
         }
-        const passLJ = this._cpass(encoder, 'forces');
-        passLJ.setPipeline(this.pipelineForces);
-        passLJ.setBindGroup(0, this.bindGroup);
-        passLJ.dispatchWorkgroups(wgN);
-        passLJ.end();
-
-        if (this._pmeOn) this._encodePME(encoder, wgN);
-
-        if ((this.nBonds || 0) > 0) {
-            const pb = this._cpass(encoder, 'bonds');
-            pb.setPipeline(this.pipelineBondForces);
-            pb.setBindGroup(0, this.bindGroup);
-            pb.dispatchWorkgroups(wgN);
-            pb.end();
-        }
-        if ((this.nAngles || 0) > 0) {
-            const pa = this._cpass(encoder, 'angles');
-            pa.setPipeline(this.pipelineAngleForces);
-            pa.setBindGroup(0, this.bindGroup);
-            pa.dispatchWorkgroups(wgN);
-            pa.end();
-        }
-        if (this._hasPins) {
-            const pp = this._cpass(encoder, 'pins');
-            pp.setPipeline(this.pipelinePinForces);
-            pp.setBindGroup(0, this.bindGroup);
-            pp.dispatchWorkgroups(wgN);
-            pp.end();
-        }
+        this._encodeForcePasses(encoder, wgN);
 
         const passStep2 = this._cpass(encoder, 'step2');
         passStep2.setPipeline(this.pipelineStep2);
@@ -7838,8 +8170,56 @@ class MD2D_WebGPU {
         passStep2.end();
     }
 
-    async _submitAndReadStats(encoder, wgN) {
-        const passReduce = this._cpass(encoder, 'stats', true);
+    // Every force pass of one step, at the CURRENT positions: non-bonded (incl.
+    // gravity, boosters, tweezers, DSF), PME, bonds, angles, pins.  computeForces
+    // ASSIGNS force/pe; the later passes add.  Also used on its own after a
+    // mid-run topology change (reactions): the grid binned by the last step is
+    // still valid because positions haven't moved since.
+    // pre: label prefix for the q profiler — 'rx-' for the recompute after a
+    // reaction, so those passes count as reactions, not as extra MD steps.
+    _encodeForcePasses(encoder, wgN, pre = '') {
+        const passLJ = this._cpass(encoder, pre + 'forces');
+        passLJ.setPipeline(this.pipelineForces);
+        passLJ.setBindGroup(0, this.bindGroup);
+        passLJ.dispatchWorkgroups(wgN);
+        passLJ.end();
+
+        if (this._pmeOn) this._encodePME(encoder, wgN, pre);
+
+        if ((this.nBonds || 0) > 0) {
+            const pb = this._cpass(encoder, pre + 'bonds');
+            pb.setPipeline(this.pipelineBondForces);
+            pb.setBindGroup(0, this.bindGroup);
+            pb.dispatchWorkgroups(wgN);
+            pb.end();
+        }
+        if ((this.nAngles || 0) > 0) {
+            const pa = this._cpass(encoder, pre + 'angles');
+            pa.setPipeline(this.pipelineAngleForces);
+            pa.setBindGroup(0, this.bindGroup);
+            pa.dispatchWorkgroups(wgN);
+            pa.end();
+        }
+        if (this._hasPins) {
+            const pp = this._cpass(encoder, pre + 'pins');
+            pp.setPipeline(this.pipelinePinForces);
+            pp.setBindGroup(0, this.bindGroup);
+            pp.dispatchWorkgroups(wgN);
+            pp.end();
+        }
+    }
+
+    async _submitAndReadStats(encoder, wgN, label = 'stats') {
+        const info = this._encodeStats(encoder, wgN, label);
+        this.device.queue.submit([encoder.finish()]);
+        await this.reductionReadback.mapAsync(GPUMapMode.READ);
+        this._parseStats(info);
+    }
+    // Stats reduction passes + copies into reductionReadback (no submit).  Split
+    // out (v1.24.4) so a reaction check can read the stats AND its event list
+    // back in one round trip.  Returns what _parseStats needs to know.
+    _encodeStats(encoder, wgN, label = 'stats') {
+        const passReduce = this._cpass(encoder, label, true);
         passReduce.setPipeline(this.pipelineReduce);
         passReduce.setBindGroup(0, this.bindGroup);
         passReduce.dispatchWorkgroups(wgN);
@@ -7847,7 +8227,7 @@ class MD2D_WebGPU {
         // Per-box temperatures, only when some condition reads its box's own T.
         const boxMask = this._boxMask || 0;
         if (boxMask) {
-            const pb = this._cpass(encoder, 'stats', true);
+            const pb = this._cpass(encoder, label, true);
             pb.setPipeline(this.pipelineReduceBox);
             pb.setBindGroup(0, this.bindGroup);
             pb.dispatchWorkgroups(wgN);
@@ -7863,7 +8243,7 @@ class MD2D_WebGPU {
         // the readback tail (after the 17·wg stats + box block).
         const tzOn = _tweezersLive(this);
         if (tzOn) {
-            const pt = this._cpass(encoder, 'stats', true);
+            const pt = this._cpass(encoder, label, true);
             pt.setPipeline(this.pipelineReduceTz);
             pt.setBindGroup(0, this.bindGroup);
             pt.dispatchWorkgroups(wgN);
@@ -7872,9 +8252,10 @@ class MD2D_WebGPU {
             encoder.copyBufferToBuffer(this.reductionBuffer, (17 + 64) * wg * 20,
                                        this.reductionReadback, 17 * wg * 20, wg * 20);
         }
-        this.device.queue.submit([encoder.finish()]);
-
-        await this.reductionReadback.mapAsync(GPUMapMode.READ);
+        return { boxMask, tzOn };
+    }
+    // Read the (already mapped) reductionReadback into the stats fields; unmaps.
+    _parseStats({ boxMask, tzOn }) {
         const arr = new Float32Array(this.reductionReadback.getMappedRange());
         let sumVsq = 0, sumPE = 0, sumSpeed = 0, sumSpeedSq = 0, virial = 0;
         for (let k = 0; k < this.numWorkgroups; k++) {
@@ -8009,6 +8390,7 @@ class MD2D_WebGPU {
         const out = new Float32Array(Math.max(8, N * 8));
         const pd  = this.pinData;              // 4 floats/bead
         const q   = this.charge;
+        const rt  = this.react;
         for (let i = 0; i < N; i++) {
             const o = i * 8, p = i * 4;
             if (pd && pd.length >= p + 4) {
@@ -8018,7 +8400,8 @@ class MD2D_WebGPU {
                 out[o + 3] = pd[p + 3];
             }
             out[o + 4] = (q && q.length > i) ? q[i] : 0;
-            // o+5..o+7 reserved (next per-bead scalar rides free)
+            out[o + 5] = (rt && rt.length > i) ? rt[i] : 0;   // reactive tag (exact in f32)
+            // o+6..o+7 reserved (next per-bead scalar rides free)
         }
         // Frozen set, charges or positions may have changed: recompute the frozen
         // PME virial correction lazily on the next PME step.
@@ -8099,7 +8482,8 @@ class MD2D_WebGPU {
                 return cx + cy * nc;
             };
             for (const i of idx) { const c = cellOf(i); (cells.get(c) || cells.set(c, []).get(c)).push(i); }
-            const ex = this.bondExclude;
+            const exO = this.exclOffsets, exL = this.exclList;
+            const exOk = exO && exL && exO.length === N + 1;
             for (const i of idx) {
                 const c = cellOf(i), cx = c % nc, cy = (c / nc) | 0, seen = new Set();
                 for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
@@ -8107,7 +8491,7 @@ class MD2D_WebGPU {
                     if (seen.has(nc2)) continue; seen.add(nc2);   // nc < 3: cells repeat
                     for (const j of (cells.get(nc2) || [])) {
                         if (j <= i) continue;
-                        if (ex && ex.has(i * N + j)) continue;   // i < j: key = i·N + j
+                        if (exOk && _exclHas(exO, exL, i, j)) continue;
                         let ddx = x[i] - x[j], ddy = y[i] - y[j];
                         ddx -= L * Math.round(ddx / L); ddy -= L * Math.round(ddy / L);
                         const r2 = ddx * ddx + ddy * ddy;
@@ -8176,22 +8560,165 @@ class MD2D_WebGPU {
             this._pmeBGBufs = bufs;
         }
     }
-    _encodePME(encoder, wgN) {
+    _encodePME(encoder, wgN, pre = '') {
         const K = this._pmeK;
         const run = (label, pipe, n) => {
             const pass = this._cpass(encoder, label);
             pass.setPipeline(pipe); pass.setBindGroup(0, this._pmeBG);
             pass.dispatchWorkgroups(n); pass.end();
         };
-        run('pme-spread', this.pipelinePmeSpread, wgN);
-        run('pme-fft',    this.pipelinePmeRowFwd, K);
-        run('pme-fft',    this.pipelinePmeCol,    K);
-        run('pme-fft',    this.pipelinePmeRowInv, K);
-        run('pme-gather', this.pipelinePmeGather, wgN);
+        run(pre + 'pme-spread', this.pipelinePmeSpread, wgN);
+        run(pre + 'pme-fft',    this.pipelinePmeRowFwd, K);
+        run(pre + 'pme-fft',    this.pipelinePmeCol,    K);
+        run(pre + 'pme-fft',    this.pipelinePmeRowInv, K);
+        run(pre + 'pme-gather', this.pipelinePmeGather, wgN);
     }
 
     updateChargeBuffer() { this.updateBeadDataBuffer(); }
     updatePinBuffer()    { this.updateBeadDataBuffer(); }
+
+    // ── Reactions (v1.24.0) ────────────────────────────────────────────────
+    // Lazily built: detection pipeline, its params / output / readback buffers.
+    _rxEnsure() {
+        if (this._rxPipeline) return;
+        const dev = this.device;
+        this._rxCap = REACT_GPU_CAP;
+        const module = dev.createShaderModule({ code: wgslReactCode, label: 'rxDetect' });
+        this._rxPipeline = dev.createComputePipeline({ layout: 'auto', compute: { module, entryPoint: 'rxDetect' } });
+        this._rxParamsBuffer = dev.createBuffer({ size: REACT_PARAMS_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        const outSize = 16 + this._rxCap * 16;
+        this._rxOutBuffer = dev.createBuffer({ size: outSize,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+        this._rxReadback  = dev.createBuffer({ size: outSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+        this._rxBG = null; this._rxBGBufs = null;
+    }
+    // One reaction check at the current step (call right after a stats readback,
+    // so this.potentialEnergy is the PE at these positions).  Detect on the GPU,
+    // decide in JS (_reactApply, shared with the CPU), refresh the topology,
+    // recompute the forces and read the new PE: ΔPE is exact, as on the CPU.
+    // encoder: the not-yet-submitted work of this batch (steps); the stats pass,
+    // the detection kernel and both copies are appended to it, so the stats
+    // (PE before) and the event list come back in ONE round trip (v1.24.4).
+    async _reactCheckGPU(wgN, encoder = null) {
+        const act = _reactActiveRules(this);
+        if (!act || !this.N || !this._topoOffsets) {
+            if (encoder) await this._submitAndReadStats(encoder, wgN);
+            return null;
+        }
+        const P = _prof.on ? _prof.rx : null, now = () => performance.now();
+        const t0 = P ? now() : 0;
+        this._rxEnsure();
+        const dev = this.device, CAP = this._rxCap;
+        const pb = new ArrayBuffer(REACT_PARAMS_BYTES), pu = new Uint32Array(pb), pf = new Float32Array(pb);
+        const D = 4 + 4 * REACT_RULE_MAX;   // first float of the dist array (after header + tags)
+        pu[0] = act.length; pu[1] = CAP;
+        pu[2] = this._topoOffsets.offBondCSR; pu[3] = this._topoOffsets.offBondOff;
+        act.forEach((r, k) => {
+            const R = this.reactions[r];
+            pu[4 + 4 * k] = R.a; pu[5 + 4 * k] = R.b; pu[6 + 4 * k] = r;
+            pf[D + 4 * k] = R.rf * R.rf; pf[D + 1 + 4 * k] = R.rd * R.rd;
+        });
+        dev.queue.writeBuffer(this._rxParamsBuffer, 0, pb);
+        const bufs = [this.paramsBuffer, this.particleBuffer, this.gridCounters, this.gridCells,
+                      this.beadDataBuffer, this.topoBuffer];
+        if (!this._rxBG || bufs.some((b, k) => b !== this._rxBGBufs[k])) {
+            this._rxBG = dev.createBindGroup({ layout: this._rxPipeline.getBindGroupLayout(0), entries: [
+                ...bufs.map((b, k) => ({ binding: k, resource: { buffer: b } })),
+                { binding: 6, resource: { buffer: this._rxParamsBuffer } },
+                { binding: 7, resource: { buffer: this._rxOutBuffer } },
+            ] });
+            this._rxBGBufs = bufs;
+        }
+        const enc = encoder || dev.createCommandEncoder();
+        const sInfo = this._encodeStats(enc, wgN, 'stats');
+        enc.clearBuffer(this._rxOutBuffer, 0, 16);
+        const pass = this._cpass(enc, 'rx-detect');
+        pass.setPipeline(this._rxPipeline); pass.setBindGroup(0, this._rxBG);
+        pass.dispatchWorkgroups(wgN); pass.end();
+        enc.copyBufferToBuffer(this._rxOutBuffer, 0, this._rxReadback, 0, 16 + CAP * 16);
+        dev.queue.submit([enc.finish()]);
+        const tSub = P ? now() : 0;
+        await Promise.all([this._rxReadback.mapAsync(GPUMapMode.READ),
+                           this.reductionReadback.mapAsync(GPUMapMode.READ)]);
+        const tMap = P ? now() : 0;
+        this._parseStats(sInfo);   // PE before = this.potentialEnergy, at these positions
+        const raw = new Uint32Array(this._rxReadback.getMappedRange().slice(0));
+        this._rxReadback.unmap();
+        const fbits = new Float32Array(raw.buffer);
+        const n = Math.min(raw[0], CAP);
+        this._rxOverflow = raw[0] > CAP;
+
+        const nB = this.nBonds || 0, broken = new Uint8Array(nB), cands = [];
+        let nBroken = 0;
+        const dup = (this.nx < 3 || this.ny < 3) ? new Set() : null;   // tiny grids revisit cells
+        for (let k = 0; k < n; k++) {
+            const o = 4 + 4 * k, w0 = raw[o], kind = w0 >>> 16, R = act[w0 & 0xFFFF];
+            if (R === undefined) continue;
+            if (kind === 2) {
+                const b = raw[o + 1];
+                if (b < nB && !broken[b]) { broken[b] = 1; nBroken++; }
+            } else if (kind === 1) {
+                const i = raw[o + 1], j = raw[o + 2];
+                if (dup) { const key = i * this.N + j; if (dup.has(key)) continue; dup.add(key); }
+                cands.push(fbits[o + 3], i, j, R);
+            }
+        }
+        let tD = 0;
+        if (P) { tD = now(); P.checks++; P.detect += (tSub - t0) + (tD - tMap); P.wait += tMap - tSub; }
+        if (!nBroken && !cands.length) return { formed: 0, broken: 0, dE: 0 };
+        const PE0 = this.potentialEnergy;
+        const res = _reactApply(this, broken, nBroken, cands, new Set());
+        const tA = P ? now() : 0;
+        if (P) P.apply += tA - tD;
+        if (!res.formed && !res.broken) return { formed: 0, broken: 0, dE: 0 };
+        this.uploadTopologyLive();
+        const tU = P ? now() : 0;
+        // Fresh forces for the next half-kick (queued before the next steps), plus
+        // a PE reduction copied to its own buffer and read back WITHOUT waiting:
+        // ΔPE stays exact, it just lands in the ledger a moment later (_rxSettle).
+        const enc2 = dev.createCommandEncoder();
+        this._encodeForcePasses(enc2, wgN, 'rx-');
+        const pr = this._cpass(enc2, 'rx-stats');
+        pr.setPipeline(this.pipelineReduce); pr.setBindGroup(0, this.bindGroup);
+        pr.dispatchWorkgroups(wgN); pr.end();
+        const peBuf = this._rxPeBuffer();
+        enc2.copyBufferToBuffer(this.reductionBuffer, 0, peBuf, 0, this.numWorkgroups * 20);
+        dev.queue.submit([enc2.finish()]);
+        const nWg = this.numWorkgroups, bg = this._pmeOn ? this._pmeEbg : 0;
+        this.rxFormed = (this.rxFormed || 0) + res.formed;
+        this.rxBroken = (this.rxBroken || 0) + res.broken;
+        const done = peBuf.mapAsync(GPUMapMode.READ).then(() => {
+            const a = new Float32Array(peBuf.getMappedRange());
+            let pe = 0;
+            for (let k = 0; k < nWg; k++) pe += a[k * 5 + 1];
+            peBuf.unmap();
+            this.rxEnergy = (this.rxEnergy || 0) + (pe + bg - PE0);
+            this._rxPeFree.push(peBuf);
+        });
+        this._rxPending.push(done);
+        if (P) { P.upload += tU - tA; P.recompute += now() - tU; P.evChecks++;
+                 P.formed += res.formed; P.broken += res.broken; }
+        return { formed: res.formed, broken: res.broken, dE: NaN };   // dE settles later
+    }
+    // Small pool of readback buffers for the deferred energy-after values (one per
+    // check still in flight; normally one or two).  Sized for the current N.
+    _rxPeBuffer() {
+        const size = Math.max(20, this.numWorkgroups * 20);
+        if (!this._rxPeFree) { this._rxPeFree = []; this._rxPending = []; }
+        while (this._rxPeFree.length) {
+            const b = this._rxPeFree.pop();
+            if (b.size >= size) return b;
+            b.destroy();
+        }
+        return this.device.createBuffer({ size, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+    }
+    // Wait for every deferred energy-after readback (end of a frame's step(): by
+    // then the frame's last stats readback has drained the queue, so this is ~free).
+    async _rxSettle() {
+        if (!this._rxPending || !this._rxPending.length) return;
+        const p = this._rxPending; this._rxPending = [];
+        await Promise.all(p);
+    }
 
     async step(steps, thermostat = null) {
         if (!this.ready) return;
@@ -8200,6 +8727,10 @@ class MD2D_WebGPU {
 
         const wgN    = Math.ceil(this.N / 64);
         const wgGrid = Math.ceil((this.nx * this.ny + 1) / 64);  // +1 covers overflow-flag slot
+        // Reactions: a check every reactEvery steps, by step count (independent of
+        // spf).  Batches are cut at those steps so the check sees exact positions.
+        const rxOn = !!_reactActiveRules(this);
+        const rxM  = Math.max(1, this.reactEvery | 0);
 
         if (this.integratorType === 'sd') {
             for (let s = 0; s < steps; s++) {
@@ -8209,6 +8740,8 @@ class MD2D_WebGPU {
                 this.device.queue.submit([enc.finish()]);
                 this.stepCount++;
                 this.simTime += this.dt;
+                if (rxOn && this.stepCount % rxM === 0)
+                    await this._reactCheckGPU(wgN, this.device.createCommandEncoder());   // stats + events, one round trip
             }
             const enc = this.device.createCommandEncoder();
             await this._submitAndReadStats(enc, wgN);
@@ -8220,15 +8753,19 @@ class MD2D_WebGPU {
             let remaining = steps;
 
             while (remaining > 0) {
-                const batchSize = thOn
+                let batchSize = thOn
                     ? Math.min(remaining, thInt - (this.stepCount % thInt))
                     : remaining;
+                if (rxOn) batchSize = Math.min(batchSize, rxM - (this.stepCount % rxM));
 
                 const encoder = this.device.createCommandEncoder();
                 for (let s = 0; s < batchSize; s++) {
                     this._encodeOneStep(encoder, wgN, wgGrid);
                 }
-                await this._submitAndReadStats(encoder, wgN);
+                // A batch that ends on a check step reads its stats together with
+                // the reaction events (one round trip, v1.24.4).
+                if (rxOn && (this.stepCount + batchSize) % rxM === 0) await this._reactCheckGPU(wgN, encoder);
+                else await this._submitAndReadStats(encoder, wgN);
                 this._refreshBoosterGates();
                 this.stepCount += batchSize;
                 this.simTime   += batchSize * this.dt;   // dt is constant within a frame (ramp advances per frame)
@@ -8239,6 +8776,7 @@ class MD2D_WebGPU {
                 }
             }
         }
+        await this._rxSettle();   // deferred reaction energies into the ledger
         this._tzFinish();
     }
 
@@ -8590,7 +9128,7 @@ async function exportSelectionAsMolecule() {
     const inds    = [..._selection];
     const anchorX = _selectionFrame ? _selectionFrame.corX + _selectionFrame.tx : undefined;
     const anchorY = _selectionFrame ? _selectionFrame.corY + _selectionFrame.ty : undefined;
-    const { positions, beadTypes, beadCharges, beadKpin, beadFrozen, beadPinOff, bonds, angles } = _selectionToMolData(inds, anchorX, anchorY);
+    const { positions, beadTypes, beadCharges, beadReact, beadKpin, beadFrozen, beadPinOff, bonds, angles } = _selectionToMolData(inds, anchorX, anchorY);
 
     // Derive exclusions from bonds + angle endpoints.
     const idxMap = new Map();
@@ -8611,6 +9149,7 @@ async function exportSelectionAsMolecule() {
         name:   rawName,
         nBeads: inds.length, beadTypes,
         beadCharges: (beadCharges && beadCharges.some(q => q !== 0)) ? beadCharges : undefined,
+        beadReact:   (beadReact && beadReact.some(t => t)) ? beadReact : undefined,
         // Per-bead mobility; each omitted when trivial (same rule as MolDef.toJSON).
         beadKpin:   beadKpin.some(k => k > 0) ? beadKpin : undefined,
         beadFrozen: beadFrozen.some(f => f)   ? beadFrozen : undefined,
@@ -8662,6 +9201,8 @@ async function saveSimState() {
             N,
             stepCount: c.stepCount ?? 0,
             simTime:   c.simTime ?? 0,
+            // Reaction ledger [formed, broken, ΣΔPE] (v1.24.0); omitted when empty.
+            rxLedger: (c.rxFormed || c.rxBroken) ? [c.rxFormed, c.rxBroken, c.rxEnergy] : undefined,
             x:     N > 0 ? Array.from(c.x.subarray(0, N))    : [],
             y:     N > 0 ? Array.from(c.y.subarray(0, N))    : [],
             vx:    N > 0 ? Array.from(c.vx.subarray(0, N))   : [],
@@ -8673,6 +9214,10 @@ async function saveSimState() {
                      c.charge.subarray(0, N).every(q => q === 0))
                     ? null
                     : (N > 0 && c.charge ? Array.from(c.charge.subarray(0, N)) : null),
+            // Per-bead reactive tag (v1.24.0).  Omitted (null) when no bead is
+            // reactive; loader defaults missing → 0.  Older loaders ignore it.
+            react: (N > 0 && c.react && c.react.subarray(0, N).some(t => t))
+                   ? Array.from(c.react.subarray(0, N)) : null,
             molId: (N > 0 && c.molIdPerParticle)
                    ? Array.from(c.molIdPerParticle.subarray(0, N)) : null,
             // pin state (v3+).  The whole block is omitted (null)
@@ -8725,6 +9270,12 @@ async function saveSimState() {
         // Booster region forces (array of boxes).  Omitted (null) when none exist,
         // so pre-booster files stay clean and older loaders are unaffected.  Lives
         // here (not URL_PARAMS) because a box is sim geometry, not a control value.
+        // Reaction rules (v1.24.0).  Omitted (null) when none exist; the check
+        // interval rides in ui (react-every-n, a URL param) like any control.
+        reactions: (Array.isArray(cpuSim.reactions) && cpuSim.reactions.length)
+                 ? cpuSim.reactions.map(r => ({ a: r.a, b: r.b, rf: r.rf, rd: r.rd,
+                                                r0: r.r0, k: r.k, on: r.on !== false }))
+                 : null,
         boosters: (Array.isArray(cpuSim.boosters) && cpuSim.boosters.length)
                  ? cpuSim.boosters.map(b => ({ on: !!b.on, fx: b.fx || 0, fy: b.fy || 0,
                                                mode: _boosterIsScale(b) ? 'scale' : 'vector',
@@ -8838,6 +9389,12 @@ async function loadSimState(json) {
         cpuSim._alloc(N);
         cpuSim.stepCount = p.stepCount ?? 0;
         cpuSim.simTime   = p.simTime ?? 0;   // absent in older files → 0
+        {
+            const L = Array.isArray(p.rxLedger) ? p.rxLedger.map(Number) : [];
+            cpuSim.rxFormed = L[0] > 0 ? L[0] : 0;
+            cpuSim.rxBroken = L[1] > 0 ? L[1] : 0;
+            cpuSim.rxEnergy = Number.isFinite(L[2]) ? L[2] : 0;
+        }
 
         cpuSim.x    = new Float32Array(p.x);
         cpuSim.y    = new Float32Array(p.y);
@@ -8851,6 +9408,9 @@ async function loadSimState(json) {
         cpuSim.charge = (p.charge && p.charge.length === N)
             ? new Float32Array(p.charge)
             : new Float32Array(N);
+        cpuSim.react = (p.react && p.react.length === N)
+            ? Uint8Array.from(p.react, t => _clampReactTag(t))
+            : new Uint8Array(N);
         cpuSim.molIdPerParticle = p.molId
             ? _remapLoadedMolIds(p.molId, molIdMap)   // file ids → session ids
             : new Uint32Array(N).fill(0xFFFFFFFF);
@@ -8918,6 +9478,14 @@ async function loadSimState(json) {
         }
     }
 
+    // Reaction rules (scene-level, N-independent like the boosters).  Rules that
+    // fail validation are dropped; absent → none.
+    cpuSim.reactions = _sanitizeReactionRules(json.reactions);
+    {
+        const m = parseInt(json.ui?.['react-every-n']);
+        cpuSim.reactEvery = (m >= 1) ? m : DEF('react-every-n');
+    }
+
     // ── 5. Upload to GPU and render ────────────────────────────────────────
     if (currentEngine === 'gpu' && gpuSim.ready) {
         gpuSim.uploadFromCPU(cpuSim);
@@ -8945,6 +9513,7 @@ async function loadSimState(json) {
     updateRealizedPcts();   // particle set now restored — refresh realized %
     _setResetBaseline();    // Reset returns to this loaded state
     if (typeof _syncBoosterUI === 'function') _syncBoosterUI();
+    if (typeof _syncReactionUI === 'function') _syncReactionUI();
     renderFrame();
 }
 
@@ -9027,6 +9596,7 @@ async function _addGhostParticles(cx, cy) {
     cpuSim.next = _growArr(Int32Array,   cpuSim.next, newN);
     cpuSim.type = _growArr(Int8Array,    cpuSim.type, newN);
     cpuSim.charge = _growArr(Float32Array, cpuSim.charge, newN);
+    cpuSim.react  = _growArr(Uint8Array,   cpuSim.react,  newN);
     cpuSim.kpin   = _growArr(Float32Array, cpuSim.kpin,   newN);
     cpuSim.refX   = _growArr(Float32Array, cpuSim.refX,   newN);
     cpuSim.refY   = _growArr(Float32Array, cpuSim.refY,   newN);
@@ -9045,6 +9615,7 @@ async function _addGhostParticles(cx, cy) {
         cpuSim.vx[gi] = 0; cpuSim.vy[gi] = 0;
         cpuSim.type[gi] = cm.molDef.beadTypes[li] ?? 0;
         if (cpuSim.charge) cpuSim.charge[gi] = cm.molDef.beadCharges?.[li] ?? 0;
+        cpuSim.react[gi] = cm.molDef.beadReact?.[li] ?? 0;
         // Restore mobility from the assembly definition.  kpin/frozen carry over;
         // the pin anchor is placed at the stored OFFSET from the bead so the copy
         // keeps the same spring stretch shape (offset 0 → anchor at the bead, the
@@ -9126,7 +9697,7 @@ async function _saveSelectionAsAssembly() {
     const inds    = [..._selection];
     const anchorX = _selectionFrame ? _selectionFrame.corX + _selectionFrame.tx : undefined;
     const anchorY = _selectionFrame ? _selectionFrame.corY + _selectionFrame.ty : undefined;
-    const { positions, beadTypes, beadCharges, beadKpin, beadFrozen, beadPinOff, bonds, angles } = _selectionToMolData(inds, anchorX, anchorY);
+    const { positions, beadTypes, beadCharges, beadReact, beadKpin, beadFrozen, beadPinOff, bonds, angles } = _selectionToMolData(inds, anchorX, anchorY);
 
     const molId  = _nextMolId++;
     const color  = molPaletteCSS[Math.min(molId, 255)];
@@ -9135,7 +9706,7 @@ async function _saveSelectionAsAssembly() {
 
     const entry = {
         name, color, molId, source: 'assembly',
-        molDef: new MolDef({ name, nBeads: inds.length, beadTypes, beadCharges,
+        molDef: new MolDef({ name, nBeads: inds.length, beadTypes, beadCharges, beadReact,
                              beadKpin, beadFrozen, beadPinOff, bonds, angles }),
         positions,
     };
@@ -9163,6 +9734,7 @@ function _compactByIndexSet(delSet) {
     const nfx = new Float32Array(newN), nfy = new Float32Array(newN);
     const nt  = new Int8Array(newN);
     const nq  = new Float32Array(newN);   // charge follows type through reindex
+    const nrt = new Uint8Array(newN);     // reactive tag follows type through reindex
     // pin state follows the reindex exactly like charge.
     const nkp = new Float32Array(newN);
     const nrx = new Float32Array(newN), nry = new Float32Array(newN);
@@ -9175,6 +9747,7 @@ function _compactByIndexSet(delSet) {
         nvx[ni]= c.vx[i]; nvy[ni]= c.vy[i];
         nt[ni] = c.type ? c.type[i] : 0;
         nq[ni] = c.charge ? c.charge[i] : 0;
+        nrt[ni] = c.react ? c.react[i] : 0;
         nkp[ni] = c.kpin   ? c.kpin[i]   : 0;
         nrx[ni] = c.refX   ? c.refX[i]   : c.x[i];
         nry[ni] = c.refY   ? c.refY[i]   : c.y[i];
@@ -9183,7 +9756,7 @@ function _compactByIndexSet(delSet) {
     }
     c.N = newN; c.x = nx; c.y = ny; c.vx = nvx; c.vy = nvy;
     c.fx = nfx; c.fy = nfy; c.next = new Int32Array(newN);
-    c.type = nt; c.charge = nq; if (nm) c.molIdPerParticle = nm;
+    c.type = nt; c.charge = nq; c.react = nrt; if (nm) c.molIdPerParticle = nm;
     c.kpin = nkp; c.refX = nrx; c.refY = nry; c.frozen = nfr;
 
     const newBonds = [], newBPids = [];
@@ -9559,6 +10132,7 @@ function _selectionToMolData(inds, anchorX, anchorY) {
     });
     const beadTypes = inds.map(i => (sim.type ? sim.type[i] & 3 : 0));
     const beadCharges = inds.map(i => (sim.charge ? sim.charge[i] : 0));
+    const beadReact   = inds.map(i => (sim.react  ? sim.react[i]  : 0));
     // Mobility state, so a copied/saved assembly keeps its pins and frozen beads.
     const beadKpin   = inds.map(i => (sim.kpin   ? sim.kpin[i]   : 0));
     const beadFrozen = inds.map(i => (sim.frozen ? (sim.frozen[i] ? 1 : 0) : 0));
@@ -9593,7 +10167,7 @@ function _selectionToMolData(inds, anchorX, anchorY) {
                       kAngle: p?.k ?? 10, theta0: p?.theta0 ?? Math.PI, chiral: p?.chiral !== false });
     }
 
-    return { positions, beadTypes, beadCharges, beadKpin, beadFrozen, beadPinOff, bonds, angles };
+    return { positions, beadTypes, beadCharges, beadReact, beadKpin, beadFrozen, beadPinOff, bonds, angles };
 }
 
 // ── Selection state ───────────────────────────────────────────────────────────
@@ -10484,7 +11058,7 @@ function _exitBondEdit() {
 // redo / Reset.  These fields stay in URL_PARAMS (URL + save/load persist them) but
 // are kept out of snapshots, so _applyWorld leaves whatever the user set last.
 const _CREATION_FIELDS = new Set([
-    'dw-type', 'dw-charge', 'dw-kpin', 'dw-spacing', 'dw-radius', 'dw-clearpath',
+    'dw-type', 'dw-charge', 'dw-react', 'dw-kpin', 'dw-spacing', 'dw-radius', 'dw-clearpath',
     'drawshape-mode', 'selshape-mode', 'autoremove-cb', 'autoremove-n', 'fillscope-select',
     'N-n', 'spacing-n', 'gridtype-select', 'eps-sym-check',   // the Fill recipe (v1.17.9); Box L stays a system edit
     'ui-mode',
@@ -10547,6 +11121,8 @@ function capture({ withBaseline = true } = {}) {
             r0Scale: c.r0Scale,
             gravityOn: c.gravityOn, gravity: c.gravity,
             boosters: (c.boosters || []).map(b => ({ ...b })),
+            reactions: (c.reactions || []).map(r => ({ ...r })),
+            reactEvery: c.reactEvery,
             coulombK: c.coulombK, coulombAlpha: c.coulombAlpha,
             coulombMethod: c.coulombMethod, pmeTol: c.pmeTol, pmeSpacing: c.pmeSpacing,
             potentialType: c.potentialType,
@@ -10555,6 +11131,7 @@ function capture({ withBaseline = true } = {}) {
             integratorType: c.integratorType, tauT: c.tauT, tauBussi: c.tauBussi,
         },
         N:               c.N,
+        rxLedger:        [c.rxFormed || 0, c.rxBroken || 0, c.rxEnergy || 0],
         stepCount:       c.stepCount,
         simTime:         c.simTime,
         L:               c.L,
@@ -10564,6 +11141,7 @@ function capture({ withBaseline = true } = {}) {
         vy:              new Float32Array(c.vy),
         type:            new Int8Array(c.type),
         charge:          c.charge ? new Float32Array(c.charge) : null,
+        react:           c.react  ? new Uint8Array(c.react)    : null,
         kpin:            c.kpin   ? new Float32Array(c.kpin)   : null,
         refX:            c.refX   ? new Float32Array(c.refX)   : null,
         refY:            c.refY   ? new Float32Array(c.refY)   : null,
@@ -10580,7 +11158,6 @@ function capture({ withBaseline = true } = {}) {
         angleKarr:       c.angleKarr   ? new Int32Array(c.angleKarr)   : null,
         angleParamId:    c.angleParamId? new Uint32Array(c.angleParamId): null,
         angleParamTable: (c.angleParamTable || []).map(p => ({ ...p })),
-        bondExclude:     c.bondExclude ? new Set(c.bondExclude) : new Set(),
     };
 }
 
@@ -10654,6 +11231,8 @@ async function restore(s, { adoptBaseline = true } = {}) {
         c.r0Scale = pr.r0Scale;
         c.gravityOn = pr.gravityOn; c.gravity = pr.gravity;
         c.boosters = Array.isArray(pr.boosters) ? pr.boosters.map(b => ({ ...b })) : [];
+        c.reactions  = Array.isArray(pr.reactions) ? pr.reactions.map(r => ({ ...r })) : [];
+        c.reactEvery = pr.reactEvery ?? c.reactEvery;
         c.coulombK = pr.coulombK; c.coulombAlpha = pr.coulombAlpha;
         c.coulombMethod = pr.coulombMethod ?? 'dsf';
         c.pmeTol     = pr.pmeTol     ?? DEF('pme-tol-n');
@@ -10667,6 +11246,7 @@ async function restore(s, { adoptBaseline = true } = {}) {
     }
     c.stepCount       = s.stepCount;
     c.simTime         = s.simTime ?? 0;
+    [c.rxFormed, c.rxBroken, c.rxEnergy] = s.rxLedger || [0, 0, 0];
     c.L               = s.L; gpuSim.L = s.L;
     // Particle arrays (incl. the derived fx/fy/next, always freshly sized to N).
     // Single source of truth for the resize — see MD2D_CPU._adoptArrays.
@@ -10682,8 +11262,7 @@ async function restore(s, { adoptBaseline = true } = {}) {
     c.angleKarr       = s.angleKarr   ? new Int32Array(s.angleKarr)    : new Int32Array(1);
     c.angleParamId    = s.angleParamId? new Uint32Array(s.angleParamId): new Uint32Array(1);
     c.angleParamTable = s.angleParamTable.map(p => ({ ...p }));
-    c.bondExclude     = new Set(s.bondExclude);
-    _rebuildExcl(c);           // regenerate exclOffsets/exclList CSR from the set
+    _rebuildExcl(c);           // regenerate exclOffsets/exclList CSR from the topology
     c._buildSigmaMatrices();   // rebuild sigmaSqMix/wfAlphaMix from restored params
     c._setupCells();
     c._computeForces();
@@ -10723,6 +11302,7 @@ async function restore(s, { adoptBaseline = true } = {}) {
     updateRealizedPcts();
     _updateInspectBar();
     if (typeof _syncBoosterUI === 'function') _syncBoosterUI();
+    if (typeof _syncReactionUI === 'function') _syncReactionUI();
     _drawSelectionOverlay();   // clears + delegates to the active mode's widget draw
 }
 
@@ -10967,7 +11547,7 @@ function _beCreateBond(i,j) {
     if(_findBond(i,j)>=0) return -1;
     _pushUndo();
     const idx = _createBondRaw(i,j);
-    _rebuildExcl(cpuSim);   // full rebuild: CSR arrays + bondExclude Set
+    _rebuildExcl(cpuSim);   // full rebuild of the exclusion CSR
     _finalizeEdit();
     if(!running) renderFrame();
     return idx;
@@ -11022,7 +11602,7 @@ async function _beDeleteBond(bIdx) {
         }
     }
 
-    _rebuildExcl(cpuSim); _pdragAdj=null;   // full rebuild: CSR arrays + bondExclude Set
+    _rebuildExcl(cpuSim); _pdragAdj=null;   // full rebuild of the exclusion CSR
     _finalizeEdit();
     if(!running) renderFrame();
 }
@@ -11767,7 +12347,7 @@ async function _batchBondRemove() {
         }
     }
 
-    _rebuildExcl(cpuSim); _pdragAdj = null;   // full rebuild: CSR arrays + bondExclude Set
+    _rebuildExcl(cpuSim); _pdragAdj = null;   // full rebuild of the exclusion CSR
     _finalizeEdit(); _updateInspectBar();
     if (!running) renderFrame();
 }
@@ -11978,6 +12558,39 @@ async function _applyCharge(newQ) {
     if (!running) renderFrame();
 }
 
+// Apply one reactive tag (0..255) to every selected bead.  Like a charge edit: no
+// reindex, no topology change; _finalizeEdit() re-uploads beadData (GPU .y slot).
+// A tag has no force effect by itself, so forces are not recomputed.
+async function _applyReactTag(newT) {
+    if (!_selection || _selection.size === 0) return;
+    if (!Number.isInteger(newT) || newT < 0 || newT > REACT_TAG_MAX) return;
+    await _prepareForEdit();
+    _checkpoint();   // system edit (see KNOWN CONTRACTS)
+    if (!cpuSim.react || cpuSim.react.length < cpuSim.N)
+        cpuSim.react = _growArr(Uint8Array, cpuSim.react, cpuSim.N);
+    for (const i of _selection) cpuSim.react[i] = newT;
+    _finalizeEdit();
+    _updateInspectBar();
+    if (!running) renderFrame();
+}
+// Tag badge: the tag's colour in the Tag colour mode (null = mixed → hatch).
+function _paintReactSwatch(sw, t) {
+    if (!sw) return;
+    sw.style.background = (t === null)
+        ? 'repeating-linear-gradient(45deg,#bbb 0 2px,#fff 2px 4px)'
+        : reactColorCss(t);
+}
+// Value a tag field previews: the typed tag if valid, else its committed value;
+// null when that is a mixed blank.
+function _reactPreviewValue(el) {
+    const ok = v => Number.isInteger(v) && v >= 0 && v <= REACT_TAG_MAX;
+    const v = Number(el.value);
+    if (el.value !== '' && ok(v)) return v;
+    const c = Number(el._mtCommitted ?? el.value);
+    if ((el._mtCommitted ?? el.value) !== '' && ok(c)) return c;
+    return el.dataset.uniform === '0' ? null : 0;
+}
+
 // ── Particle-type inspect bar wiring ──────────────────────────────────────────
 (function _wireParticleInspectBar() {
     // Enter (uniform commit → 'change') delegates to the shared _applyParticleType.
@@ -12003,6 +12616,16 @@ async function _applyCharge(newQ) {
     // (hatched when mixed).  Revert fires 'input' again, so it follows back.
     document.getElementById('ip-charge')?.addEventListener('input', (e) =>
         _paintChargeSwatch(document.getElementById('ip-qswatch'), _chargePreviewValue(e.target)));
+
+    // ── Reactive tag: Enter commits an integer 0..255 (the commit model already
+    // reverts anything else via the reactTag registry limits). ────────────────
+    document.getElementById('ip-react')?.addEventListener('change', () => {
+        const el = document.getElementById('ip-react');
+        if (!el || el.value.trim() === '') return;
+        return _applyReactTag(Number(el.value));
+    });
+    document.getElementById('ip-react')?.addEventListener('input', (e) =>
+        _paintReactSwatch(document.getElementById('ip-rswatch'), _reactPreviewValue(e.target)));
 
     // ── Pin state: segmented Mobile|Pinned|Frozen.  Clicking a state commits it
     // to the whole selection immediately (discrete, no Set button). ────────────
@@ -12114,6 +12737,7 @@ function _copySelection() {
         ys: inds.map(i => unwrapped.get(i).y - cy),
         types:  inds.map(i => (sim.type ? sim.type[i] : 0)),
         charges: inds.map(i => (sim.charge ? sim.charge[i] : 0)),
+        reacts:  inds.map(i => (sim.react  ? sim.react[i]  : 0)),
         molIds: inds.map(i => (sim.molIdPerParticle ? sim.molIdPerParticle[i] : 0xFFFFFFFF)),
         // Mobility state so a pasted copy keeps its pins/frozen beads; pin anchor
         // as an offset from the bead (minimum-image) to preserve the spring shape.
@@ -12146,6 +12770,13 @@ function _copySelection() {
 }
 
 // ── Shared utilities ──────────────────────────────────────────────────────────
+// Reactive tag: integer 0..REACT_TAG_MAX (0 = not reactive).  Anything else from
+// a file (fraction, negative, too large, NaN) becomes 0 so a Uint8 never wraps.
+function _clampReactTag(t) {
+    t = Math.round(+t);
+    return (t >= 0 && t <= REACT_TAG_MAX) ? t : 0;
+}
+
 function _growArr(Ctor, old, n) {
     const a = new Ctor(n);
     if (old && old.length > 0) a.set(old.length <= n ? old : old.subarray(0, n));
@@ -12172,11 +12803,20 @@ const PROF_GROUPS = { clear: 'integrate+bin', step1: 'integrate+bin', 'sd-step1'
     forces: 'forces', 'pme-spread': 'pme', 'pme-fft': 'pme', 'pme-gather': 'pme',
     bonds: 'bonded', angles: 'bonded', pins: 'bonded',
     stats: 'stats', thermostat: 'thermostat', render: 'render' };
-const _prof = { on: false, cpuForces: 0, droppedGpu: 0 };
+// Reactions (v1.24.2): CPU-side wall time per reaction check, both engines —
+// the parts GPU timestamps can't see (waiting on a readback, JS topology work).
+//   detect     CPU: candidate search · GPU: param pack + decode (+ wait: readback)
+//   apply      _reactApply: greedy pick, bond arrays, _rebuildExcl
+//   upload     GPU: uploadTopologyLive (topology buffers + bind groups)
+//   recompute  forces after the change · GPU: encode + submit + stats readback
+// GPU passes a reaction triggers are labelled rx-* (own group, not MD steps).
+const _PROF_RX0 = { checks: 0, evChecks: 0, formed: 0, broken: 0,
+                    detect: 0, wait: 0, apply: 0, upload: 0, recompute: 0 };
+const _prof = { on: false, cpuForces: 0, droppedGpu: 0, rx: { ..._PROF_RX0 } };
 function _profReset() {
     Object.assign(_prof, { t0: performance.now(), frames: 0, steps: 0, cpuFrame: 0, cpuPhys: 0,
         cpuRend: 0, cpuOther: 0, cpuForces: 0, gpuFrames: 0, gpuStepsCaptured: 0,
-        pass: {}, droppedGpu: 0, engine: '', N: 0, spf: 0 });
+        pass: {}, droppedGpu: 0, engine: '', N: 0, spf: 0, rx: { ..._PROF_RX0 } });
 }
 function _profAddGpuFrame(labels, ms, steps) {
     if (!_prof.on) return;
@@ -12202,9 +12842,17 @@ function _profReport() {
     const lines = [];
     lines.push(`[perf] ${F} frames · ${P.engine.toUpperCase()} · N=${P.N} · ${P.spf} steps/frame`);
     lines.push(`  cpu/frame ${f(P.cpuFrame / F)} ms  =  physics ${f(P.cpuPhys / F)}  render ${f(P.cpuRend / F)}  overlay+stats ${f(P.cpuOther / F)}`);
+    // Reaction total = CPU WORK only.  The readback wait is NOT a reaction cost on
+    // its own: it also waits for the MD steps queued since the last readback
+    // (in SD it is the frame's first wait, so it swallows the whole step time).
+    // It is shown on its own line; the true overhead = cpu/frame with vs without
+    // rules (includes the GPU idling during each round trip, which no timer sees).
+    const X = P.rx, rxMs = X.detect + X.apply + X.upload + X.recompute;
     if (P.engine === 'cpu') {
-        const fs = P.cpuForces / P.steps, ps = P.cpuPhys / P.steps;
-        lines.push(`  cpu/step  ${f(ps, 3)} ms  =  forces ${f(fs, 3)} (${(100 * fs / ps).toFixed(0)}%)  integrate+rest ${f(ps - fs, 3)}`);
+        const fs = P.cpuForces / P.steps, ps = P.cpuPhys / P.steps, rs = rxMs / P.steps;
+        lines.push(`  cpu/step  ${f(ps, 3)} ms  =  forces ${f(fs, 3)} (${(100 * fs / ps).toFixed(0)}%)` +
+                   (X.checks ? `  reactions ${f(rs, 3)} (${(100 * rs / ps).toFixed(0)}%)` : '') +
+                   `  integrate+rest ${f(ps - fs - rs, 3)}`);
     } else if (!gpuSim.hasTimestamps) {
         lines.push('  (GPU pass timing unavailable: adapter lacks timestamp-query)');
     } else if (P.gpuFrames) {
@@ -12221,7 +12869,7 @@ function _profReport() {
         for (const r of rows) {
             const share = (r.isStep ? r.v * P.spf : r.v) / gpuFrame;
             r.share = share;
-            const g = PROF_GROUPS[r.lab] || r.lab;
+            const g = r.lab.startsWith('rx-') ? 'reactions' : (PROF_GROUPS[r.lab] || r.lab);
             grp[g] = (grp[g] || 0) + share;
         }
         lines.push(`  gpu/frame ${f(gpuFrame)} ms (est.)  ·  gpu/step ${f(perStep, 3)} ms  ·  timed ${S} steps over ${G} frames` +
@@ -12233,6 +12881,15 @@ function _profReport() {
             lines.push(`    ${r.lab.padEnd(11)} ${f(r.v, 4)} ms/${r.isStep ? 'step ' : 'frame'}  ${(100 * r.share).toFixed(1).padStart(5)}%`);
     } else {
         lines.push('  (waiting for GPU timestamps…)');
+    }
+    if (X.checks) {
+        const gpu = P.engine !== 'cpu';
+        lines.push(`  reactions ${f(rxMs / F)} ms/frame CPU work (${(100 * rxMs / P.cpuFrame).toFixed(1)}% of cpu/frame)  ·  ` +
+                   `${(X.checks / F).toFixed(1)} checks/frame, ${X.evChecks} of ${X.checks} changed bonds (+${X.formed} −${X.broken})`);
+        lines.push(`    detect ${f(X.detect / F)}  apply+excl ${f(X.apply / F)}` + (gpu ? `  topology upload ${f(X.upload / F)}` : '') +
+                   `  force recompute ${f(X.recompute / F)}  ms/frame (CPU work)`);
+        if (gpu) lines.push(`    waiting at checks ${f(X.wait / F)} ms/frame — one round trip per check; mostly the GPU ` +
+                            `finishing the MD steps queued before it, NOT reaction cost (compare cpu/frame with rules off)`);
     }
     console.log(lines.join('\n'));
 }
@@ -12254,49 +12911,221 @@ function _toggleProfiler() {
 
 // ── _rebuildExcl — single source of truth for exclusion state ────────────────
 // Must be called after ANY topology change (bond/angle create or delete, particle
-// delete, paste, fill) before _finalizeEdit().  Builds three things atomically:
-//   1. pairKeys Set         — canonical min*N+max keys for every excluded pair
-//   2. exclOffsets/exclList — CSR adjacency used by CPU _computeForces() and by
-//                             gpuSim.uploadFromCPU() for the GPU topology buffer
-//   3. bondExclude Set      — same key encoding, used by CPU non-bonded inner loop
+// delete, paste, fill, reaction) before _finalizeEdit().  Builds the CSR
+// exclOffsets/exclList: each bead's slice sorted ascending and duplicate-free.
+// The ONE exclusion structure for both engines: the CPU loops test membership
+// with _exclHas, the GPU's excl_contains does the same binary search.
+// (v1.24.2: the old bondExclude Set of i·N+j keys is gone — it cost most of the
+// rebuild, a copy in every snapshot/upload/sync, and made the CPU force loop ~2×
+// slower in bonded systems.)
 //
 // Exclusion rules (standard MD 1-2 / 1-3 scheme):
 //   1-2: every bond(i,j) → exclude pair (i,j)
 //   1-3: every angle(i,j,k) → exclude pair (i,k)
 //        (the pair is dropped the moment the last angle or bond covering it is gone)
-function _rebuildExcl(s) {
-    const N = s.N;
-    // Collect all excluded pairs as canonical min*N+max keys.
-    // 1-2: every bond. 1-3: every angle's outer endpoints (i–k).
-    const pairKeys = new Set();
-    for (let b = 0; b < (s.nBonds  || 0); b++) {
-        const i = s.bondI[b], j = s.bondJ[b];
-        pairKeys.add(Math.min(i,j) * N + Math.max(i,j));
+// v1.24.2: typed arrays only (count → fill → per-bead sort + dedupe in place)
+// instead of a Set of keys first — same lists, ~4× faster on big systems, which
+// matters because reactions rebuild after every check that changes a bond.
+// Is j in i's exclusion slice?  Binary search over the sorted, duplicate-free CSR
+// slice — the CPU twin of the GPU's excl_contains (same data, same algorithm).
+function _exclHas(off, list, i, j) {
+    let lo = off[i], hi = off[i + 1];
+    while (lo < hi) {
+        const mid = (lo + hi) >>> 1, v = list[mid];
+        if (v === j) return true;
+        if (v < j) lo = mid + 1; else hi = mid;
     }
-    for (let a = 0; a < (s.nAngles || 0); a++) {
-        const i = s.angleI[a], k = s.angleKarr[a];
-        pairKeys.add(Math.min(i,k) * N + Math.max(i,k));
+    return false;
+}
+function _rebuildExcl(s) {
+    const N = s.N, nB = s.nBonds || 0, nA = s.nAngles || 0;
+    const bI = s.bondI, bJ = s.bondJ, aI = s.angleI, aK = s.angleKarr;
+    // 1. Count both directions of every pair (duplicates allowed for now).
+    const deg = new Uint32Array(N);
+    for (let b = 0; b < nB; b++) { const i = bI[b], j = bJ[b]; if (i !== j) { deg[i]++; deg[j]++; } }
+    for (let a = 0; a < nA; a++) { const i = aI[a], k = aK[a]; if (i !== k) { deg[i]++; deg[k]++; } }
+    const raw0 = new Uint32Array(N + 1);
+    for (let i = 0; i < N; i++) raw0[i + 1] = raw0[i] + deg[i];
+    const list = new Uint32Array(Math.max(1, raw0[N]));
+    const cur  = raw0.slice(0, N);
+    for (let b = 0; b < nB; b++) { const i = bI[b], j = bJ[b]; if (i !== j) { list[cur[i]++] = j; list[cur[j]++] = i; } }
+    for (let a = 0; a < nA; a++) { const i = aI[a], k = aK[a]; if (i !== k) { list[cur[i]++] = k; list[cur[k]++] = i; } }
+    // 2. Per bead: sort ascending (excl_contains binary-searches it) and drop
+    //    duplicates (a pair covered by a bond AND an angle, or by two angles),
+    //    compacting in place — the write cursor never passes the read cursor.
+    const off = new Uint32Array(N + 1);
+    let w = 0;
+    for (let i = 0; i < N; i++) {
+        const a = raw0[i], b = raw0[i + 1];
+        off[i] = w;
+        if (b - a > 1) list.subarray(a, b).sort();   // Uint32Array: numeric sort
+        let last = -1;
+        for (let k = a; k < b; k++) { const v = list[k]; if (v !== last) { list[w++] = v; last = v; } }
+    }
+    off[N] = w;
+    s.exclOffsets = off;
+    s.exclList    = w === list.length ? list : list.slice(0, Math.max(1, w));
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Reactions (v1.24.0) — the check, run every reactEvery steps while running
+// ════════════════════════════════════════════════════════════════════════════
+// Rules: cpuSim.reactions [{a, b, rf, rd, r0, k, on}] on per-bead tags s.react.
+// One check, in this order:
+//   1. BREAK: every bond whose end tags match an active rule and whose length
+//      exceeds that rule's r break is removed.  Any such bond counts — drawn,
+//      placed or reaction-made.  Bonds that stay occupy their ends' valence.
+//   2. FORM:  every tag-matching pair closer than r form (cell-list search, so
+//      r form ≤ r_cut), not already bonded, not frozen↔frozen, whose ends are
+//      both free in that rule (valence 1 per rule per bead) is a candidate.
+//      Candidates are taken closest-first; a bead takes at most ONE new bond per
+//      check, so a crowd can't all latch onto one partner in a single step.
+//   3. If anything changed: rebuild the bond arrays, the exclusions and the
+//      forces.  The energy jump is measured exactly as ΔPE = PE_after − PE_before
+//      at the same positions (bond energy, the pair term switched on/off by the
+//      exclusion, electrostatics incl. PME — everything), and banked in the
+//      ledger s.rxEnergy.  Positive = the events put energy into the system.
+// Recomputing the forces is REQUIRED, not cosmetic: Velocity Verlet's next half
+// kick uses the stored forces, which are stale once the topology changed.
+// A made bond gets its own bondParamTable entry (so inspector edits stay per
+// bond); entries no bond references any more are reused, so churn doesn't grow
+// the table.  Returns { formed, broken, dE } or null when nothing can react.
+function _reactActiveRules(s) {
+    const rules = s.reactions;
+    if (!Array.isArray(rules) || !rules.length) return null;
+    const act = [];
+    for (let r = 0; r < rules.length; r++) if (_reactRuleActive(rules[r], s.rcCut)) act.push(r);
+    return act.length ? act : null;
+}
+function _reactCheck(s) {
+    const N = s.N, rt = s.react;
+    if (!N || !rt || rt.length < N) return null;
+    const act = _reactActiveRules(s);
+    if (!act) return null;
+    const P = _prof.on ? _prof.rx : null, t0 = P ? performance.now() : 0;   // q profiler
+    const rules = s.reactions;
+    // Tag-pair → rule index lookup (both orders); -1 = no active rule.
+    const lut = new Int8Array(65536).fill(-1);
+    const tagUsed = new Uint8Array(256);
+    for (const r of act) {
+        const { a, b } = rules[r];
+        lut[a * 256 + b] = r; lut[b * 256 + a] = r;
+        tagUsed[a] = 1; tagUsed[b] = 1;
+    }
+    const fr = s.frozen, x = s.x, y = s.y;
+    const nB = s.nBonds || 0, bI = s.bondI, bJ = s.bondJ;
+
+    // 1. Break pass (+ valence occupancy and the bonded-pair set for step 2).
+    const occ = new Set();          // rule * N + bead: bead's slot in that rule is taken
+    const bonded = new Set();       // min * N + max for bonds between reactive beads
+    const broken = new Uint8Array(nB);
+    let nBroken = 0;
+    for (let d = 0; d < nB; d++) {
+        const i = bI[d], j = bJ[d], ti = rt[i], tj = rt[j];
+        if (!tagUsed[ti] || !tagUsed[tj]) continue;
+        bonded.add(Math.min(i, j) * N + Math.max(i, j));
+        const R = lut[ti * 256 + tj];
+        if (R < 0) continue;
+        const dx = s._pbc(x[i] - x[j]), dy = s._pbcY(y[i] - y[j]);
+        const rd = rules[R].rd;
+        if (dx * dx + dy * dy > rd * rd) { broken[d] = 1; nBroken++; }
+        else { occ.add(R * N + i); occ.add(R * N + j); }
     }
 
-    const deg = new Uint32Array(N);
-    for (const key of pairKeys) { deg[Math.floor(key/N)]++; deg[key%N]++; }
-    s.exclOffsets = new Uint32Array(N + 1);
-    for (let i = 0; i < N; i++) s.exclOffsets[i+1] = s.exclOffsets[i] + deg[i];
-    s.exclList = new Uint32Array(Math.max(1, s.exclOffsets[N]));
-    const cur = new Uint32Array(N);
-    for (const key of pairKeys) {
-        const i = Math.floor(key/N), j = key % N;
-        s.exclList[s.exclOffsets[i] + cur[i]++] = j;
-        s.exclList[s.exclOffsets[j] + cur[j]++] = i;
+    // 2. Form candidates from the cell list built by the last force evaluation.
+    const cands = [];
+    const nx = s.nx, ny = s.ny, head = s.head, next = s.next;
+    const cellsOk = head && next && head.length === nx * ny && next.length >= N;
+    if (cellsOk) {
+        const dup = (nx < 3 || ny < 3) ? new Set() : null;   // tiny grids revisit cells
+        for (let cy = 0; cy < ny; cy++) for (let cx = 0; cx < nx; cx++) {
+            for (let i = head[cx + cy * nx]; i !== -1; i = next[i]) {
+                const ti = rt[i];
+                if (!tagUsed[ti]) continue;
+                for (let dcx = -1; dcx <= 1; dcx++) for (let dcy = -1; dcy <= 1; dcy++) {
+                    const nc = ((cx + dcx + nx) % nx) + ((cy + dcy + ny) % ny) * nx;
+                    for (let j = head[nc]; j !== -1; j = next[j]) {
+                        if (j <= i) continue;
+                        const R = lut[ti * 256 + rt[j]];
+                        if (R < 0) continue;
+                        if (fr && fr[i] && fr[j]) continue;
+                        const key = i * N + j;
+                        if (bonded.has(key) || occ.has(R * N + i) || occ.has(R * N + j)) continue;
+                        const dx = s._pbc(x[i] - x[j]), dy = s._pbcY(y[i] - y[j]);
+                        const r2 = dx * dx + dy * dy, rf = rules[R].rf;
+                        if (r2 >= rf * rf) continue;
+                        if (dup) { if (dup.has(key)) continue; dup.add(key); }
+                        cands.push(r2, i, j, R);
+                    }
+                }
+            }
+        }
     }
-    // Sort each bead's exclusion slice ascending so excl_contains() on the GPU can
-    // binary-search it (O(log deg)) instead of linear-scanning (O(deg)).  Sorting
-    // is a build-time, per-topology-change cost; the query runs every step per pair.
-    for (let i = 0; i < N; i++) {
-        const a = s.exclOffsets[i], b = s.exclOffsets[i+1];
-        if (b - a > 1) s.exclList.subarray(a, b).sort();   // Uint32Array numeric sort
+    const tD = P ? performance.now() : 0;
+    if (P) { P.checks++; P.detect += tD - t0; }
+    const PE0 = s.potentialEnergy;
+    const res = _reactApply(s, broken, nBroken, cands, occ);
+    const tA = P ? performance.now() : 0;
+    if (P) P.apply += tA - tD;
+    if (!res.broken && !res.formed) return { formed: 0, broken: 0, dE: 0 };
+    s._computeForces();
+    if (P) { P.recompute += performance.now() - tA; P.evChecks++; P.formed += res.formed; P.broken += res.broken; }
+    const dE = s.potentialEnergy - PE0;
+    s.rxFormed += res.formed; s.rxBroken += res.broken; s.rxEnergy += dE;
+    return { formed: res.formed, broken: res.broken, dE };
+}
+
+// Shared by the CPU check and the GPU path (whose candidates come from the
+// rxDetect kernel): greedy closest-first selection under valence 1 per rule per
+// bead and one new bond per bead per check, then the bond-array rebuild (kept +
+// new, unreferenced param slots reused) and _rebuildExcl.  `broken` is a
+// Uint8Array flag per bond (nBroken set), `cands` a flat [r2, i, j, R, …] list,
+// `occ` the set of rule*N+bead slots already taken by bonds that stay.  Does NOT
+// recompute forces — each engine does that its own way.
+function _reactApply(s, broken, nBroken, cands, occ) {
+    const N = s.N, rules = s.reactions;
+    const nB = s.nBonds || 0, bI = s.bondI, bJ = s.bondJ;
+    // Closest first (stable on index for ties, so the result is deterministic).
+    const nc = cands.length / 4, order = new Array(nc);
+    for (let c = 0; c < nc; c++) order[c] = c;
+    order.sort((p, q) => (cands[4 * p] - cands[4 * q]) || (p - q));
+    const fresh = new Set(), made = [];
+    for (const c of order) {
+        const i = cands[4 * c + 1], j = cands[4 * c + 2], R = cands[4 * c + 3];
+        if (fresh.has(i) || fresh.has(j) || occ.has(R * N + i) || occ.has(R * N + j)) continue;
+        fresh.add(i); fresh.add(j); occ.add(R * N + i); occ.add(R * N + j);
+        made.push(i, j, R);
     }
-    s.bondExclude = new Set(pairKeys);
+    const nMade = made.length / 3;
+    if (!nBroken && !nMade) return { formed: 0, broken: 0 };
+
+    // Kept bonds + new bonds, reusing unreferenced param entries.
+    const nNew = nB - nBroken + nMade;
+    const nI = new Int32Array(Math.max(1, nNew)), nJ = new Int32Array(Math.max(1, nNew));
+    const nP = new Uint32Array(Math.max(1, nNew));
+    const table = s.bondParamTable || (s.bondParamTable = []);
+    const used = new Uint8Array(table.length);
+    let w = 0;
+    for (let d = 0; d < nB; d++) {
+        if (broken[d]) continue;
+        const pid = s.bondParamId ? s.bondParamId[d] : 0;
+        nI[w] = bI[d]; nJ[w] = bJ[d]; nP[w] = pid; if (pid < used.length) used[pid] = 1;
+        w++;
+    }
+    let free = 0;   // scan pointer over unreferenced entries
+    for (let m = 0; m < nMade; m++) {
+        const R = made[3 * m + 2], rule = rules[R];
+        while (free < used.length && used[free]) free++;
+        let pid;
+        if (free < used.length) { pid = free++; table[pid] = { k: rule.k, r0: rule.r0 }; }
+        else { pid = table.length; table.push({ k: rule.k, r0: rule.r0 }); }
+        nI[w] = made[3 * m]; nJ[w] = made[3 * m + 1]; nP[w] = pid;
+        w++;
+    }
+    s.bondI = nI; s.bondJ = nJ; s.bondParamId = nP; s.nBonds = nNew;
+    _rebuildExcl(s);
+    if (typeof _invalidateDragAdj === 'function') _invalidateDragAdj();
+    return { formed: nMade, broken: nBroken };
 }
 
 // ── GPU → CPU state copy ──────────────────────────────────────────────────────
@@ -12347,11 +13176,13 @@ function syncCPUfromGPU() {
     c.angleParamId = g.angleParamId ? new Uint32Array(g.angleParamId): new Uint32Array(1);
     c.exclOffsets  = g.exclOffsets  ? new Uint32Array(g.exclOffsets) : new Uint32Array(g.N + 1);
     c.exclList     = g.exclList     ? new Uint32Array(g.exclList)    : new Uint32Array(1);
-    c.bondExclude  = g.bondExclude  ? new Set(g.bondExclude)         : new Set();
     c.stepCount        = g.stepCount;
     c.simTime          = g.simTime ?? 0;
     c.bondParamTable   = g.bondParamTable  || [];
     c.angleParamTable  = g.angleParamTable || [];
+    // Reaction ledger (the GPU run may have reacted).
+    c.rxFormed = g.rxFormed ?? c.rxFormed; c.rxBroken = g.rxBroken ?? c.rxBroken;
+    c.rxEnergy = g.rxEnergy ?? c.rxEnergy;
 }
 
 // ── Prepare / finalise edit (handles CPU↔GPU sync) ────────────────────────────
@@ -12364,7 +13195,7 @@ function syncCPUfromGPU() {
 // per-particle field means adding it here once, not in three places.
 function _gpuAdoptCpuArrays(c) {
     gpuSim.x = c.x; gpuSim.y = c.y; gpuSim.vx = c.vx; gpuSim.vy = c.vy;
-    gpuSim.type = c.type; gpuSim.charge = c.charge; gpuSim.N = c.N;
+    gpuSim.type = c.type; gpuSim.charge = c.charge; gpuSim.react = c.react; gpuSim.N = c.N;
     gpuSim.nBonds = c.nBonds; gpuSim.bondI = c.bondI; gpuSim.bondJ = c.bondJ;
     gpuSim.nAngles = c.nAngles; gpuSim.molIdPerParticle = c.molIdPerParticle;
 }
@@ -12423,6 +13254,7 @@ async function _pasteClipboard() {
     cpuSim.next = _growArr(Int32Array,   cpuSim.next, newN);
     cpuSim.type = _growArr(Int8Array,    cpuSim.type, newN);
     cpuSim.charge = _growArr(Float32Array, cpuSim.charge, newN);
+    cpuSim.react  = _growArr(Uint8Array,   cpuSim.react,  newN);
     cpuSim.kpin   = _growArr(Float32Array, cpuSim.kpin,   newN);
     cpuSim.refX   = _growArr(Float32Array, cpuSim.refX,   newN);
     cpuSim.refY   = _growArr(Float32Array, cpuSim.refY,   newN);
@@ -12438,6 +13270,7 @@ async function _pasteClipboard() {
         cpuSim.vx[gi] = 0; cpuSim.vy[gi] = 0;
         cpuSim.type[gi] = cb.types[li];
         if (cpuSim.charge && cb.charges) cpuSim.charge[gi] = cb.charges[li] || 0;
+        cpuSim.react[gi] = cb.reacts ? (cb.reacts[li] || 0) : 0;
         // Restore mobility; pin anchor placed at the stored offset from the bead
         // so the pasted copy keeps the same spring stretch shape.
         const kp = cb.kpin ? (cb.kpin[li] || 0) : 0;
@@ -12648,6 +13481,21 @@ function _updateInspectBar() {
             qInp.dataset.uniform = uniform ? '1' : '0';
         }
 
+        // Reactive-tag uniformity, exactly like charge.
+        const rInp = document.getElementById('ip-react');
+        if (rInp) {
+            const rt = sim.react;
+            const t0 = rt ? rt[firstIdx] : 0;
+            let uniform = true;
+            if (rt) for (const i of _selection) { if (rt[i] !== t0) { uniform = false; break; } }
+            if (rInp !== document.activeElement) {
+                rInp.value = uniform ? String(t0) : '';
+                rInp.placeholder = uniform ? '' : '—';
+                _paintReactSwatch(document.getElementById('ip-rswatch'), uniform ? t0 : null);
+            }
+            rInp.dataset.uniform = uniform ? '1' : '0';
+        }
+
         // Pin state uniformity: derive each bead's state (mobile/pinned/frozen)
         // and highlight the segmented control if the whole selection shares one.
         // Mixed → none highlighted (the '–' equivalent).  kpin field + Set show
@@ -12803,8 +13651,10 @@ function _syncSelGranToggle() {
         _paintTypeSwatch(document.getElementById('dw-swatch'),
             v === '' ? (parseInt(document.getElementById('dw-type').value) || 0) & 3 : _typeFromUI(v));
     });
-    for (const id of ['dw-charge', 'dw-kpin', 'dw-spacing', 'dw-radius', 'dw-clearpath'])
+    for (const id of ['dw-charge', 'dw-react', 'dw-kpin', 'dw-spacing', 'dw-radius', 'dw-clearpath'])
         document.getElementById(id)?.addEventListener('change', refreshPreview);
+    document.getElementById('dw-react')?.addEventListener('input', (e) =>
+        _paintReactSwatch(document.getElementById('dw-rswatch'), _reactPreviewValue(e.target) ?? 0));
     // Charge badge follows the typed value (v1.17.3).
     document.getElementById('dw-charge')?.addEventListener('input', (e) =>
         _paintChargeSwatch(document.getElementById('dw-qswatch'), _chargePreviewValue(e.target) ?? 0));
@@ -13983,6 +14833,9 @@ function _syncDrawModeBar() {
         const q = parseFloat(qEl.value);
         _paintChargeSwatch(document.getElementById('dw-qswatch'), Number.isFinite(q) ? q : 0);
     }
+    const rEl = document.getElementById('dw-react');
+    if (rEl && rEl !== document.activeElement)
+        _paintReactSwatch(document.getElementById('dw-rswatch'), _clampReactTag(rEl.value));
 }
 
 // Draw-mode overlay: brush ring at the cursor (erase radius when erasing, a small
@@ -14208,11 +15061,13 @@ function _drawShapePreview(scale, offX, offY) {
 function _readPencil() {
     const t = parseInt(document.getElementById('dw-type')?.value ?? '0');
     const q = parseFloat(document.getElementById('dw-charge')?.value);
+    const rt = _clampReactTag(document.getElementById('dw-react')?.value ?? 0);
     const k = parseFloat(document.getElementById('dw-kpin')?.value);
     const spacing = Math.max(0.1, parseFloat(document.getElementById('dw-spacing')?.value) || DEF('dw-spacing'));
     return {
         type:   (isNaN(t) ? 0 : Math.max(0, Math.min(3, t))),
         charge: (isFinite(q) ? q : 0),
+        react:  rt,
         state:  _drawState,
         kpin:   (_drawState === 'pinned' && isFinite(k) && k > 0) ? k : (_drawState === 'pinned' ? _lastPinK : 0),
         spacing,
@@ -14262,6 +15117,7 @@ function _placeDrawBeads(points, pencil) {
     c.next = _growArr(Int32Array,   c.next, nN);
     c.type = _growArr(Int8Array,    c.type, nN);
     c.charge = _growArr(Float32Array, c.charge, nN);
+    c.react  = _growArr(Uint8Array,   c.react,  nN);
     c.kpin   = _growArr(Float32Array, c.kpin,   nN);
     c.refX   = _growArr(Float32Array, c.refX,   nN);
     c.refY   = _growArr(Float32Array, c.refY,   nN);
@@ -14276,6 +15132,7 @@ function _placeDrawBeads(points, pencil) {
         c.vx[gi] = 0; c.vy[gi] = 0;
         c.type[gi] = pencil.type;
         c.charge[gi] = pencil.charge;
+        c.react[gi]  = pencil.react ?? 0;
         c.refX[gi] = px; c.refY[gi] = py;
         c.kpin[gi]   = (pencil.state === 'pinned') ? pencil.kpin : 0;
         c.frozen[gi] = (pencil.state === 'frozen') ? 1 : 0;
@@ -14780,6 +15637,8 @@ function _cpuParticleColor(engine, i, colorMode, sel, speeds, velocityDisplaySta
         ));
     } else if (colorMode === 'charge') {
         css = chargeColorCss(engine.charge ? engine.charge[i] : 0);
+    } else if (colorMode === 'react') {
+        css = reactColorCss(engine.react ? engine.react[i] : 0);
     } else if (colorMode === 'mol') {
         const molId = engine.molIdPerParticle ? engine.molIdPerParticle[i] : 0xFFFFFFFF;
         css = getMolColorCSS(molId) ?? _TYPE_COLORS[ti];
@@ -14969,6 +15828,7 @@ const STATS_LOG_COLS = [
     { key: 'PE_N'     }, { key: 'E_N'  }, { key: 'P' },
     { key: 'N',        int: true }, { key: 'N_frozen', int: true },
     { key: 'Q'        },
+    { key: 'rx_formed', int: true }, { key: 'rx_broken', int: true }, { key: 'E_rx_N' },
 ];
 const STATS_LOG_SOFT_MAX = 1e6;   // rows; past this the count turns orange (big files)
 
@@ -15155,6 +16015,25 @@ function updateStats(engine) {
         qEl.textContent = (Math.abs(sumQ) < 1e-9 ? 0 : sumQ).toFixed(3);
         qEl.style.color = (Math.abs(sumQ) < 1e-6) ? '#2a9d4a' : '#d94040';
     }
+    // Reaction ledger (v1.24.0): shown once rules exist (or something reacted).
+    {
+        const src = (engine.rxFormed !== undefined) ? engine : cpuSim;
+        const f = src.rxFormed || 0, b = src.rxBroken || 0, e = src.rxEnergy || 0;
+        const show = (cpuSim.reactions && cpuSim.reactions.length > 0) || f > 0 || b > 0;
+        const it1 = document.getElementById('s-rx-item'), it2 = document.getElementById('s-erx-item');
+        if (it1) it1.style.display = show ? '' : 'none';
+        if (it2) it2.style.display = show ? '' : 'none';
+        const eN = N > 0 ? e / N : 0;
+        if (show) {
+            const v1 = document.getElementById('s-rx'), v2 = document.getElementById('s-erx');
+            if (v1) v1.textContent = `${f} / ${b}`;
+            if (v2) v2.textContent = (Math.abs(eN) < 5e-5 ? 0 : eN).toFixed(4);
+        }
+        st.rx_formed = f; st.rx_broken = b; st.E_rx_N = eN;
+        // GPU event list overflowed on the last check (rest deferred to the next).
+        const ow = document.getElementById('react-overflow-warn');
+        if (ow) ow.style.display = (currentEngine === 'gpu' && gpuSim._rxOverflow) ? '' : 'none';
+    }
     // Show current dt; if still ramping, append target so user knows it's warming up.
     const dtNow = engine.dt ?? 0;
     const dtEl  = document.getElementById('s-dt');
@@ -15183,6 +16062,7 @@ function readUI(targetSim) {
     ];
     targetSim.gravityOn = document.getElementById('gravity-cb').checked;
     targetSim.gravity   = parseFloat(document.getElementById('gravity-n').value) || DEF('gravity-n');
+    targetSim.reactEvery = parseInt(document.getElementById('react-every-n')?.value) || DEF('react-every-n');
     targetSim.coulombK     = parseFloat(document.getElementById('coulombK-n').value);
     if (!isFinite(targetSim.coulombK)) targetSim.coulombK = 5.0;
     targetSim.coulombAlpha = parseFloat(document.getElementById('coulombAlpha-n').value);
@@ -15537,6 +16417,162 @@ document.getElementById('booster-add')?.addEventListener('click', () => {
 });
 _renderBoosterList();
 
+// ── Reactions (v1.24.0): rule table ───────────────────────────────────────────
+// cpuSim.reactions is the source of truth (see the engine field comment).  Rules
+// are RUN parameters like the boosters: no undo checkpoint on edit, but they
+// ride in snapshots (params) and state files.  Cross-field rules (r form < r
+// break, unique tag pair) are checked here on commit: a violating value reverts.
+function _reactRuleKey(a, b) { return a <= b ? `${a}-${b}` : `${b}-${a}`; }
+function _reactRuleActive(r, rc = cpuSim.rcCut) {
+    return r && r.on !== false && r.a > 0 && r.b > 0 && r.rf > 0 && r.rf < r.rd && r.rf <= rc;
+}
+// Clean a rules array from a file: valid numbers, tags 1..255, rf < rd, unique
+// pairs, at most REACT_RULE_MAX.  rf > rc is kept (it is only inactive).
+function _sanitizeReactionRules(arr) {
+    if (!Array.isArray(arr)) return [];
+    const seen = new Set(), out = [];
+    for (const r of arr) {
+        if (!r || out.length >= REACT_RULE_MAX) continue;
+        const a = _clampReactTag(r.a), b = _clampReactTag(r.b);
+        const rf = +r.rf, rd = +r.rd, r0 = +r.r0, k = +r.k;
+        if (!(a > 0 && b > 0 && rf > 0 && rd > rf && r0 > 0 && k >= 0)) continue;
+        const key = _reactRuleKey(a, b);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ a, b, rf, rd, r0, k, on: r.on !== false });
+    }
+    return out;
+}
+// First unused tag pair for a new rule: (1,2), (1,3), …, (2,3), …
+function _nextFreeReactPair() {
+    const used = new Set((cpuSim.reactions || []).map(r => _reactRuleKey(r.a, r.b)));
+    for (let a = 1; a <= REACT_TAG_MAX; a++)
+        for (let b = a + 1; b <= REACT_TAG_MAX; b++)
+            if (!used.has(_reactRuleKey(a, b))) return [a, b];
+    return [1, 1];
+}
+function _pushReactions() {
+    gpuSim.reactions  = (cpuSim.reactions || []).map(r => ({ ...r }));
+    gpuSim.reactEvery = cpuSim.reactEvery;
+    saveToURL();
+}
+function _flashReactHint(msg) {
+    const add = document.getElementById('react-add');
+    if (!add) return;
+    const prev = add.dataset.label || (add.dataset.label = add.textContent);
+    add.textContent = msg;
+    clearTimeout(add._hintT);
+    add._hintT = setTimeout(() => { add.textContent = prev; }, 1800);
+}
+
+function _renderReactionList() {
+    const list = document.getElementById('react-list');
+    if (!list) return;
+    const rules = cpuSim.reactions || (cpuSim.reactions = []);
+    // "Check every" only applies while rules exist: a derived (hidden) control
+    // feeds the registry's showIf, so the normal visibility rules hide it.
+    const has = document.getElementById('react-has-rules');
+    if (has && has.checked !== rules.length > 0) { has.checked = rules.length > 0; _applyVisibility(); }
+    list.innerHTML = '';
+    rules.forEach((r, idx) => {
+        const inactive = r.rf > cpuSim.rcCut;
+        const wrap = document.createElement('div');
+        wrap.className = 'react-item booster-item' + (inactive || r.on === false ? ' rx-inactive' : '');
+        wrap.style.cssText = 'border:1px solid rgba(60,140,90,0.55); border-radius:6px; padding:6px; margin-bottom:6px; background:rgba(60,160,90,0.05)';
+        wrap.innerHTML = `
+          <div class="control-row" style="justify-content:space-between; margin-bottom:2px" title="${tipAttr('react.rule')}">
+            <span class="stat-key" style="color:#2f8f57">Reaction ${idx + 1}</span>
+            <span style="display:flex; gap:8px; align-items:center">
+              <label class="checkbox-row" style="gap:4px; margin:0" title="${tipAttr('react.on')}">
+                <input type="checkbox" class="rx-on" data-i="${idx}" ${r.on !== false ? 'checked' : ''}> on
+              </label>
+              <button class="rx-del btn-danger" data-i="${idx}" title="${tipAttr('react.remove')}">✕</button>
+            </span>
+          </div>
+          <div class="control-row" style="margin-bottom:2px" title="${tipAttr('react.tags')}">
+            <label>Tags A + B</label>
+            <span class="rx-tag" data-i="${idx}" data-f="a" style="background:${reactColorCss(r.a)}"></span>
+            <input type="number" class="param-input rx-f" data-i="${idx}" data-f="a" data-def="reactRuleTag" value="${r.a}" step="1" style="width:46px">
+            <span class="rx-tag" data-i="${idx}" data-f="b" style="background:${reactColorCss(r.b)}"></span>
+            <input type="number" class="param-input rx-f" data-i="${idx}" data-f="b" data-def="reactRuleTag" value="${r.b}" step="1" style="width:46px">
+          </div>
+          <div class="control-row" style="margin-bottom:2px" title="${tipAttr('react.dist')}">
+            <label>r form, r break</label>
+            <input type="number" class="param-input rx-f" id="rx-rf-${idx}" data-i="${idx}" data-f="rf" data-def="reactRf" data-lt-field="rx-rd-${idx}" data-max-field="rc-n" value="${r.rf}" step="0.05" style="width:56px">
+            <input type="number" class="param-input rx-f" id="rx-rd-${idx}" data-i="${idx}" data-f="rd" data-def="reactRd" data-gt-field="rx-rf-${idx}" value="${r.rd}" step="0.05" style="width:56px">
+          </div>
+          <div class="control-row" style="margin-bottom:2px" title="${tipAttr('react.bond')}">
+            <label>Bond r₀, k</label>
+            <input type="number" class="param-input rx-f" data-i="${idx}" data-f="r0" data-def="reactR0" value="${r.r0}" step="0.05" style="width:56px">
+            <input type="number" class="param-input rx-f" data-i="${idx}" data-f="k" data-def="reactK" value="${r.k}" step="1" style="width:56px">
+          </div>
+          ${inactive ? `<div class="control-row"><span class="stat-val" style="font-size:0.8em; color:var(--red,#d33)" title="${tipAttr('react.inactive')}">inactive: r form &gt; r_cut (${(+cpuSim.rcCut).toFixed(2)})</span></div>` : ''}`;
+        list.appendChild(wrap);
+    });
+    list.querySelectorAll('.rx-on').forEach(el => el.addEventListener('change', e => {
+        const r = cpuSim.reactions[+e.target.dataset.i];
+        r.on = e.target.checked;
+        _renderReactionList(); _pushReactions();
+    }));
+    list.querySelectorAll('.rx-del').forEach(el => el.addEventListener('click', e => {
+        cpuSim.reactions.splice(+e.target.dataset.i, 1);
+        _renderReactionList(); _pushReactions();
+    }));
+    // Tag badges follow the typed value (live colour feedback, like the inspector).
+    list.querySelectorAll('.rx-f[data-f="a"], .rx-f[data-f="b"]').forEach(el => el.addEventListener('input', e => {
+        const sw = list.querySelector(`.rx-tag[data-i="${e.target.dataset.i}"][data-f="${e.target.dataset.f}"]`);
+        const v = Number(e.target.value);
+        if (sw) sw.style.background = reactColorCss(Number.isInteger(v) && v >= 1 && v <= REACT_TAG_MAX ? v : _clampReactTag(e.target._mtCommitted ?? 0));
+    }));
+    // Commit: the commit model already enforced the registry limits, including the
+    // per-row cross-field ones (r form < r break, r form ≤ r_cut — data-*-field),
+    // which also show red while typing.  The one rule the registry can't express,
+    // one rule per tag pair, is checked here: a violation reverts and says why.
+    list.querySelectorAll('.rx-f').forEach(el => el.addEventListener('change', e => {
+        const i = +e.target.dataset.i, f = e.target.dataset.f, r = cpuSim.reactions[i];
+        if (!r) return;
+        const v = Number(e.target.value);
+        const trial = { ...r, [f]: v };
+        let why = null;
+        if ((f === 'a' || f === 'b') && cpuSim.reactions.some((o, j) =>
+                    j !== i && _reactRuleKey(o.a, o.b) === _reactRuleKey(trial.a, trial.b)))
+            why = `tags ${trial.a} + ${trial.b} already have a rule`;
+        if (why) {
+            e.target.value = r[f];
+            e.target.dispatchEvent(new Event('input', { bubbles: true }));
+            _flashReactHint(why);
+            return;
+        }
+        r[f] = v;
+        _renderReactionList(); _pushReactions();
+    }));
+}
+// Push cpuSim.reactions INTO the DOM + GPU after load / undo / redo.
+function _syncReactionUI() {
+    if (!Array.isArray(cpuSim.reactions)) cpuSim.reactions = [];
+    const n = document.getElementById('react-every-n'), sl = document.getElementById('react-every-s');
+    if (n && cpuSim.reactEvery >= 1) { n.value = cpuSim.reactEvery; if (sl) sl.value = cpuSim.reactEvery; _syncSlider(n); }
+    _renderReactionList();
+    _pushReactions();
+}
+document.getElementById('react-add')?.addEventListener('click', () => {
+    if (!Array.isArray(cpuSim.reactions)) cpuSim.reactions = [];
+    if (cpuSim.reactions.length >= REACT_RULE_MAX) { _flashReactHint(`Max ${REACT_RULE_MAX} reactions`); return; }
+    const [a, b] = _nextFreeReactPair();
+    const rf = Math.min(DEF('reactRf'), cpuSim.rcCut);
+    const rd = Math.max(DEF('reactRd'), rf * 1.3);
+    cpuSim.reactions.push({ a, b, rf, rd, r0: DEF('reactR0'), k: DEF('reactK'), on: true });
+    _renderReactionList(); _pushReactions();
+});
+wire('react-every-s', 'react-every-n', v => {
+    const m = Math.round(v);
+    if (!(m >= 1)) return;
+    cpuSim.reactEvery = m;
+    _pushReactions();
+});
+cpuSim.reactEvery = parseInt(document.getElementById('react-every-n')?.value) || DEF('react-every-n');
+_renderReactionList();
+
 wire('coulombK-s', 'coulombK-n', v => {
     triggerEase('force');
     cpuSim.coulombK = v;
@@ -15604,6 +16640,7 @@ wire('rc-s', 'rc-n', v => {
         gpuSim.updateSigmaLive();  // rebuilds grid if nx/ny changed
     }
     triggerEase('force');
+    _renderReactionList();   // rules with r form > r_cut turn inactive (or back)
 });
 
 // ── Autoremove (Place mode) ─────────────────────────────────────────────────
@@ -15937,7 +16974,6 @@ function resetTopologyState(sim) {
     sim.angleParamId = new Uint32Array(0);
 
     // Exclusions → empty CSR (exclOffsets is length N+1; N is 0 here → length 1)
-    sim.bondExclude = new Set();
     sim.exclOffsets = new Uint32Array(sim.N + 1);
     sim.exclList    = new Uint32Array(0);
 
@@ -16119,8 +17155,12 @@ async function startLoop() {
         if (_tzPull) _tzPullBeginFrame(spf);
         else if (sim.tzOn) _tweezersBeginFrame(sim, spf, _tzTarget.x, _tzTarget.y);
         if (currentEngine === 'cpu') {
+            // Reactions: checked every M steps (by step count, so independent of spf).
+            const rxM  = Math.max(1, sim.reactEvery | 0);
+            const rxOn = !!_reactActiveRules(sim);
             for (let s = 0; s < spf; s++) {
                 sim.step();
+                if (rxOn && sim.stepCount % rxM === 0) _reactCheck(sim);
                 if (thOn && sim.stepCount % thInt === 0) sim.rescaleVelocities(thInt);
             }
             if (_pOn) _tPhys = performance.now();
@@ -16458,6 +17498,7 @@ async function performFill() {
                     newXY.push({ x: beadPos[b].x, y: beadPos[b].y,
                                  type: (molDef.beadTypes[b] ?? 0) & 3,
                                  charge: molDef.beadCharges?.[b] ?? 0,
+                                 react: molDef.beadReact?.[b] ?? 0,
                                  kpin: kp,
                                  frozen: molDef.beadFrozen?.[b] ? 1 : 0,
                                  pdx: kp > 0 ? odx * cosR - ody * sinR : 0,
@@ -16522,6 +17563,7 @@ async function performFill() {
         cpuSim.next = _growArr(Int32Array,   cpuSim.next, totalN);
         cpuSim.type = _growArr(Int8Array,    cpuSim.type, totalN);
         cpuSim.charge = _growArr(Float32Array, cpuSim.charge, totalN);  // new beads default 0
+        cpuSim.react  = _growArr(Uint8Array,   cpuSim.react,  totalN);  // new beads default 0 (not reactive)
         // pin state grows with the particle arrays. New beads
         // default to unpinned (kpin 0) and mobile (frozen 0); their anchor is set
         // to their own spawn position below so a later pin starts tethered in place.
@@ -16542,6 +17584,7 @@ async function performFill() {
             cpuSim.vy[gi] = fr ? 0 : std * cpuSim._gaussian();
             cpuSim.type[gi]             = p.type;
             if (cpuSim.charge) cpuSim.charge[gi] = p.charge ?? 0;
+            cpuSim.react[gi] = p.react ?? 0;
             // Mobility: monomers arrive unset (mobile); assembly beads carry their
             // own kpin / frozen and a pin-anchor offset (pdx, pdy) from the bead.
             cpuSim.kpin[gi]   = p.kpin > 0 ? p.kpin : 0;
