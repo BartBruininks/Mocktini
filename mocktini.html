@@ -47,8 +47,9 @@
     "p":      "Instantaneous pressure from the virial: P = (KE + ½·Σ r_ij·F_ij) / L², with the pair, electrostatic, bond and pin forces (angles add no virial). Fluctuates strongly — use ⟨P⟩. With gravity on it is the same virial pressure: the average over the whole box, including any empty space (wall and gravity forces are not counted).",
     "pAvg":   "Mean of P over the last 100 drawn frames while the simulation runs (fewer right after a reset). Emptied when T set, N, L, gravity or the engine changes. Click to empty it.",
     "n":      "Number of beads in the box.",
-    "rx":     "Reactions: bonds made and broken since Clear / Load (shown when reaction rules exist).",
-    "eRx":    "Energy (in ε) the reactions put into the system, per bead, summed since Clear / Load: the jump in potential energy at each bonding / breaking (bond energy appears or disappears, and the pair interaction is switched off or on). Positive = the system gained energy (it warms up); negative = it lost energy. Without a thermostat, E tot / N drifts by this amount.",
+    "rxMade":    "Bonds made by reactions since Clear / Load (shown while reaction rules exist).",
+    "rxBroken":  "Bonds broken by reactions since Clear / Load (shown while reaction rules exist).",
+    "rxRefused": "Energy-conserving mode: bond events refused because the two beads lacked the kinetic energy to pay for them, since Clear / Load. A refused pair may still react at a later check.",
     "q":      "Net charge Σq of the box: green = neutral, red = net charge present. DSF assumes a neutral box; PME handles net charge with a uniform neutralizing background.",
     "ms":     "Wall-clock time to compute and draw one frame (all the steps of that frame).",
     "dt":     "Current timestep. Orange while the dt ramp eases it up toward the set dt.",
@@ -192,13 +193,16 @@
   "react": {
     "header": "Reactions: beads with a reactive tag (set per bead, 0 = not reactive) bond and unbond by tag pair while the simulation runs. Works on CPU and GPU.",
     "add":    "Add a reaction rule (up to {reactRuleMax}).",
+    "nve":    "Energy-conserving: each bond made or broken changes the potential energy by an exact amount (bond energy appears or disappears, the pair interaction switches off or on); that amount is paid from — or released into — the kinetic energy of the two reacting beads, keeping their total momentum. Total energy then stays constant without a thermostat (NVE). An event the pair can't pay for is refused (counted in the stats) and may happen at a later check. Off: the energy jump is simply lost or gained (shown in E rx).",
     "every":  "How often reactions are checked, in integration steps. Together with r form this sets how fast bonds form: a pair only reacts if it is close enough on a check step. Independent of Steps / frame.",
     "rule":   "One reaction rule: a tag-A bead and a tag-B bead bond when closer than r form, and their bond breaks when longer than r break. Each bead holds at most one bond per rule (valence 1). Order of A and B doesn’t matter.",
     "on":     "Switch this reaction on or off.",
     "tags":   "The two reactive tags (1–{reactTagMax}) this rule joins. A = B is allowed (e.g. 1 + 1 dimerises). One rule per tag pair.",
     "dist":   "r form (in σ): bond when closer than this (≤ r_cut). r break (in σ): the bond breaks when longer than this. r form must be smaller than r break, or a new bond would break at once.",
     "bond":   "Rest length r₀ (in σ) and force constant k (in ε/σ²) of a bond made by this rule.",
+    "energy": "Bond energy D (in ε) of EVERY bond between these two tags — pre-built, drawn or made by a reaction, also while the rule is off: U = ½k(r−r₀)² − D. Editing it changes the potential energy at once. D > 0: a stable bond — forming releases about D (minus the pair attraction it replaces), breaking costs D. D < 0: a high-energy bond (fuel) — breaking releases |D|; the stretch to r break is the activation barrier. With D > 0, breaking at r = r₀ + √(2D/k) (shown) gives no energy jump on breaking. 0 = no well (bond formation is then endothermic).",
     "overflow": "More events in one check than the GPU event list holds ({cap}); the rest are handled at the next check. Reactions still run, just a little later for some pairs. A larger Check every interval or fewer reactive beads avoids it.",
+    "displace": "Displacement (attack): the number of another reaction whose bond this one REPLACES, 0 = none. When this rule forms a bond, any bond either bead holds in that reaction is removed in the same event — e.g. an O attacking the B of an A–B bond gives A + B–O in one step. The energy is booked for the whole exchange (new bond in, old bond out), so a strongly downhill exchange goes even when breaking the old bond alone would be refused; the barrier is how close the attacker has to get (r form). Energy-conserving mode pays it from all beads involved, keeping their momentum. A bead without such a bond simply bonds.",
     "inactive": "Inactive: r form is larger than r_cut. Raise r_cut or lower r form.",
     "remove": "Remove this reaction rule."
   },
@@ -299,6 +303,8 @@
     "r0":        "Rest length r₀ of this bond. Enter applies it; ⌖ snap sets it to the current r.",
     "k":         "Force constant k of this bond. Enter applies it.",
     "snap":      "Set r₀ to the current length r.",
+    "byRule":    "Reactive bond: its tags match Reaction {n}, which sets its r₀, k and bond energy D — edit them there (they apply to every such bond at once).",
+    "byRuleBatch": "All selected bonds are reactive: their r₀ and k come from their reaction rules — edit them in the Reactions panel. (With a mix, edits change only the plain bonds.)",
     "delete":    "Delete this bond (Del). Angles that use it are deleted too.",
     "newK":      "Force constant for NEW bonds — clicked, or made by Autobond. Doesn’t change existing bonds.",
     "newHeader": "Nothing selected: settings for the next bond you click (bead, then bead)."
@@ -317,7 +323,7 @@
   "angle": {
     "mode": {
       "_":     "Chirality of this angle: whether a bend and its mirror image are the same",
-      "pi":    "π — non-chiral: only the size of the bend counts (0–180°), so a bend and its mirror image are equal, like a 3D molecule seen flat. θ₀ is 0…180°. Drawn without an arrow.",
+      "pi":    "π — non-chiral: only the size of the bend counts (0–180°), so a bend and its mirror image are equal, like a 3D molecule seen flat. θ₀ is 0…180°. The energy peak at straight (and at fully folded) is rounded off smoothly so energy stays conserved when an angle flips to its mirror image. Drawn without an arrow.",
       "twopi": "2π — chiral: the signed angle (−180…180°), measured clockwise from i to k, so a bend and its mirror image differ — true 2D handedness."
     },
     "newMode": {
@@ -466,11 +472,14 @@
   "reactions": {
     "react-every-n": { "label": "Check every",   "value": 20,  "slider": [1, 1000, 1], "int": true, "min": 1, "tier": "advanced", "showIf": { "react-has-rules": true } },
     "react-has-rules": { "label": "Reaction rules exist (derived, not user-set)", "value": false },
+    "react-nve-cb":  { "label": "Energy-conserving reactions", "value": true, "showIf": { "react-has-rules": true } },
     "reactRuleTag":  { "label": "Reaction tag",  "value": 1,   "int": true, "min": 1 },
     "reactRf":       { "label": "r form",        "value": 1.0, "step": 0.05, "gt": 0 },
     "reactRd":       { "label": "r break",       "value": 1.3, "step": 0.05, "gt": 0 },
     "reactR0":       { "label": "Reaction bond r₀", "value": 1.0, "step": 0.05, "gt": 0 },
-    "reactK":        { "label": "Reaction bond k",  "value": 100, "step": 1,   "min": 0 }
+    "reactK":        { "label": "Reaction bond k",  "value": 100, "step": 1,   "min": 0 },
+    "reactD":        { "label": "Reaction bond energy D", "value": 0, "step": 0.5 },
+    "reactX":        { "label": "Displaces reaction", "value": 0, "int": true, "min": 0 }
   },
 
   "electrostatics": {
@@ -1664,13 +1673,17 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
                 <span class="stat-key">Σq</span>
                 <span class="stat-val" id="s-Q">0</span>
             </div>
-            <div class="stat-item" data-tip="stats.rx" id="s-rx-item" style="display:none">
-                <span class="stat-key">Bonds made / broken</span>
-                <span class="stat-val" id="s-rx">0 / 0</span>
+            <div class="stat-item" data-tip="stats.rxMade" id="s-rxf-item" style="display:none">
+                <span class="stat-key">Bonds made</span>
+                <span class="stat-val" id="s-rxf">0</span>
             </div>
-            <div class="stat-item" data-tip="stats.eRx" id="s-erx-item" style="display:none">
-                <span class="stat-key">E rx / N</span>
-                <span class="stat-val" id="s-erx">0</span>
+            <div class="stat-item" data-tip="stats.rxBroken" id="s-rxb-item" style="display:none">
+                <span class="stat-key">Bonds broken</span>
+                <span class="stat-val" id="s-rxb">0</span>
+            </div>
+            <div class="stat-item" data-tip="stats.rxRefused" id="s-rxr-item" style="display:none">
+                <span class="stat-key">Refused</span>
+                <span class="stat-val" id="s-rxr">0</span>
             </div>
             <div class="stat-item" data-tip="stats.ms">
                 <span class="stat-key">ms / frame</span>
@@ -2287,6 +2300,10 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
 
             <div class="sub-header" data-tip="react.header">Reactions</div>
             <input type="checkbox" id="react-has-rules" hidden>
+            <div data-tip="react.nve" class="control-row checkbox-row">
+                <label>Energy-conserving</label>
+                <input type="checkbox" id="react-nve-cb">
+            </div>
             <div data-tip="react.every" class="control-row">
                 <label>Check every</label>
                 <input type="range" id="react-every-s">
@@ -2473,7 +2490,7 @@ button.btn-auto:hover { background: var(--blue-dark, #2563eb); }
     </div>
 </div>
 
-<footer id="footer">Mocktini v1.24.6 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license · <a href="https://github.com/BartBruininks/Mocktini">GitHub</a></footer>
+<footer id="footer">Mocktini v1.28.2 · WebGPU &amp; CPU (2026) · BMH Bruininks · University of Groningen · MIT license · <a href="https://github.com/BartBruininks/Mocktini">GitHub</a></footer>
 
 <script>
 'use strict';
@@ -2653,9 +2670,9 @@ function _applyDefaults() {
     _syncSliders();
 }
 _applyDefaults();
-const MOCKTINI_VERSION = '1.24.6';
+const MOCKTINI_VERSION = '1.28.2';
 // ════════════════════════════════════════════════════════════════════════════
-//  Mocktini - 2D Molecular Dynamics  —  v1.24.6
+//  Mocktini - 2D Molecular Dynamics  —  v1.28.2
 // ════════════════════════════════════════════════════════════════════════════
 //
 //  OVERVIEW
@@ -2758,6 +2775,66 @@ const MOCKTINI_VERSION = '1.24.6';
 //    WITHOUT waiting and settled into s.rxEnergy by _rxSettle() at the end of
 //    step() — exact, just a moment later.  (GPU ΔPE is a difference of f32
 //    sums, so it carries f32 rounding the CPU's f64 ledger doesn't.)
+//    Energy-conserving mode (reactNVE, v1.25.0): each event's ΔPE is computed
+//    pair-locally by _rxPairDE — an exact mirror of the per-pair terms in
+//    _computeForces/_pmeForces; KEEP THEM IN SYNC (test_react_nve checks Σ per-
+//    event ΔPE == global ΔPE for every potential and Coulomb method) — and paid
+//    from/into the pair's relative KE by _rxCompensate (momentum kept); events the
+//    KE can't pay for are refused (rxRefused).  On the GPU the event list carries
+//    both beads' velocities and r_i − r_j; changed velocities are written back
+//    into the particle buffer before the next steps.
+//    Reactive bonds are defined by their RULE (v1.26.2): a bond whose end tags
+//    match a rule uses the rule's k, r0 and bond energy D (U = ½k(r−r0)² − D);
+//    its own bondParamTable entry is only the fallback when no rule matches.
+//    Nothing is copied into bonds: _rxBondLookup(s) (tag pair → rule, cached)
+//    feeds the CPU bond loop, _rxPairDE / _reactApply and _bondEff (inspector);
+//    the GPU's bondParams buffer = table + REACT_RULE_MAX rule entries and a
+//    matching bond's paramId points at its rule's entry (_bondPairSection;
+//    uploadReactBondsLive after a rule / tag edit).  Edits act immediately.
+//  • Reaction encounter records (v1.28.2): the force / bond kernels (GPU) and
+//    _computeForces / _computeBondForces (CPU) record, between checks, each
+//    reactive bead's closest qualifying partner within r form and the bonds that
+//    went past r break; the check consumes and clears them (rxDetect kind 4,
+//    _reactCheck 2b), so the check interval M sets when an event is applied, not
+//    whether it is seen.  A recorded event still applies only if the pair is on
+//    its side of the midpoint (r form + r break)/2 at the check (else it undid
+//    itself).  Exact while M·dt ≪ the encounter time (~0.1 τ): see test_react_latch.  GPU: reductionBuffer section at 82·numWorkgroups, rule
+//    table = the rxDetect params buffer at main binding 12, written every step().
+//  • Particle arrays are f64 (v1.28.1, PARTICLE_FLOAT): x, y, vx, vy, fx, fy,
+//    refX, refY on both engine objects — every allocation, grow, compaction,
+//    snapshot and load site uses PARTICLE_FLOAT, never Float32Array.  The CPU
+//    engine is the f64 reference; the GPU keeps its fixed-point copy.
+//  • Fixed-point GPU positions (v1.28.0): Particle.pos is vec2<u32>, box [0,L) ↔
+//    [0,2³²).  WGSL reads positions ONLY via WGSL_FX (fx_abs / fx_d / fx_disp /
+//    fx_top); JS ONLY via _toFx / _fromFx (uploadFromCPU, _fullReadback,
+//    _gpuWriteXY*, mtDiag).  Never do float math on Particle.pos directly.
+//    Periodic wrap = u32 overflow; gravity's y is open (ordered difference, a wrap
+//    against the move = mirror safety net).  L changes always re-upload.
+//  • Gravity walls (v1.27.4): smooth repulsive U = ε_w(r_w/h − 1)³ (WALL_R, WALL_EPS)
+//    on both engines; the integrators' mirror is only a safety net.
+//  • mtDiag() (v1.27.3, console): GPU vs f64-CPU forces/energies per term, energy
+//    readout check, optional NVE drift runs; restores the particle buffer, step
+//    count, rules and the displayed stats.  Diagnostic only — no physics change.
+//  • GPU periodic wrap (v1.27.2): wrap_pbc() only touches a bead that left the
+//    box.  NEVER write (x % L + L) % L in f32: it re-rounds every coordinate to
+//    the grid of x + L each step — a fixed per-step jiggle that made NVE drift
+//    grow as dt shrank (dt 0.002: +1.9e-4 → +4e-6 ε/bead/τ after the fix).
+//  • Non-chiral angles (v1.27.1): U = ½k(|θ| − θ₀)² has corners where |θ| folds
+//    (straight, fully folded).  Within half the distance from θ₀ to a corner the
+//    peak is a C² quartic cap (value, slope and curvature match; curvature stays
+//    in [−2k, k]) — a pointed peak made Velocity Verlet heat at every crossing
+//    (NVE drift).  The flip barrier is 5/8 of the old peak.  CPU _computeForces
+//    and the GPU angle kernel carry the same formula: KEEP IN SYNC
+//    (test_angle_smooth).  Chiral angles keep their one wrap corner at θ₀ + π.
+//    Displacement (v1.27.0): rule.x (1-based, 0 = none; _rxDispTarget) makes a
+//    formation by that rule remove either bead's bond in rule x in the SAME event
+//    (attack / exchange: O + A–B → A + B–O).  ΔPE = new bond's _rxPairDE + each
+//    displaced bond's (pair-local, they add); paid by _rxCompensateSet over all
+//    beads involved (their centre-of-mass frame).  GPU: rxDetect adds kind-3
+//    context entries (the displaced bonds' velocities and geometry; displaced tag
+//    pair packed in RxParams tags.w); JS decides from its own bond arrays, and a
+//    displacement whose context was cut off by the cap waits (ec.known).
+//    Displaced bonds count as broken, the new bond as made.
 //    Limits: REACT_TAG_MAX comes from the registry (reactTag.max, ≤ 255 for the
 //    Uint8 tag); REACT_RULE_MAX is a layout constant (WGSL RxParams arrays and
 //    the per-bead u32 rule mask), so it lives in code; tooltips read both.
@@ -2842,7 +2919,7 @@ const URL_PARAMS = [
     {id:'eps-sym-check',type:'checkbox'},
     {id:'thermo-cb',type:'checkbox'},{id:'gravity-cb',type:'checkbox'},
     {id:'gravity-n',type:'number'},
-    {id:'react-every-n',type:'number'},
+    {id:'react-every-n',type:'number'}, {id:'react-nve-cb',type:'checkbox'},
     {id:'coulombK-n',type:'number'},
     {id:'coulombAlpha-n',type:'number'},
     {id:'coulomb-method',type:'string'},
@@ -3956,7 +4033,8 @@ const REACT_TAG_MAX  = Math.min(255, Math.max(1, ((_DEFS.reactTag && _DEFS.react
 const REACT_RULE_MAX = 16;
 if (_DEFS['dw-react'])  _DEFS['dw-react'].max  = REACT_TAG_MAX;
 if (_DEFS.reactRuleTag) _DEFS.reactRuleTag.max = REACT_TAG_MAX;
-const REACT_GPU_CAP  = 8192;   // events per GPU check (rxOut list); overflow → next check
+if (_DEFS.reactX) _DEFS.reactX.max = REACT_RULE_MAX;
+const REACT_GPU_CAP  = 4096;   // events per GPU check (rxOut list, 48 B each); overflow → next check
 Object.assign(_TIP_VARS, { reactTagMax: REACT_TAG_MAX, reactRuleMax: REACT_RULE_MAX, cap: REACT_GPU_CAP });
 _applyTips();
 
@@ -4569,6 +4647,13 @@ function _tweezersBeginFrame(s, n, tx, ty) {
     s.tzSub = 0;  s.tzSteps = Math.max(0, n | 0);
 }
 
+// Particle arrays (v1.28.1): positions, velocities, forces and pin anchors are
+// DOUBLE precision on both engine objects.  The CPU engine is then a true f64
+// reference (it always computed in f64; only storage was f32); the GPU keeps its
+// own fixed-point copy, and its JS mirror arrays don't throw precision away on
+// readback.  Charges, pin strengths, types stay as they were.
+const PARTICLE_FLOAT = Float64Array;
+
 class MD2D_CPU {
     constructor() {
     this.stepCount = 0;
@@ -4627,16 +4712,24 @@ class MD2D_CPU {
     this._boostTBox = [];
 
     // ── Reactions (v1.24.0) ──
-    // reactions: up to REACT_RULE_MAX rules {a, b, rf, rd, r0, k, on} — tags a,b
+    // reactions: up to REACT_RULE_MAX rules {a, b, rf, rd, r0, k, d, x, on} (d = bond energy, v1.26.0;
+    // x = 1-based number of the rule whose bond a formation displaces, 0 = none, v1.27.0) — tags a,b
     //   (1..255, unordered pair, one rule per pair), form distance rf, break
     //   distance rd (rf < rd), and the r0/k of a bond the rule makes.  A rule
     //   with rf > rcCut is inactive (detection reuses the rc-sized cell list).
     // reactEvery: check interval M in integration steps (independent of spf).
     this.reactions  = [];
     this.reactEvery = DEF('react-every-n');
+    // reactNVE: energy-conserving reactions — each event's ΔPE is paid from/into
+    // the reacting pair's kinetic energy (see _rxCompensate); refused events count
+    // in rxRefused.
+    this.reactNVE   = DEF('react-nve-cb');
     // Reaction ledger (cumulative since Clear / Load): bonds formed / broken and
     // the potential-energy jump the events caused (Σ ΔPE, see _reactCheck).
-    this.rxFormed = 0; this.rxBroken = 0; this.rxEnergy = 0;
+    // (v1.25.1: rxEnergy is kept as an internal diagnostic — tests compare it with
+    // the per-event ΔPE sum — but no longer shown: it summed switching jumps, which
+    // are not the heat of reaction.)
+    this.rxFormed = 0; this.rxBroken = 0; this.rxEnergy = 0; this.rxRefused = 0;
 
     // Optical tweezers state (v1.21.1) — see "Optical tweezers — shared state".
     _tweezersInit(this);
@@ -4753,16 +4846,16 @@ class MD2D_CPU {
     }
 
     _alloc(N) {
-        this.x = new Float32Array(N); this.y = new Float32Array(N);
-        this.vx = new Float32Array(N); this.vy = new Float32Array(N);
-        this.fx = new Float32Array(N); this.fy = new Float32Array(N);
+        this.x = new PARTICLE_FLOAT(N); this.y = new PARTICLE_FLOAT(N);
+        this.vx = new PARTICLE_FLOAT(N); this.vy = new PARTICLE_FLOAT(N);
+        this.fx = new PARTICLE_FLOAT(N); this.fy = new PARTICLE_FLOAT(N);
         this.next = new Int32Array(N);
         this.type = new Int8Array(N);
         this.charge = new Float32Array(N);   // per-bead charge, default 0
         this.react  = new Uint8Array(N);     // per-bead reactive tag, 0 = not reactive
         this.kpin   = new Float32Array(N);   // per-bead pin force constant, 0 = unpinned
-        this.refX   = new Float32Array(N);   // per-bead pin anchor x (absolute)
-        this.refY   = new Float32Array(N);   // per-bead pin anchor y (absolute)
+        this.refX   = new PARTICLE_FLOAT(N);   // per-bead pin anchor x (absolute)
+        this.refY   = new PARTICLE_FLOAT(N);   // per-bead pin anchor y (absolute)
         this.frozen = new Int8Array(N);      // per-bead frozen flag, 0 = mobile
     }
 
@@ -4776,10 +4869,10 @@ class MD2D_CPU {
     // N are dropped by no-op out-of-bounds typed-array writes).
     _adoptArrays(src, N) {
         this.N      = N;
-        this.x      = new Float32Array(src.x);
-        this.y      = new Float32Array(src.y);
-        this.vx     = new Float32Array(src.vx);
-        this.vy     = new Float32Array(src.vy);
+        this.x      = new PARTICLE_FLOAT(src.x);
+        this.y      = new PARTICLE_FLOAT(src.y);
+        this.vx     = new PARTICLE_FLOAT(src.vx);
+        this.vy     = new PARTICLE_FLOAT(src.vy);
         this.type   = new Int8Array(src.type);
         this.charge = src.charge ? new Float32Array(src.charge) : new Float32Array(N);
         this.react  = src.react  ? new Uint8Array(src.react)    : new Uint8Array(N);
@@ -4787,15 +4880,15 @@ class MD2D_CPU {
         // sim) defaults kpin/frozen to 0 (unpinned, mobile) and the anchor to the
         // bead's own position, so a bead pinned later starts tethered where it is.
         this.kpin   = src.kpin   ? new Float32Array(src.kpin)   : new Float32Array(N);
-        this.refX   = src.refX   ? new Float32Array(src.refX)   : new Float32Array(this.x);
-        this.refY   = src.refY   ? new Float32Array(src.refY)   : new Float32Array(this.y);
+        this.refX   = src.refX   ? new PARTICLE_FLOAT(src.refX)   : new PARTICLE_FLOAT(this.x);
+        this.refY   = src.refY   ? new PARTICLE_FLOAT(src.refY)   : new PARTICLE_FLOAT(this.y);
         this.frozen = src.frozen ? new Int8Array(src.frozen)    : new Int8Array(N);
         this.molIdPerParticle = src.molIdPerParticle
             ? new Uint32Array(src.molIdPerParticle)
             : new Uint32Array(N).fill(0xFFFFFFFF);
         // Derived working arrays — fresh and zeroed, never copied from src.
-        this.fx   = new Float32Array(N);
-        this.fy   = new Float32Array(N);
+        this.fx   = new PARTICLE_FLOAT(N);
+        this.fy   = new PARTICLE_FLOAT(N);
         this.next = new Int32Array(N);
     }
 
@@ -4819,7 +4912,7 @@ class MD2D_CPU {
         this._alloc(0);
         this.stepCount = 0;
         this.simTime   = 0;
-        this.rxFormed = 0; this.rxBroken = 0; this.rxEnergy = 0;
+        this.rxFormed = 0; this.rxBroken = 0; this.rxEnergy = 0; this.rxRefused = 0;
         this._setupCells();
         this.nBonds  = 0; this.nAngles = 0;
         this.bondI   = new Int32Array(1);  this.bondJ  = new Int32Array(1);
@@ -4950,6 +5043,10 @@ class MD2D_CPU {
             eShift = erfcRc / rc;
         }
 
+        // Reaction encounter records (v1.28.2): see _rxLatchTables.
+        const LT = _rxLatchTables(this);
+        if (LT) _rxLatchArrays(this);
+        const ltJ = this._ltJ, ltR2 = this._ltR2, rtg = this.react;
         for (let cx = 0; cx < this.nx; cx++) {
             for (let cy = 0; cy < this.ny; cy++) {
                 const c = cx + cy * this.nx;
@@ -4984,6 +5081,13 @@ class MD2D_CPU {
                                 // Binary search of i's sorted slice (v1.24.2; was a Set
                                 // of i·N+j keys — ~2× slower force loop when bonded).
                                 if (hasExI && _exclHas(exO, this.exclList, i, j)) continue;
+                                if (LT && r2 < LT.maxRf2 && rtg[i] && rtg[j]) {
+                                    const R = LT.lut[rtg[i] * 256 + rtg[j]];
+                                    if (R >= 0 && r2 < LT.rf2[R]) {
+                                        if (!(fr && fr[i]) && (ltJ[i] < 0 || r2 < ltR2[i])) { ltJ[i] = j; ltR2[i] = r2; }
+                                        if (!(fr && fr[j]) && (ltJ[j] < 0 || r2 < ltR2[j])) { ltJ[j] = i; ltR2[j] = r2; }
+                                    }
+                                }
 
                                 const tj   = this.type[j];
                                 const sig2 = sigRow[tj];           // σ_mix²
@@ -5068,6 +5172,7 @@ class MD2D_CPU {
             const g = this.gravity, L = this.L;
             const fr = this.frozen;
             let gravPot = 0;
+            const hMin = 1e-3 * WALL_R;
             for (let i = 0; i < this.N; i++) {
                 // Frozen beads are excluded from gravity — both the body force and
                 // the PE.  A frozen bead never moves, so its m·g·(L−y) is a fixed
@@ -5079,6 +5184,18 @@ class MD2D_CPU {
                 this.fy[i] -= m * -this.gravity;
                 // U = m·g·(L−y): zero at the y=L floor (where beads rest), ≥0 above.
                 gravPot += m * g * (L - this.y[i]);
+                // Smooth walls (v1.27.4): bottom at y = 0 pushes +y, top at y = L pushes −y.
+                const yi = this.y[i];
+                if (yi < WALL_R) {
+                    const h = Math.max(yi, hMin), q = WALL_R / h - 1;
+                    gravPot += WALL_EPS * q * q * q;
+                    this.fy[i] += 3 * WALL_EPS * q * q * WALL_R / (h * h);
+                }
+                if (yi > L - WALL_R) {
+                    const h = Math.max(L - yi, hMin), q = WALL_R / h - 1;
+                    gravPot += WALL_EPS * q * q * q;
+                    this.fy[i] -= 3 * WALL_EPS * q * q * WALL_R / (h * h);
+                }
             }
             this.potentialEnergy += gravPot;
         }
@@ -5180,18 +5297,32 @@ class MD2D_CPU {
     _computeBondForces() {
         const fr = this.frozen;
         let bondPot = 0;
+        // Reactive bonds take k, r0 and D from their rule (v1.26.2; see _rxBondLookup).
+        const RL = _rxBondLookup(this), tg = this.react;
+        const LT = _rxLatchTables(this);           // encounter records (v1.28.2)
+        if (LT) _rxLatchArrays(this);
+        const brk = this._ltBrk;
         for (let d = 0; d < this.nBonds; d++) {
             const param = this.bondParamTable[this.bondParamId[d]];
-            const k     = param.k;
-            const r0    = param.r0;
+            let   k     = param.k;
+            let   r0    = param.r0;
             const i     = this.bondI[d];
             const j     = this.bondJ[d];
             // Frozen↔frozen bonds are skipped (constant energy, no motion), as for
             // non-bonded pairs.  Pinned beads feel their bonds like any bead.
             if (fr && fr[i] && fr[j]) continue;
+            if (RL && tg) {
+                const R = RL.idx[tg[i] * 256 + tg[j]];
+                // U = ½k(r−r0)² − D: D is a constant per bond (energy only, no force).
+                if (R >= 0) { k = RL.k[R]; r0 = RL.r0[R]; bondPot -= RL.d[R]; }
+            }
             const dx    = this._pbc (this.x[i] - this.x[j]);
             const dy    = this._pbcY(this.y[i] - this.y[j]);
             const r     = Math.sqrt(dx * dx + dy * dy);
+            if (LT && tg[i] && tg[j]) {
+                const R = LT.lut[tg[i] * 256 + tg[j]];
+                if (R >= 0 && dx * dx + dy * dy > LT.rd2[R]) brk[d] = 1;
+            }
             if (r < 1e-12) continue;
             const dr   = r - r0;
             const fmag = -k * dr / r;
@@ -5237,14 +5368,35 @@ class MD2D_CPU {
             // Exactly straight (s = ±0, c < 0): θ = +π, matching the GPU kernel
             // (atan2(−0, c<0) is −π here but 0 on some GPUs).
             const theta = (s === 0 && c < 0) ? Math.PI : Math.atan2(s, c);
-            let dtheta, pref;
+            let dtheta, pref, uA = -1;
             if (param.chiral === false) {
                 // Non-chiral (π, v1.18.0): the unsigned bend φ = |θ| ∈ [0, π], as in
                 // 3D — a bend and its mirror image are the same.  U = k/2 (φ − θ₀)²,
                 // θ₀ ∈ [0, π]; dφ/dθ = sign(θ), so the chiral gradient is reused.
-                const sgn = theta < 0 ? -1 : 1;
-                dtheta = Math.abs(theta) - theta0;
-                pref   = -k * dtheta * sgn;
+                // Smooth corners (v1.27.1): φ = |θ| folds at straight (θ = ±π) and at
+                // fully folded (θ = 0); for θ₀ short of that corner the harmonic has a
+                // POINTED peak there — the force flips sign instantly and Velocity
+                // Verlet heats at every crossing.  Within half the distance to a corner
+                // (δ = π − θ₀ for straight, θ₀ for folded; u = distance from the corner)
+                // the peak is a quartic cap U = k(5δ²/16 − u² + u⁴/δ²), which matches
+                // the harmonic's value, slope AND curvature at u = δ/2 (C²) and keeps
+                // the curvature within [−2k, k].  θ₀ = π has no corner at straight (and
+                // θ₀ = 0 none at folded): that side is the plain harmonic.
+                // KEEP IN SYNC with the non-chiral branch of the GPU angle kernel.
+                const sgn = theta < 0 ? -1 : 1, phi = Math.abs(theta);
+                const dS = Math.PI - theta0, dF = theta0;
+                let dUdphi;
+                if (dS > 0 && Math.PI - phi < 0.5 * dS) {
+                    const u = Math.PI - phi, q = u * u / (dS * dS);
+                    uA = k * (0.3125 * dS * dS - u * u + q * u * u);
+                    dUdphi = -k * u * (-2 + 4 * q);          // dU/dφ = −dU/du
+                } else if (dF > 0 && phi < 0.5 * dF) {
+                    const q = phi * phi / (dF * dF);
+                    uA = k * (0.3125 * dF * dF - phi * phi + q * phi * phi);
+                    dUdphi = k * phi * (-2 + 4 * q);
+                } else dUdphi = k * (phi - theta0);
+                dtheta = phi - theta0;
+                pref   = -dUdphi * sgn;
             } else {
                 // Chiral (2π): signed θ.  Wrap delta to (−π, π] to avoid
                 // discontinuity artefacts at ±π.
@@ -5253,7 +5405,7 @@ class MD2D_CPU {
                 if (dtheta < -Math.PI) dtheta += 2 * Math.PI;
                 pref   = -k * dtheta;                   // −dU/dθ prefactor
             }
-            anglePot += 0.5 * k * dtheta * dtheta;
+            anglePot += uA >= 0 ? uA : 0.5 * k * dtheta * dtheta;
             const denom = r1sq * r2sq;
             // ∂θ/∂ri  —  rotCW(d2) = (dy2, -dx2)
             const gix = (c * dy2 - s * dx2) / denom;
@@ -5544,11 +5696,36 @@ struct Params {
 // ════════════════════════════════════════════════════════════════════════════
 //  WebGPU Render Shader
 // ════════════════════════════════════════════════════════════════════════════
+// ── Fixed-point positions (v1.28.0) ─────────────────────────────────────────
+// On the GPU a coordinate is a u32: the box [0, L) maps onto [0, 2³²), so the
+// resolution is L/2³² (4.7e-8 for L = 200, the same everywhere) instead of f32's
+// up-to-1.5e-5 at large coordinates.  Periodic wrap is integer overflow (free);
+// the minimum-image difference is the wrapping difference read as i32 (exact);
+// with gravity, y is NOT periodic and differences use the ordered subtraction.
+// Every kernel reads positions only through these helpers.  JS converts with
+// _toFx / _fromFx (upload, readback, live writes, mtDiag).
+const WGSL_FX = `
+const FX_ONE: f32 = 4294967296.0;
+fn fx_abs(p: vec2<u32>, L: f32) -> vec2<f32> { return vec2<f32>(p) * (L / FX_ONE); }
+fn fx_d(a: vec2<u32>, b: vec2<u32>, L: f32, openY: bool) -> vec2<f32> {
+    let k = L / FX_ONE;
+    let dx = f32(bitcast<i32>(a.x - b.x)) * k;
+    var dy = f32(bitcast<i32>(a.y - b.y)) * k;
+    if (openY) { dy = select(-f32(b.y - a.y), f32(a.y - b.y), a.y >= b.y) * k; }
+    return vec2<f32>(dx, dy);
+}
+// Displacement (σ) → fixed-point step; added to a position with wrapping u32 add.
+fn fx_disp(dr: vec2<f32>, L: f32) -> vec2<i32> { return vec2<i32>(round(dr * (FX_ONE / L))); }
+// Distance (σ) from the top wall y = L (exact near it): 2³² − y, wrapping.
+fn fx_top(y: u32, L: f32) -> f32 { return select(f32(0u - y) * (L / FX_ONE), L, y == 0u); }
+`;
+
 const wgslRenderCode = `
 ${WGSL_PARAMS_STRUCT}
 struct Particle {
-    pos: vec2<f32>, vel: vec2<f32>, force: vec2<f32>, pe: f32, pType: f32,
+    pos: vec2<u32>, vel: vec2<f32>, force: vec2<f32>, pe: f32, pType: f32,
 }
+${WGSL_FX}
 
 // x = colour mode, y = radius scale, z = mean speed, w = velocity heatmap half-range.
 @group(0) @binding(0) var<uniform>       renderParams: vec4<f32>;
@@ -5647,9 +5824,10 @@ fn vs_main(@builtin(vertex_index) idx: u32, @builtin(instance_index) slot: u32) 
         vec2<f32>(-1.0,  1.0), vec2<f32>(1.0,  1.0),
     );
 
+    let pa = fx_abs(p.pos, params.L);
     let ndcPos = vec2<f32>(
-         (p.pos.x - camera.x) / params.L * 2.0 * zoom,
-        -(p.pos.y - camera.y) / params.L * 2.0 * zoom,
+         (pa.x - camera.x) / params.L * 2.0 * zoom,
+        -(pa.y - camera.y) / params.L * 2.0 * zoom,
     );
 
     var out: VertexOutput;
@@ -5719,8 +5897,9 @@ struct BondRenderParams {
     sigmaPerType:  vec4<f32>,   // per-type sigma — drives tapered bond width
 }
 struct Particle {
-    pos: vec2<f32>, vel: vec2<f32>, force: vec2<f32>, pe: f32, pType: f32,
+    pos: vec2<u32>, vel: vec2<f32>, force: vec2<f32>, pe: f32, pType: f32,
 }
+${WGSL_FX}
 
 @group(0) @binding(0) var<uniform>       bondRP:     BondRenderParams;
 @group(0) @binding(1) var<storage, read> particles:  array<Particle>;
@@ -5787,9 +5966,9 @@ fn vs_bond(
     let pi = topoBuffer[bondRP.offBondPairs + bondIdx * 4u];
     let pj = topoBuffer[bondRP.offBondPairs + bondIdx * 4u + 1u];
 
-    let posI = particles[pi].pos;
-    let posJ = particles[pj].pos;
     let L    = bondRP.L;
+    let posI = fx_abs(particles[pi].pos, L);
+    let posJ = fx_abs(particles[pj].pos, L);
     let zoom = camera.z;
 
     var dx = posJ.x - posI.x;
@@ -5870,7 +6049,8 @@ struct PmeParams {
     L: f32, s: f32, alpha: f32, Ke: f32,
     scale: f32, invScale: f32, selfCoef: f32, _f0: f32,
 }
-struct Particle { pos: vec2<f32>, vel: vec2<f32>, force: vec2<f32>, pe: f32, pType: f32, }
+struct Particle { pos: vec2<u32>, vel: vec2<f32>, force: vec2<f32>, pe: f32, pType: f32, }
+${WGSL_FX}
 struct BondedParams {
     nBonds: u32, nAngles: u32, offAngleTri: u32, offBondCSR: u32,
     offBondOff: u32, offAngleCSR: u32, offAngleOff: u32, offExclCSR: u32,
@@ -5912,7 +6092,7 @@ fn wrapK(a: i32) -> u32 { let K = i32(pp.K); return u32(((a % K) + K) % K); }
 // Grid coordinates of bead i: u = pos·K/L wrapped to [0,K).
 fn gridU(i: u32) -> vec2<f32> {
     let Kf = f32(pp.K);
-    let u = particles[i].pos * pp.s;
+    let u = vec2<f32>(particles[i].pos) * (f32(pp.K) / FX_ONE);   // = pos·K/L
     return u - Kf * floor(u / Kf);
 }
 
@@ -6036,8 +6216,7 @@ fn pmeGather(@builtin(global_invocation_id) gid: vec3<u32>) {
         let j = topoBuffer[bondedParams.offExclCSR + e];
         let qq = q * bd_charge(j);
         if (qq == 0.0) { continue; }
-        var d = particles[i].pos - particles[j].pos;
-        d = d - pp.L * round(d / pp.L);
+        let d = fx_d(particles[i].pos, particles[j].pos, pp.L, false);   // PME: fully periodic
         let r2 = dot(d, d);
         if (r2 < 1e-12) { continue; }
         let r = sqrt(r2);
@@ -6070,8 +6249,14 @@ fn pmeGather(@builtin(global_invocation_id) gid: vec3<u32>) {
 //   kind 1 (form):  pair i < j matching rule R, closer than r form, not frozen↔
 //                   frozen, not already bonded, and both slots in R free (a slot
 //                   is taken by a bond in R that stays, i.e. length ≤ r break).
-// Entries: vec4<u32>(kind << 16 | ruleSlot, i | bondIdx, j, bitcast(r²)).  The
-// rule slot indexes the ACTIVE-rule list sent in RxParams (tags.z = real index).
+// Entries: 3 × vec4<u32> per event (v1.25.0, for energy-conserving reactions):
+//   [0] (kind << 16 | ruleSlot, i, j, bitcast(r²))
+//   [1] bitcast(v_i.x, v_i.y, v_j.x, v_j.y)      — velocities at the check
+//   [2] (bitcast(dx), bitcast(dy), bondIdx, 0)   — r_i − r_j (min. image); bondIdx for breaks
+//   kind 3 (v1.27.0, displacement context): a bond (i, j) of a candidate bead that
+//                   the candidate's rule would displace — only its velocities and
+//                   geometry are used (JS decides from its own bond arrays).
+// The rule slot indexes the ACTIVE-rule list sent in RxParams (tags.z = real index).
 // The grid is the one binned by the last step — valid, positions haven't moved.
 // RxParams byte size: 16-byte header + two vec4 arrays of REACT_RULE_MAX.
 const REACT_PARAMS_BYTES = 16 + 2 * 16 * REACT_RULE_MAX;
@@ -6079,8 +6264,9 @@ const wgslReactCode = `
 ${WGSL_PARAMS_STRUCT}
 @group(0) @binding(0) var<uniform> params: Params;
 struct Particle {
-    pos: vec2<f32>, vel: vec2<f32>, force: vec2<f32>, pe: f32, pType: f32,
+    pos: vec2<u32>, vel: vec2<f32>, force: vec2<f32>, pe: f32, pType: f32,
 }
+${WGSL_FX}
 @group(0) @binding(1) var<storage, read> particles:    array<Particle>;
 @group(0) @binding(2) var<storage, read> gridCounters: array<u32>;
 @group(0) @binding(3) var<storage, read> gridCells:    array<u32>;
@@ -6088,24 +6274,36 @@ struct Particle {
 @group(0) @binding(5) var<storage, read> topoBuffer:   array<u32>;
 struct RxParams {
     nRules: u32, cap: u32, offBondCSR: u32, offBondOff: u32,
-    tags: array<vec4<u32>, ${REACT_RULE_MAX}>,   // a, b, real rule index, 0
-    dist: array<vec4<f32>, ${REACT_RULE_MAX}>,   // r form², r break², 0, 0
+    tags: array<vec4<u32>, ${REACT_RULE_MAX}>,   // a, b, real rule index, displaced pair (1<<16 | a1<<8 | b1, 0 = none)
+    dist: array<vec4<f32>, ${REACT_RULE_MAX}>,   // r form², r break², (dist[0].z max r form²), midpoint²
 }
 @group(0) @binding(6) var<uniform> rx: RxParams;
 struct RxOut { count: atomic<u32>, _p0: u32, _p1: u32, _p2: u32, e: array<vec4<u32>>, }
 @group(0) @binding(7) var<storage, read_write> rxOut: RxOut;
+// Encounter records written by the force / bond kernels since the last check (v1.28.2).
+struct LtEntry { j1: f32, r2: f32, brk: f32, _a: f32, _b: f32, }
+@group(0) @binding(8) var<storage, read> lt: array<LtEntry>;
+fn lt_base() -> u32 { return params.boostCount.w + 65u * params.boostCount.z; }
+// Did bond bondIdx of bead b go past r break since the last check (b's own record)?
+fn rx_brk_of(b: u32, bondIdx: u32) -> bool {
+    let m = u32(lt[lt_base() + b].brk);
+    if (m == 0u) { return false; }
+    let lo = topoBuffer[rx.offBondOff + b];
+    let hi = topoBuffer[rx.offBondOff + b + 1u];
+    for (var e = lo; e < hi; e++) {
+        if (topoBuffer[rx.offBondCSR + e] == bondIdx) { let s = e - lo; return s < 24u && ((m >> s) & 1u) != 0u; }
+    }
+    return false;
+}
+// Either end saw it (a frozen end has no thread, so it never records).
+fn rx_will_break(a: u32, b: u32, bondIdx: u32) -> bool { return rx_brk_of(a, bondIdx) || rx_brk_of(b, bondIdx); }
 
 fn rx_frozen(i: u32) -> bool { return beadData[i * 2u].w > 0.5; }
 fn rx_tag(i: u32)    -> u32  { return u32(beadData[i * 2u + 1u].y + 0.5); }
-fn rx_d2(i: u32, j: u32) -> f32 {
-    var d = particles[i].pos - particles[j].pos;
-    let L = params.L;
-    if (d.x >  0.5 * L) { d.x -= L; } else if (d.x < -0.5 * L) { d.x += L; }
-    if (params.gravityOn == 0u) {
-        if (d.y >  0.5 * L) { d.y -= L; } else if (d.y < -0.5 * L) { d.y += L; }
-    }
-    return dot(d, d);
+fn rx_dvec(i: u32, j: u32) -> vec2<f32> {
+    return fx_d(particles[i].pos, particles[j].pos, params.L, params.gravityOn != 0u);
 }
+fn rx_d2(i: u32, j: u32) -> f32 { let d = rx_dvec(i, j); return dot(d, d); }
 fn rx_rule(ta: u32, tb: u32) -> i32 {
     for (var r = 0u; r < rx.nRules; r++) {
         let t = rx.tags[r];
@@ -6113,14 +6311,35 @@ fn rx_rule(ta: u32, tb: u32) -> i32 {
     }
     return -1;
 }
-fn rx_emit(v: vec4<u32>) {
+fn rx_emit(head: vec4<u32>, i: u32, j: u32, bondIdx: u32) {
     let k = atomicAdd(&rxOut.count, 1u);
-    if (k < rx.cap) { rxOut.e[k] = v; }
+    if (k < rx.cap) {
+        let vi = particles[i].vel; let vj = particles[j].vel; let d = rx_dvec(i, j);
+        rxOut.e[3u * k]      = head;
+        rxOut.e[3u * k + 1u] = vec4<u32>(bitcast<u32>(vi.x), bitcast<u32>(vi.y), bitcast<u32>(vj.x), bitcast<u32>(vj.y));
+        rxOut.e[3u * k + 2u] = vec4<u32>(bitcast<u32>(d.x), bitcast<u32>(d.y), bondIdx, 0u);
+    }
 }
 fn rx_partner(e: u32, b: u32) -> u32 {
     let base = topoBuffer[rx.offBondCSR + e] * 4u;
     let p0 = topoBuffer[base];
     return select(p0, topoBuffer[base + 1u], p0 == b);
+}
+// Displacement (v1.27.0): context entries (kind 3) for bead b's bonds with the
+// displaced tag pair packed in xw, so JS has their velocities and geometry.
+fn rx_emit_disp(b: u32, xw: u32) {
+    let xa = (xw >> 8u) & 255u;
+    let xb = xw & 255u;
+    let tb = rx_tag(b);
+    let lo = topoBuffer[rx.offBondOff + b];
+    let hi = topoBuffer[rx.offBondOff + b + 1u];
+    for (var e = lo; e < hi; e++) {
+        let p = rx_partner(e, b);
+        let tp = rx_tag(p);
+        if ((tb == xa && tp == xb) || (tb == xb && tp == xa)) {
+            rx_emit(vec4<u32>(3u << 16u, b, p, 0u), b, p, topoBuffer[rx.offBondCSR + e]);
+        }
+    }
 }
 // Is bead b's slot in rule R taken by a bond that stays (length ≤ r break)?
 fn rx_occupied(b: u32, R: i32) -> bool {
@@ -6129,7 +6348,10 @@ fn rx_occupied(b: u32, R: i32) -> bool {
     let hi = topoBuffer[rx.offBondOff + b + 1u];
     for (var e = lo; e < hi; e++) {
         let p = rx_partner(e, b);
-        if (rx_rule(tb, rx_tag(p)) == R && rx_d2(b, p) <= rx.dist[u32(R)].y) { return true; }
+        if (rx_rule(tb, rx_tag(p)) == R) {
+            let d2 = rx_d2(b, p);
+            if (d2 <= rx.dist[u32(R)].y && !(d2 > rx.dist[u32(R)].w && rx_will_break(b, p, topoBuffer[rx.offBondCSR + e]))) { return true; }
+        }
     }
     return false;
 }
@@ -6159,9 +6381,10 @@ fn rxDetect(@builtin(global_invocation_id) id: vec3<u32>) {
         let R = rx_rule(ti, rx_tag(p));
         if (R < 0) { continue; }
         let dd = rx_d2(i, p);
-        if (dd > rx.dist[u32(R)].y) {
+        // past r break now, or recorded past it AND still beyond the midpoint (v1.28.2)
+        if (dd > rx.dist[u32(R)].y || (dd > rx.dist[u32(R)].w && rx_will_break(i, p, topoBuffer[rx.offBondCSR + e]))) {
             if (i < p) {
-                rx_emit(vec4<u32>((2u << 16u) | u32(R), topoBuffer[rx.offBondCSR + e], 0u, bitcast<u32>(dd)));
+                rx_emit(vec4<u32>((2u << 16u) | u32(R), i, p, bitcast<u32>(dd)), i, p, topoBuffer[rx.offBondCSR + e]);
             }
         } else {
             occI = occI | (1u << u32(R));
@@ -6170,7 +6393,7 @@ fn rxDetect(@builtin(global_invocation_id) id: vec3<u32>) {
 
     // Formation candidates from the 3×3 neighbour cells.
     let fi = rx_frozen(i);
-    let pi = particles[i].pos;
+    let pi = fx_abs(particles[i].pos, params.L);
     var cx = u32(pi.x / params.cellSize);
     var cy = u32(pi.y / params.cellSize);
     if (cx >= params.nx) { cx = params.nx - 1u; }
@@ -6193,20 +6416,56 @@ fn rxDetect(@builtin(global_invocation_id) id: vec3<u32>) {
                 let dd = rx_d2(i, j);
                 if (dd >= rx.dist[u32(R)].x) { continue; }
                 if (rx_bonded(i, j) || rx_occupied(j, R)) { continue; }
-                rx_emit(vec4<u32>((1u << 16u) | u32(R), i, j, bitcast<u32>(dd)));
+                rx_emit(vec4<u32>((1u << 16u) | u32(R), i, j, bitcast<u32>(dd)), i, j, 0u);
+                let xw = rx.tags[u32(R)].w;
+                if (xw != 0u) { rx_emit_disp(i, xw); rx_emit_disp(j, xw); }
+            }
+        }
+    }
+
+    // Encounter since the last check (v1.28.2), kind 4: i's closest qualifying
+    // partner.  Only if not in range NOW (then the sweep above has it) and still
+    // closer than the midpoint of r form and r break: a pair that has moved most
+    // of the way apart has undone the encounter (the mirror of the break rule).
+    let rec = lt[lt_base() + i];
+    let lj1 = u32(rec.j1);
+    if (lj1 != 0u && lj1 <= params.N) {
+        let j = lj1 - 1u;
+        let tj = rx_tag(j);
+        if (j != i && tj != 0u) {
+            let R = rx_rule(ti, tj);
+            if (R >= 0 && !(fi && rx_frozen(j)) && ((occI >> u32(R)) & 1u) == 0u) {
+                let dd = rx_d2(i, j);
+                if (dd >= rx.dist[u32(R)].x && dd < rx.dist[u32(R)].w && !rx_bonded(i, j) && !rx_occupied(j, R)) {
+                    rx_emit(vec4<u32>((4u << 16u) | u32(R), i, j, bitcast<u32>(rec.r2)), i, j, 0u);
+                    let xw = rx.tags[u32(R)].w;
+                    if (xw != 0u) { rx_emit_disp(i, xw); rx_emit_disp(j, xw); }
+                }
             }
         }
     }
 }
 `;
 
+// Smooth gravity walls (v1.27.4).  With gravity on, y is bounded by walls at
+// y = 0 and y = L.  They were hard mirrors (reflect position, flip v_y) — exact
+// in continuous time, but inserted mid-step they broke Velocity Verlet's energy
+// bookkeeping at every bounce (NVE drift +5e-4 ε/bead/τ at dt 0.02).  Now each
+// wall is a smooth, purely repulsive potential of the bead's distance h to it:
+//     U(h) = ε_w (r_w/h − 1)³  for h < r_w,  0 beyond
+// (Wang–Frenkel with its cutoff at σ: μ = ½, ν = 1) — U, F and U'' all vanish at
+// r_w, and it rises like 1/h³.  Same on CPU and GPU (KEEP IN SYNC).  The mirror
+// stays in the integrators only as a safety net for a pathological jump past it.
+const WALL_R = 1.0, WALL_EPS = 1.0;
+
 const wgslCode = `
 ${WGSL_PARAMS_STRUCT}
 @group(0) @binding(0) var<uniform> params: Params;
 
 struct Particle {
-    pos: vec2<f32>, vel: vec2<f32>, force: vec2<f32>, pe: f32, pType: f32,
+    pos: vec2<u32>, vel: vec2<f32>, force: vec2<f32>, pe: f32, pType: f32,
 }
+${WGSL_FX}
 @group(0) @binding(1) var<storage, read_write> particles: array<Particle>;
 @group(0) @binding(2) var<storage, read_write> gridCounters: array<atomic<u32>>;
 @group(0) @binding(3) var<storage, read_write> gridCells: array<u32>;
@@ -6226,12 +6485,40 @@ struct BondedParams {
 @group(0) @binding(6) var<uniform>       bondedParams: BondedParams;
 @group(0) @binding(7) var<storage, read> topoBuffer:   array<u32>;
 
-struct BondParam  { k: f32, r0: f32, _p0: f32, _p1: f32, }
+// Entries [0, table) = each bond's own params; [table, table + REACT_RULE_MAX) =
+// one per reaction rule (v1.26.2): bonds whose tags match a rule point there.
+struct BondParam  { k: f32, r0: f32, d: f32, _p1: f32, }
 @group(0) @binding(10) var<storage, read> bondParams:  array<BondParam>;
 
 // chiral: 1 = signed angle (2π), 0 = unsigned bend |θ| (π, non-chiral) — v1.18.0.
 struct AngleParam { k: f32, theta0: f32, chiral: f32, _p1: f32, }
 @group(0) @binding(11) var<storage, read> angleParams: array<AngleParam>;
+
+// ── Reaction encounter records (v1.28.2) ──────────────────────────────────────
+// Between two reaction checks every force evaluation records, per reactive bead,
+// its CLOSEST partner that matches an active rule and came within r form (non-
+// excluded pairs only), and per bead which of its bonds (CSR slot bit, slots < 24)
+// went past r break.  rxDetect turns them into events at the check, so a check
+// every M steps sees everything that happened in between: M sets only WHEN an
+// event is applied, not WHETHER it is seen.  Stored in reductionBuffer entries
+// lt_base() + i (after the tweezers block): .sumVsq = f32(partner + 1) (0 = none),
+// .sumPE = that r², .sumSpeed = f32(break mask).  Cleared after each check.
+// The rule table is the rxDetect params buffer (same layout as RxParams).
+struct RxLatchP {
+    nRules: u32, cap: u32, offBondCSR: u32, offBondOff: u32,
+    tags: array<vec4<u32>, ${REACT_RULE_MAX}>,   // a, b, real rule index, displacement
+    dist: array<vec4<f32>, ${REACT_RULE_MAX}>,   // r form², r break², (dist[0].z = max r form²), 0
+}
+@group(0) @binding(12) var<uniform> rxL: RxLatchP;
+fn lt_tag(i: u32) -> u32 { return u32(beadData[i * 2u + 1u].y + 0.5); }
+fn lt_rule(ta: u32, tb: u32) -> i32 {
+    for (var r = 0u; r < rxL.nRules; r++) {
+        let t = rxL.tags[r];
+        if ((t.x == ta && t.y == tb) || (t.x == tb && t.y == ta)) { return i32(r); }
+    }
+    return -1;
+}
+fn lt_base() -> u32 { return params.boostCount.w + 65u * params.boostCount.z; }
 
 // Per-bead charge and pin state are folded into the single beadData buffer
 // above (accessors bd_charge / bd_pin), keeping the compute stage at 8 storage
@@ -6254,6 +6541,24 @@ struct IntegratorParams {
 }
 @group(0) @binding(9) var<uniform> intgParams: IntegratorParams;
 
+// Periodic wrap of one coordinate into [0, L) (v1.27.2).  Only a bead that LEFT
+// the box is touched: (x % L + L) % L re-rounded EVERY coordinate every step to
+// the f32 grid of x + L (≈1.5–3e-5 for L = 200), a dt-independent jiggle whose
+// share of each move grows as dt shrinks — NVE drift that got worse at small dt.
+// A tiny negative x can round x + L up to exactly L: the second test catches it.
+fn wrap_pbc(v: f32, L: f32) -> f32 {
+    var x = v;
+    if (x < 0.0) { x += L; }
+    if (x >= L) { x -= L; }
+    return x;
+}
+// Smooth gravity wall at distance h (v1.27.4): (force away from the wall, U).
+fn wall_term(h0: f32) -> vec2<f32> {
+    if (h0 >= ${WALL_R.toFixed(6)}) { return vec2<f32>(0.0); }
+    let h = max(h0, ${(1e-3 * WALL_R).toExponential(6)});
+    let q = ${WALL_R.toFixed(6)} / h - 1.0;
+    return vec2<f32>(3.0 * ${WALL_EPS.toFixed(6)} * q * q * ${WALL_R.toFixed(6)} / (h * h), ${WALL_EPS.toFixed(6)} * q * q * q);
+}
 fn get_pbc_dist(dx: f32, dy: f32, L: f32) -> vec2<f32> {
     var rx = dx; var ry = dy;
     if (rx >  0.5 * L) { rx -= L; } else if (rx < -0.5 * L) { rx += L; }
@@ -6348,18 +6653,21 @@ fn step1_and_build(@builtin(global_invocation_id) id: vec3<u32>) {
     } else {
         let massI = params.massPerType[u32(p.pType) % 4u];
         p.vel += p.force * (params.dt * 0.5 / massI);
-        p.pos += p.vel * params.dt;
-        p.pos.x = (p.pos.x % params.L + params.L) % params.L;
-        if (params.gravityOn == 0u) {
-            p.pos.y = (p.pos.y % params.L + params.L) % params.L;
-        } else {
-            if (p.pos.y < 0.0)        { p.pos.y = -p.pos.y;              p.vel.y =  abs(p.vel.y); }
-            if (p.pos.y > params.L)   { p.pos.y = 2.0*params.L-p.pos.y; p.vel.y = -abs(p.vel.y); }
+        // Fixed point (v1.28.0): periodic wrap is the u32 overflow.
+        let d = fx_disp(p.vel * params.dt, params.L);
+        let oy = p.pos.y;
+        p.pos = p.pos + bitcast<vec2<u32>>(d);
+        if (params.gravityOn != 0u) {
+            // y is bounded by the walls; a jump past one shows up as a wrap of the
+            // u32 against the direction of the move — mirror it (safety net).
+            if (d.y < 0 && p.pos.y > oy)      { p.pos.y = 0u - p.pos.y; p.vel.y =  abs(p.vel.y); }
+            else if (d.y > 0 && p.pos.y < oy) { p.pos.y = 0u - p.pos.y; p.vel.y = -abs(p.vel.y); }
         }
         particles[i] = p;
     }
-    var cx = u32(p.pos.x / params.cellSize);
-    var cy = u32(p.pos.y / params.cellSize);
+    let pab = fx_abs(p.pos, params.L);
+    var cx = u32(pab.x / params.cellSize);
+    var cy = u32(pab.y / params.cellSize);
     if (cx >= params.nx) { cx = params.nx - 1u; }
     if (cy >= params.ny) { cy = params.ny - 1u; }
     let cellIdx = cx + cy * params.nx;
@@ -6382,7 +6690,13 @@ fn step1_sd(@builtin(global_invocation_id) id: vec3<u32>) {
     if (bd_pin(i).w > 0.5) { p.vel = vec2<f32>(0.0); particles[i] = p; return; }
     let massI = params.massPerType[u32(p.pType) % 4u];
     p.vel += p.force * (params.dt * 0.5 / massI);
-    p.pos += p.vel * (params.dt * 0.5);
+    let d = fx_disp(p.vel * (params.dt * 0.5), params.L);
+    let oy = p.pos.y;
+    p.pos = p.pos + bitcast<vec2<u32>>(d);
+    if (params.gravityOn != 0u) {
+        if (d.y < 0 && p.pos.y > oy)      { p.pos.y = 0u - p.pos.y; p.vel.y =  abs(p.vel.y); }
+        else if (d.y > 0 && p.pos.y < oy) { p.pos.y = 0u - p.pos.y; p.vel.y = -abs(p.vel.y); }
+    }
     particles[i] = p;
 }
 
@@ -6417,18 +6731,20 @@ fn step2_sd_build(@builtin(global_invocation_id) id: vec3<u32>) {
         particles[i] = p;
     } else {
         let massI = params.massPerType[u32(p.pType) % 4u];
-        p.pos += p.vel * (params.dt * 0.5);
-        p.pos.x = (p.pos.x % params.L + params.L) % params.L;
-        if (params.gravityOn == 0u) {
-            p.pos.y = (p.pos.y % params.L + params.L) % params.L;
-        } else {
-            if (p.pos.y < 0.0)        { p.pos.y = -p.pos.y;              p.vel.y =  abs(p.vel.y); }
-            if (p.pos.y > params.L)   { p.pos.y = 2.0*params.L-p.pos.y; p.vel.y = -abs(p.vel.y); }
+        let d = fx_disp(p.vel * (params.dt * 0.5), params.L);
+        let oy = p.pos.y;
+        p.pos = p.pos + bitcast<vec2<u32>>(d);
+        if (params.gravityOn != 0u) {
+            // y is bounded by the walls; a jump past one shows up as a wrap of the
+            // u32 against the direction of the move — mirror it (safety net).
+            if (d.y < 0 && p.pos.y > oy)      { p.pos.y = 0u - p.pos.y; p.vel.y =  abs(p.vel.y); }
+            else if (d.y > 0 && p.pos.y < oy) { p.pos.y = 0u - p.pos.y; p.vel.y = -abs(p.vel.y); }
         }
         particles[i] = p;
     }
-    var cx = u32(p.pos.x / params.cellSize);
-    var cy = u32(p.pos.y / params.cellSize);
+    let pab = fx_abs(p.pos, params.L);
+    var cx = u32(pab.x / params.cellSize);
+    var cy = u32(pab.y / params.cellSize);
     if (cx >= params.nx) { cx = params.nx - 1u; }
     if (cy >= params.ny) { cy = params.ny - 1u; }
     let cellIdx = cx + cy * params.nx;
@@ -6490,9 +6806,15 @@ fn computeForces(@builtin(global_invocation_id) id: vec3<u32>) {
     let exclLo_i  = topoBuffer[bondedParams.offExclOff + i];
     let exclHi_i  = topoBuffer[bondedParams.offExclOff + i + 1u];
     let hasExcl_i = exclHi_i > exclLo_i;
+    // Reaction encounter record (v1.28.2): closest qualifying partner this step.
+    let ltTi  = select(0u, lt_tag(i), rxL.nRules > 0u);
+    let ltMax = rxL.dist[0].z;
+    var ltJ: u32 = 0u;
+    var ltR2: f32 = 0.0;
 
-    var cx = u32(p_i.pos.x / params.cellSize);
-    var cy = u32(p_i.pos.y / params.cellSize);
+    let pia = fx_abs(p_i.pos, params.L);
+    var cx = u32(pia.x / params.cellSize);
+    var cy = u32(pia.y / params.cellSize);
     if (cx >= params.nx) { cx = params.nx - 1u; }
     if (cy >= params.ny) { cy = params.ny - 1u; }
 
@@ -6514,11 +6836,7 @@ fn computeForces(@builtin(global_invocation_id) id: vec3<u32>) {
                 let eps      = params.epsMatrix[type_i][type_j];
                 let sigmaSq  = params.sigmaSqMix[type_i][type_j];
                 let rcSq     = params.rcSq;  // single absolute cutoff for all pairs
-                let d      = get_pbc_dist(
-                    p_i.pos.x - p_j.pos.x,
-                    p_i.pos.y - p_j.pos.y,
-                    params.L
-                );
+                let d      = fx_d(p_i.pos, p_j.pos, params.L, params.gravityOn != 0u);
                 let r2 = dot(d, d);
 
                 // Non-bonded pair potential (potType 0 = Mie, 1 = Wang-Frenkel)
@@ -6530,6 +6848,13 @@ fn computeForces(@builtin(global_invocation_id) id: vec3<u32>) {
                     // which is a large reduction in how often it runs (dense bonded
                     // regions have the fullest cells, so this is where it matters).
                     if (hasExcl_i && excl_contains(exclLo_i, exclHi_i, j)) { continue; }
+                    if (ltTi != 0u && r2 < ltMax) {
+                        let ltTj = lt_tag(j);
+                        if (ltTj != 0u) {
+                            let R = lt_rule(ltTi, ltTj);
+                            if (R >= 0 && r2 < rxL.dist[u32(R)].x && (ltJ == 0u || r2 < ltR2)) { ltJ = j + 1u; ltR2 = r2; }
+                        }
+                    }
                     var f_mag: f32;
                     var u_pair: f32;
                     if (params.potType == 1u) {
@@ -6602,12 +6927,15 @@ fn computeForces(@builtin(global_invocation_id) id: vec3<u32>) {
 
     if (params.gravityOn != 0u) {
         force.y -= params.massPerType[type_i] * -params.gravity;
+        let wb = wall_term(f32(particles[i].pos.y) * (params.L / FX_ONE));   // bottom wall, pushes +y
+        let wt = wall_term(fx_top(particles[i].pos.y, params.L));            // top wall, pushes −y
+        force.y += wb.x - wt.x;
     }
     // Boosters: each enabled box adds its constant force to beads inside it.  Same
     // force for all beads (not mass-scaled).  Frozen beads already early-returned
     // above.  Overlapping boxes sum.  boostCount.x is the live box count.
     {
-        let p = particles[i].pos;
+        let p = fx_abs(particles[i].pos, params.L);
         let nb = params.boostCount.x;
         for (var k: u32 = 0u; k < nb; k = k + 1u) {
             let vec = params.boostVecs[k];
@@ -6622,7 +6950,7 @@ fn computeForces(@builtin(global_invocation_id) id: vec3<u32>) {
     // Optical tweezers (v1.21.1): Gaussian trap U = −U₀·α·exp(−2r²/w₀²) — must
     // match MD2D_CPU._computeTweezersForces.  Frozen beads early-returned above.  Its PE is one-sided (full
     // weight, added after the pair halving, like gravity); no virial.
-    let tz = tz_eval(particles[i].pos, type_i);
+    let tz = tz_eval(fx_abs(particles[i].pos, params.L), type_i);
     force += tz.xy;
     let tzPE = tz.z;
     particles[i].force = force;
@@ -6633,6 +6961,12 @@ fn computeForces(@builtin(global_invocation_id) id: vec3<u32>) {
     // Σ r_i·F_i on wrapped positions, which the old reduction used.  Gravity and
     // boosters are external forces and are deliberately left out (as on the CPU).
     reductionBuffer[params.boostCount.w + i].virial = vir_share * 0.5;
+    if (ltJ != 0u) {   // keep the closest encounter since the last check (only thread i writes entry i)
+        let e = lt_base() + i;
+        if (reductionBuffer[e].sumVsq < 0.5 || ltR2 < reductionBuffer[e].sumPE) {
+            reductionBuffer[e].sumVsq = f32(ltJ); reductionBuffer[e].sumPE = ltR2;
+        }
+    }
     // Gravitational PE, added at FULL weight (one-sided per-bead term, not a pair
     // — same convention as the pin PE), AFTER the ×0.5 pair halving so it isn't
     // itself halved.  U = m·g·(L−y): zero at the y=L floor, ≥0.  Frozen beads are
@@ -6640,7 +6974,9 @@ fn computeForces(@builtin(global_invocation_id) id: vec3<u32>) {
     // fixed m·g·(L−y) never enters the total — E_tot then tracks the mobile
     // subsystem, which is what the conservation readout is meant to watch.
     if (params.gravityOn != 0u) {
-        particles[i].pe += params.massPerType[type_i] * params.gravity * (params.L - particles[i].pos.y);
+        let hTop = fx_top(particles[i].pos.y, params.L);
+        particles[i].pe += params.massPerType[type_i] * params.gravity * hTop
+                         + wall_term(f32(particles[i].pos.y) * (params.L / FX_ONE)).y + wall_term(hTop).y;
     }
 }
 
@@ -6656,7 +6992,7 @@ fn step2(@builtin(global_invocation_id) id: vec3<u32>) {
     // mirrors MD2D_CPU._applyBoosterScaling().  pow() base is clamped > 0 on host.
     let nb = params.boostCount.x;
     if (nb > 0u) {
-        let p = particles[i].pos;
+        let p = fx_abs(particles[i].pos, params.L);
         for (var k: u32 = 0u; k < nb; k = k + 1u) {
             let vec = params.boostVecs[k];
             if (vec.z == 0.0 || vec.w == 0.0) { continue; }  // disabled, or vector-mode
@@ -6686,6 +7022,8 @@ fn computeBondForces(@builtin(global_invocation_id) id: vec3<u32>) {
     var f     = vec2<f32>(0.0);
     var pe    = 0.0;
     var vir   = 0.0;
+    var ltBrk = 0u;    // reaction encounter record (v1.28.2): slots past r break
+    let ltTi  = select(0u, lt_tag(i), rxL.nRules > 0u);
     for (var b = start; b < end; b++) {
         let bondIdx    = topoBuffer[bondedParams.offBondCSR + b];
         let base       = bondIdx * 4u;
@@ -6695,12 +7033,20 @@ fn computeBondForces(@builtin(global_invocation_id) id: vec3<u32>) {
         let j          = select(bj, bi, bi != i);
         let bondK      = bondParams[bondParamId].k;
         let bondR0     = bondParams[bondParamId].r0;
-        let d  = get_pbc_dist(
-            particles[i].pos.x - particles[j].pos.x,
-            particles[i].pos.y - particles[j].pos.y,
-            params.L
-        );
+        // Bond energy D (0 except for a rule's entry): −D per bond, half from each
+        // end (both halves when the partner is frozen), booked before the r≈0
+        // skip as on the CPU.
+        let wD = select(1.0, 2.0, bd_pin(j).w > 0.5);
+        pe -= wD * 0.5 * bondParams[bondParamId].d;
+        let d  = fx_d(particles[i].pos, particles[j].pos, params.L, params.gravityOn != 0u);
         let r = length(d);
+        if (ltTi != 0u && (b - start) < 24u) {
+            let ltTj = lt_tag(j);
+            if (ltTj != 0u) {
+                let R = lt_rule(ltTi, ltTj);
+                if (R >= 0 && r * r > rxL.dist[u32(R)].y) { ltBrk = ltBrk | (1u << (b - start)); }
+            }
+        }
         if (r < 1e-6) { continue; }
         let dr   = r - bondR0;
         let fmag = -bondK * dr / r;
@@ -6714,6 +7060,10 @@ fn computeBondForces(@builtin(global_invocation_id) id: vec3<u32>) {
     particles[i].force += f;
     particles[i].pe    += pe;
     reductionBuffer[params.boostCount.w + i].virial += vir;
+    if (ltBrk != 0u) {
+        let e = lt_base() + i;
+        reductionBuffer[e].sumSpeed = f32(u32(reductionBuffer[e].sumSpeed) | ltBrk);
+    }
 }
 
 // Harmonic pins (position restraints).  Mirrors the CPU _computePinForces: each bead
@@ -6733,11 +7083,10 @@ fn computePinForces(@builtin(global_invocation_id) id: vec3<u32>) {
     // A frozen bead is kinematically fixed, so a pin on it does nothing and its
     // ½k·dr² would only pollute the potential energy — skip it (frozen wins).
     if (pin.w > 0.5) { return; }
-    let d = get_pbc_dist(
-        particles[i].pos.x - pin.x,
-        particles[i].pos.y - pin.y,
-        params.L
-    );
+    // The anchor (f32, absolute) goes to fixed point once: it is constant, so the
+    // force and the energy stay consistent; the bead side keeps full resolution.
+    let anc = vec2<u32>(min(pin.xy * (FX_ONE / params.L), vec2<f32>(4294967040.0)));
+    let d = fx_d(particles[i].pos, anc, params.L, params.gravityOn != 0u);
     particles[i].force += -k * d;
     // Bond pe is ×0.25 because two beads each accumulate the same bond and the
     // energy reduction sums per-bead contributions (2 × 0.25 = 0.5·k·dr²). A pin
@@ -6776,16 +7125,8 @@ fn computeAngleForces(@builtin(global_invocation_id) id: vec3<u32>) {
         let angleParamId = topoBuffer[base + 3u];
         let angleK  = angleParams[angleParamId].k;
         let theta0  = angleParams[angleParamId].theta0;
-        let d1 = get_pbc_dist(
-            particles[ai].pos.x - particles[aj].pos.x,
-            particles[ai].pos.y - particles[aj].pos.y,
-            params.L
-        );
-        let d2 = get_pbc_dist(
-            particles[ak].pos.x - particles[aj].pos.x,
-            particles[ak].pos.y - particles[aj].pos.y,
-            params.L
-        );
+        let d1 = fx_d(particles[ai].pos, particles[aj].pos, params.L, params.gravityOn != 0u);
+        let d2 = fx_d(particles[ak].pos, particles[aj].pos, params.L, params.gravityOn != 0u);
         let r1sq = dot(d1, d1);
         let r2sq = dot(d2, d2);
         if (r1sq < 1e-12 || r2sq < 1e-12) { continue; }
@@ -6798,12 +7139,30 @@ fn computeAngleForces(@builtin(global_invocation_id) id: vec3<u32>) {
         if (s == 0.0 && c < 0.0) { theta = 3.14159265359; }
         var dtheta: f32;
         var pref: f32;
+        var uA: f32 = -1.0;
         if (angleParams[angleParamId].chiral < 0.5) {
-            // Non-chiral (π): unsigned bend |θ|; dφ/dθ = sign(θ) (mirrors the CPU).
+            // Non-chiral (π): unsigned bend |θ|; dφ/dθ = sign(θ) (mirrors the CPU),
+            // with the C² quartic caps at the straight / folded corners (v1.27.1).
             var sgn = 1.0;
             if (theta < 0.0) { sgn = -1.0; }
-            dtheta = abs(theta) - theta0;
-            pref   = -angleK * dtheta * sgn;
+            let phi = abs(theta);
+            let dS = 3.14159265359 - theta0;
+            let dF = theta0;
+            var dUdphi: f32;
+            if (dS > 0.0 && 3.14159265359 - phi < 0.5 * dS) {
+                let u = 3.14159265359 - phi;
+                let q = u * u / (dS * dS);
+                uA = angleK * (0.3125 * dS * dS - u * u + q * u * u);
+                dUdphi = -angleK * u * (-2.0 + 4.0 * q);
+            } else if (dF > 0.0 && phi < 0.5 * dF) {
+                let q = phi * phi / (dF * dF);
+                uA = angleK * (0.3125 * dF * dF - phi * phi + q * phi * phi);
+                dUdphi = angleK * phi * (-2.0 + 4.0 * q);
+            } else {
+                dUdphi = angleK * (phi - theta0);
+            }
+            dtheta = phi - theta0;
+            pref   = -dUdphi * sgn;
         } else {
             // Chiral (2π): signed θ, delta wrapped to (−π,π].
             dtheta = theta - theta0;
@@ -6817,7 +7176,7 @@ fn computeAngleForces(@builtin(global_invocation_id) id: vec3<u32>) {
         let nActive = f32(select(1u, 0u, bd_pin(ai).w > 0.5) +
                           select(1u, 0u, bd_pin(aj).w > 0.5) +
                           select(1u, 0u, bd_pin(ak).w > 0.5));
-        pe += (0.5 * angleK * dtheta * dtheta) / nActive;
+        pe += select(0.5 * angleK * dtheta * dtheta, uA, uA >= 0.0) / nActive;
         let denom = r1sq * r2sq;
         // ∂θ/∂ai : rotCW(d2) = (d2.y, -d2.x)
         let gi = vec2<f32>(c * d2.y - s * d2.x, c * (-d2.x) - s * d2.y) / denom;
@@ -6912,7 +7271,7 @@ fn reduceBoxTemps(
         if ((mask & (1u << k)) == 0u) { continue; }   // uniform: mask lives in the uniform buffer
         var a = 0.0; var c = 0.0;
         if (i < params.N && bd_pin(i).w < 0.5) {       // skip frozen beads
-            let p = particles[i].pos;
+            let p = fx_abs(particles[i].pos, params.L);
             let r = params.boostRects[k];
             if (p.x >= r.x && p.x <= r.z && p.y >= r.y && p.y <= r.w) {
                 let v = particles[i].vel;
@@ -6958,7 +7317,7 @@ fn reduceTweezers(
     let i = gid.x; let li = lid.x;
     var t = vec4<f32>(0.0);
     if (i < params.N && bd_pin(i).w < 0.5) {          // frozen beads ignore the laser
-        t = tz_eval(particles[i].pos, u32(particles[i].pType) % 4u);
+        t = tz_eval(fx_abs(particles[i].pos, params.L), u32(particles[i].pType) % 4u);
     }
     wg_tzX[li] = t.x; wg_tzY[li] = t.y; wg_tzN[li] = t.w;
     workgroupBarrier();
@@ -7024,8 +7383,8 @@ class MD2D_WebGPU {
         this.velocityDisplayStats = createVelocityDisplayStatsFromMoments(0, 0, 0);
         this.ready = false;
 
-        this.x = new Float32Array(0); this.y = new Float32Array(0);
-        this.vx = new Float32Array(0); this.vy = new Float32Array(0);
+        this.x = new PARTICLE_FLOAT(0); this.y = new PARTICLE_FLOAT(0);
+        this.vx = new PARTICLE_FLOAT(0); this.vy = new PARTICLE_FLOAT(0);
 
         this.integratorType = DEF('integrator-select');
         this.tauT           = DEF('tauT-n');   // Langevin velocity relaxation time τ (BAOAB)
@@ -7057,6 +7416,7 @@ class MD2D_WebGPU {
                 { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform'           } },
                 { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
                 { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+                { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform'           } },   // reaction rules (encounter records, v1.28.2)
             ]
         });
 
@@ -7427,8 +7787,10 @@ class MD2D_WebGPU {
         if (this.reductionBuffer)   this.reductionBuffer.destroy();
         if (this.reductionReadback) this.reductionReadback.destroy();
         this.reductionBuffer = this.device.createBuffer({
-            size:  redSize + Math.max(1, this.numWorkgroups) * 64 * 20 + tzSize,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+            // + numWorkgroups×64 entries of reaction encounter records (v1.28.2),
+            //   after the tweezers block (lt_base = 82·numWorkgroups entries); COPY_DST to clear them.
+            size:  redSize + Math.max(1, this.numWorkgroups) * 64 * 20 + tzSize + Math.max(1, this.numWorkgroups) * 64 * 20,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
         });
         this.reductionReadback = this.device.createBuffer({
             size:  redSize + tzSize,
@@ -7455,8 +7817,8 @@ class MD2D_WebGPU {
         // CONTRACT: these JS arrays are reset to fresh empty Float32Arrays here.
         // Any caller that needs live position reads afterwards must re-point them
         // (e.g. gpuSim.x = cpuSim.x).  See _finalizeEdit() for the pattern.
-        this.x = new Float32Array(N); this.y  = new Float32Array(N);
-        this.vx= new Float32Array(N); this.vy = new Float32Array(N);
+        this.x = new PARTICLE_FLOAT(N); this.y  = new PARTICLE_FLOAT(N);
+        this.vx= new PARTICLE_FLOAT(N); this.vy = new PARTICLE_FLOAT(N);
         this.type = new Int8Array(N);
 
         this._rebuildComputeBindGroup();
@@ -7470,7 +7832,9 @@ class MD2D_WebGPU {
     // mid-run WITHOUT touching the particle buffer (positions live on the GPU).
     // Callers that rebuild mid-run use uploadTopologyLive(), which also rebinds.
     _buildTopologyBuffers() {
-        const bpLen = Math.max(1, this.bondParamTable  ? this.bondParamTable.length  : 1);
+        // Bond params: the table, then REACT_RULE_MAX rule entries (v1.26.2).
+        const bpLen = (this.bondParamTable ? this.bondParamTable.length : 0) + REACT_RULE_MAX;
+        this._bpCap = bpLen;
         const apLen = Math.max(1, this.angleParamTable ? this.angleParamTable.length : 1);
         if (this.bondParamsBuffer)  this.bondParamsBuffer.destroy();
         if (this.angleParamsBuffer) this.angleParamsBuffer.destroy();
@@ -7541,12 +7905,7 @@ class MD2D_WebGPU {
         const totalU32     = offExclOff   + secExclOff;
 
         const topo = new Uint32Array(totalU32);
-        for (let b = 0; b < nBonds; b++) {
-            topo[offBondPairs + b * 4 + 0] = this.bondI[b];
-            topo[offBondPairs + b * 4 + 1] = this.bondJ[b];
-            topo[offBondPairs + b * 4 + 2] = this.bondParamId  ? this.bondParamId[b]  : 0;
-            topo[offBondPairs + b * 4 + 3] = 0;
-        }
+        topo.set(this._bondPairSection(), offBondPairs);
         for (let a = 0; a < nAngles; a++) {
             topo[offAngleTri + a * 4 + 0] = this.angleI[a];
             topo[offAngleTri + a * 4 + 1] = this.angleJ[a];
@@ -7579,6 +7938,32 @@ class MD2D_WebGPU {
         this.updateBondedParams();
         this.updateBondParams();
         this.updateAngleParams();
+    }
+
+    // Bond-pair section of the topo buffer: (i, j, paramId, 0) per bond, where a
+    // bond whose tags match a reaction rule points at that rule's BondParam entry
+    // (table length + rule index) instead of its own (v1.26.2).
+    _bondPairSection() {
+        const n = this.nBonds || 0, sec = new Uint32Array(Math.max(1, n) * 4);
+        const L = _rxBondLookup(this), t = this.react, base = this.bondParamTable ? this.bondParamTable.length : 0;
+        for (let b = 0; b < n; b++) {
+            const i = this.bondI[b], j = this.bondJ[b];
+            let pid = this.bondParamId ? this.bondParamId[b] : 0;
+            if (L && t) { const R = L.idx[t[i] * 256 + t[j]]; if (R >= 0) pid = base + R; }
+            sec[b * 4] = i; sec[b * 4 + 1] = j; sec[b * 4 + 2] = pid;
+        }
+        return sec;
+    }
+    // A rule's k / r0 / D or tags changed (or a bead's tag): refresh the rule
+    // entries and the bond → entry mapping in place (no new buffers, no rebinding
+    // — safe between frames of a run).  Falls back to a full topology upload if
+    // the parameter table outgrew its buffer.
+    uploadReactBondsLive() {
+        if (!this.ready || !this.topoBuffer || !this.bondParamsBuffer) return;
+        const need = (this.bondParamTable ? this.bondParamTable.length : 0) + REACT_RULE_MAX;
+        if (need > (this._bpCap || 0)) { this.uploadTopologyLive(); return; }
+        this.updateBondParams();
+        if (this.nBonds > 0) this.device.queue.writeBuffer(this.topoBuffer, 0, this._bondPairSection().subarray(0, this.nBonds * 4));
     }
 
     // Mid-run topology refresh (reactions): rebuild the topology buffers from the
@@ -7771,6 +8156,7 @@ class MD2D_WebGPU {
                 { binding: 9,  resource: { buffer: this.integratorParamsBuffer } },
                 { binding: 10, resource: { buffer: this.bondParamsBuffer       } },
                 { binding: 11, resource: { buffer: this.angleParamsBuffer      } },
+                { binding: 12, resource: { buffer: this._rxParams()            } },
             ]
         });
     }
@@ -7826,8 +8212,9 @@ class MD2D_WebGPU {
         this.boosters = (cpuSim.boosters || []).map(b => ({ ...b }));
         this.reactions  = (cpuSim.reactions || []).map(r => ({ ...r }));
         this.reactEvery = cpuSim.reactEvery ?? DEF('react-every-n');
+        this.reactNVE   = !!cpuSim.reactNVE;
         this.rxFormed = cpuSim.rxFormed || 0; this.rxBroken = cpuSim.rxBroken || 0;
-        this.rxEnergy = cpuSim.rxEnergy || 0;
+        this.rxEnergy = cpuSim.rxEnergy || 0; this.rxRefused = cpuSim.rxRefused || 0;
         this._rxOverflow = false;
         _tweezersCopy(this, cpuSim);   // optical tweezers (v1.21.1)
         this.rcCut     = cpuSim.rcCut;
@@ -7873,8 +8260,8 @@ class MD2D_WebGPU {
             // _adoptArrays source on GPU→CPU sync.  Pin state never mutates on the
             // GPU, so these stay valid for the whole run without readback.
             this.kpin = new Float32Array(N);
-            this.refX = new Float32Array(N);
-            this.refY = new Float32Array(N);
+            this.refX = new PARTICLE_FLOAT(N);
+            this.refY = new PARTICLE_FLOAT(N);
             this.frozen = new Int8Array(N);
             for (let i = 0; i < N; i++) {
                 const b = i * 4;
@@ -7914,10 +8301,10 @@ class MD2D_WebGPU {
 
         this.setupBuffers();
 
-        const pData = new Float32Array(this.N * 8);
+        const pData = new Float32Array(this.N * 8), pU = new Uint32Array(pData.buffer);
         for (let i = 0; i < this.N; i++) {
-            pData[i*8 + 0] = cpuSim.x[i];
-            pData[i*8 + 1] = cpuSim.y[i];
+            pU[i*8 + 0] = _toFx(cpuSim.x[i], cpuSim.L);   // fixed-point positions (v1.28.0)
+            pU[i*8 + 1] = _toFx(cpuSim.y[i], cpuSim.L);
             pData[i*8 + 2] = cpuSim.vx[i];
             pData[i*8 + 3] = cpuSim.vy[i];
             pData[i*8 + 4] = cpuSim.fx[i];
@@ -7986,11 +8373,17 @@ class MD2D_WebGPU {
     updateBondParams() {
         if (!this.ready || !this.bondParamsBuffer || !this.bondParamTable) return;
         const n    = this.bondParamTable.length;
-        const data = new Float32Array(n * 4);
+        const data = new Float32Array((n + REACT_RULE_MAX) * 4);
         for (let i = 0; i < n; i++) {
             const p = this.bondParamTable[i];
             data[i * 4 + 0] = p.k;
             data[i * 4 + 1] = p.r0 ?? this.bondR0 ?? 1.0;
+        }
+        // Rule entries after the table (v1.26.2): k, r0, D of each reaction rule.
+        const rules = this.reactions || [];
+        for (let R = 0; R < Math.min(rules.length, REACT_RULE_MAX); R++) {
+            const o = (n + R) * 4;
+            data[o] = rules[R].k; data[o + 1] = rules[R].r0; data[o + 2] = rules[R].d || 0;
         }
         this.device.queue.writeBuffer(this.bondParamsBuffer, 0, data);
     }
@@ -8592,14 +8985,48 @@ class MD2D_WebGPU {
 
     // ── Reactions (v1.24.0) ────────────────────────────────────────────────
     // Lazily built: detection pipeline, its params / output / readback buffers.
+    // The rule table (RxParams layout): read by rxDetect AND, every step, by the
+    // force / bond kernels for the encounter records (binding 12).  Created once.
+    _rxParams() {
+        if (!this._rxParamsBuffer)
+            this._rxParamsBuffer = this.device.createBuffer({ size: REACT_PARAMS_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        return this._rxParamsBuffer;
+    }
+    // Write it from the active rules (nRules = 0 switches the records off).  Cheap
+    // (528 B), so step() calls it every time; returns the active-rule list.
+    _rxWriteParams() {
+        const act = _reactActiveRules(this) || [];
+        const pb = new ArrayBuffer(REACT_PARAMS_BYTES), pu = new Uint32Array(pb), pf = new Float32Array(pb);
+        const D = 4 + 4 * REACT_RULE_MAX;   // first float of the dist array (after header + tags)
+        pu[0] = (this.N && this._topoOffsets) ? act.length : 0; pu[1] = this._rxCap || REACT_GPU_CAP;
+        pu[2] = this._topoOffsets ? this._topoOffsets.offBondCSR : 0; pu[3] = this._topoOffsets ? this._topoOffsets.offBondOff : 0;
+        let maxRf2 = 0;
+        act.forEach((r, k) => {
+            const R = this.reactions[r];
+            pu[4 + 4 * k] = R.a; pu[5 + 4 * k] = R.b; pu[6 + 4 * k] = r;
+            const X = _rxDispTarget(this.reactions, r);
+            if (X >= 0) { const Q = this.reactions[X]; pu[7 + 4 * k] = (1 << 16) | (Q.a << 8) | Q.b; }
+            pf[D + 4 * k] = R.rf * R.rf; pf[D + 1 + 4 * k] = R.rd * R.rd;
+            const rm = 0.5 * (R.rf + R.rd); pf[D + 3 + 4 * k] = rm * rm;   // dist.w: midpoint² (recorded events)
+            maxRf2 = Math.max(maxRf2, R.rf * R.rf);
+        });
+        pf[D + 2] = maxRf2;   // dist[0].z: the force kernel's quick reject
+        this.device.queue.writeBuffer(this._rxParams(), 0, pb);
+        return act;
+    }
+    // Clear the encounter records (after a check, or when they no longer apply).
+    _rxClearRecords(enc) {
+        const W = Math.max(1, this.numWorkgroups);
+        enc.clearBuffer(this.reductionBuffer, 82 * W * 20, 64 * W * 20);
+    }
     _rxEnsure() {
         if (this._rxPipeline) return;
         const dev = this.device;
         this._rxCap = REACT_GPU_CAP;
         const module = dev.createShaderModule({ code: wgslReactCode, label: 'rxDetect' });
         this._rxPipeline = dev.createComputePipeline({ layout: 'auto', compute: { module, entryPoint: 'rxDetect' } });
-        this._rxParamsBuffer = dev.createBuffer({ size: REACT_PARAMS_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-        const outSize = 16 + this._rxCap * 16;
+        this._rxParams();
+        const outSize = 16 + this._rxCap * 48;
         this._rxOutBuffer = dev.createBuffer({ size: outSize,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
         this._rxReadback  = dev.createBuffer({ size: outSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
@@ -8622,23 +9049,15 @@ class MD2D_WebGPU {
         const t0 = P ? now() : 0;
         this._rxEnsure();
         const dev = this.device, CAP = this._rxCap;
-        const pb = new ArrayBuffer(REACT_PARAMS_BYTES), pu = new Uint32Array(pb), pf = new Float32Array(pb);
-        const D = 4 + 4 * REACT_RULE_MAX;   // first float of the dist array (after header + tags)
-        pu[0] = act.length; pu[1] = CAP;
-        pu[2] = this._topoOffsets.offBondCSR; pu[3] = this._topoOffsets.offBondOff;
-        act.forEach((r, k) => {
-            const R = this.reactions[r];
-            pu[4 + 4 * k] = R.a; pu[5 + 4 * k] = R.b; pu[6 + 4 * k] = r;
-            pf[D + 4 * k] = R.rf * R.rf; pf[D + 1 + 4 * k] = R.rd * R.rd;
-        });
-        dev.queue.writeBuffer(this._rxParamsBuffer, 0, pb);
+        this._rxWriteParams();
         const bufs = [this.paramsBuffer, this.particleBuffer, this.gridCounters, this.gridCells,
-                      this.beadDataBuffer, this.topoBuffer];
+                      this.beadDataBuffer, this.topoBuffer, this.reductionBuffer];
         if (!this._rxBG || bufs.some((b, k) => b !== this._rxBGBufs[k])) {
             this._rxBG = dev.createBindGroup({ layout: this._rxPipeline.getBindGroupLayout(0), entries: [
-                ...bufs.map((b, k) => ({ binding: k, resource: { buffer: b } })),
+                ...bufs.slice(0, 6).map((b, k) => ({ binding: k, resource: { buffer: b } })),
                 { binding: 6, resource: { buffer: this._rxParamsBuffer } },
                 { binding: 7, resource: { buffer: this._rxOutBuffer } },
+                { binding: 8, resource: { buffer: this.reductionBuffer } },
             ] });
             this._rxBGBufs = bufs;
         }
@@ -8648,7 +9067,8 @@ class MD2D_WebGPU {
         const pass = this._cpass(enc, 'rx-detect');
         pass.setPipeline(this._rxPipeline); pass.setBindGroup(0, this._rxBG);
         pass.dispatchWorkgroups(wgN); pass.end();
-        enc.copyBufferToBuffer(this._rxOutBuffer, 0, this._rxReadback, 0, 16 + CAP * 16);
+        this._rxClearRecords(enc);   // consumed: start recording afresh
+        enc.copyBufferToBuffer(this._rxOutBuffer, 0, this._rxReadback, 0, 16 + CAP * 48);
         dev.queue.submit([enc.finish()]);
         const tSub = P ? now() : 0;
         await this._mapRead(this._rxReadback, this.reductionReadback);
@@ -8663,26 +9083,49 @@ class MD2D_WebGPU {
         const nB = this.nBonds || 0, broken = new Uint8Array(nB), cands = [];
         let nBroken = 0;
         const dup = (this.nx < 3 || this.ny < 3) ? new Set() : null;   // tiny grids revisit cells
+        const NN = this.N, vel = new Map(), geo = new Map();   // per-bead velocity, per-pair r_i − r_j
+        const seen4 = new Set();
         for (let k = 0; k < n; k++) {
-            const o = 4 + 4 * k, w0 = raw[o], kind = w0 >>> 16, R = act[w0 & 0xFFFF];
-            if (R === undefined) continue;
+            const o = 4 + 12 * k, w0 = raw[o], kind = w0 >>> 16, R = act[w0 & 0xFFFF];
+            if (R === undefined && kind !== 3) continue;
+            const i = raw[o + 1], j = raw[o + 2];
+            if (!vel.has(i)) vel.set(i, [fbits[o + 4], fbits[o + 5]]);
+            if (!vel.has(j)) vel.set(j, [fbits[o + 6], fbits[o + 7]]);
+            geo.set(i * NN + j, [fbits[o + 8], fbits[o + 9]]);
             if (kind === 2) {
-                const b = raw[o + 1];
+                const b = raw[o + 10];
                 if (b < nB && !broken[b]) { broken[b] = 1; nBroken++; }
             } else if (kind === 1) {
-                const i = raw[o + 1], j = raw[o + 2];
-                if (dup) { const key = i * this.N + j; if (dup.has(key)) continue; dup.add(key); }
+                if (dup) { const key = i * NN + j; if (dup.has(key)) continue; dup.add(key); }
                 cands.push(fbits[o + 3], i, j, R);
+            } else if (kind === 4) {   // encounter since the last check (v1.28.2); both ends may report it
+                const key = Math.min(i, j) * NN + Math.max(i, j);
+                if (seen4.has(key)) continue; seen4.add(key);
+                cands.push(fbits[o + 3], Math.min(i, j), Math.max(i, j), R);
             }
         }
         let tD = 0;
         if (P) { tD = now(); P.checks++; P.detect += (tSub - t0) + (tD - tMap); P.wait += tMap - tSub; }
         if (!nBroken && !cands.length) return { formed: 0, broken: 0, dE: 0 };
         const PE0 = this.potentialEnergy;
-        const res = _reactApply(this, broken, nBroken, cands, new Set());
+        // Energy-conserving mode: velocities and geometry come from the event list
+        // (the GPU owns them); changed velocities are written back below.
+        const changed = new Set();
+        const ec = this.reactNVE ? {
+            vel:  { get: i => vel.get(i) || [0, 0], set: (i, vx, vy) => { vel.set(i, [vx, vy]); changed.add(i); } },
+            geom: (i, j) => { const g = geo.get(i * NN + j); if (g) return g;
+                              const h = geo.get(j * NN + i); return h ? [-h[0], -h[1]] : [0, 0]; },
+            known: (i, j) => geo.has(i * NN + j) || geo.has(j * NN + i),
+        } : null;
+        const res = _reactApply(this, broken, nBroken, cands, new Set(), ec);
+        this.rxRefused = (this.rxRefused || 0) + (res.refused || 0);
+        for (const b of changed) {
+            const v = vel.get(b);
+            dev.queue.writeBuffer(this.particleBuffer, b * 32 + 8, new Float32Array([v[0], v[1]]));
+        }
         const tA = P ? now() : 0;
         if (P) P.apply += tA - tD;
-        if (!res.formed && !res.broken) return { formed: 0, broken: 0, dE: 0 };
+        if (!res.formed && !res.broken) return { formed: 0, broken: 0, dE: 0, refused: res.refused || 0 };
         this.uploadTopologyLive();
         const tU = P ? now() : 0;
         // Fresh forces for the next half-kick (queued before the next steps), plus
@@ -8738,6 +9181,7 @@ class MD2D_WebGPU {
 
     async step(steps, thermostat = null) {
         if (!this.ready) return;
+        if (this._rxPipeline || _reactActiveRules(this)) this._rxWriteParams();   // rules for the encounter records
         this._pmePrepare();
         this._tzPrepare(steps);
 
@@ -8812,8 +9256,9 @@ class MD2D_WebGPU {
 
         await this._mapRead(this.readbackBuffer);
         const array = new Float32Array(this.readbackBuffer.getMappedRange());
+        const aU = new Uint32Array(array.buffer, array.byteOffset, array.length);
         for (let i = 0; i < this.N; i++) {
-            this.x[i]    = array[i*8 + 0]; this.y[i]  = array[i*8 + 1];
+            this.x[i]    = _fromFx(aU[i*8 + 0], this.L); this.y[i] = _fromFx(aU[i*8 + 1], this.L);
             this.vx[i]   = array[i*8 + 2]; this.vy[i] = array[i*8 + 3];
             this.type[i] = array[i*8 + 7]; // pType stored as f32; safe to truncate to Int8
         }
@@ -9218,7 +9663,7 @@ async function saveSimState() {
             stepCount: c.stepCount ?? 0,
             simTime:   c.simTime ?? 0,
             // Reaction ledger [formed, broken, ΣΔPE] (v1.24.0); omitted when empty.
-            rxLedger: (c.rxFormed || c.rxBroken) ? [c.rxFormed, c.rxBroken, c.rxEnergy] : undefined,
+            rxLedger: (c.rxFormed || c.rxBroken || c.rxRefused) ? [c.rxFormed, c.rxBroken, c.rxEnergy, c.rxRefused || 0] : undefined,
             x:     N > 0 ? Array.from(c.x.subarray(0, N))    : [],
             y:     N > 0 ? Array.from(c.y.subarray(0, N))    : [],
             vx:    N > 0 ? Array.from(c.vx.subarray(0, N))   : [],
@@ -9290,7 +9735,7 @@ async function saveSimState() {
         // interval rides in ui (react-every-n, a URL param) like any control.
         reactions: (Array.isArray(cpuSim.reactions) && cpuSim.reactions.length)
                  ? cpuSim.reactions.map(r => ({ a: r.a, b: r.b, rf: r.rf, rd: r.rd,
-                                                r0: r.r0, k: r.k, on: r.on !== false }))
+                                                r0: r.r0, k: r.k, d: r.d || 0, x: r.x || 0, on: r.on !== false }))
                  : null,
         boosters: (Array.isArray(cpuSim.boosters) && cpuSim.boosters.length)
                  ? cpuSim.boosters.map(b => ({ on: !!b.on, fx: b.fx || 0, fy: b.fy || 0,
@@ -9410,14 +9855,15 @@ async function loadSimState(json) {
             cpuSim.rxFormed = L[0] > 0 ? L[0] : 0;
             cpuSim.rxBroken = L[1] > 0 ? L[1] : 0;
             cpuSim.rxEnergy = Number.isFinite(L[2]) ? L[2] : 0;
+            cpuSim.rxRefused = L[3] > 0 ? L[3] : 0;
         }
 
-        cpuSim.x    = new Float32Array(p.x);
-        cpuSim.y    = new Float32Array(p.y);
-        cpuSim.vx   = new Float32Array(p.vx);
-        cpuSim.vy   = new Float32Array(p.vy);
-        cpuSim.fx   = new Float32Array(N);
-        cpuSim.fy   = new Float32Array(N);
+        cpuSim.x    = new PARTICLE_FLOAT(p.x);
+        cpuSim.y    = new PARTICLE_FLOAT(p.y);
+        cpuSim.vx   = new PARTICLE_FLOAT(p.vx);
+        cpuSim.vy   = new PARTICLE_FLOAT(p.vy);
+        cpuSim.fx   = new PARTICLE_FLOAT(N);
+        cpuSim.fy   = new PARTICLE_FLOAT(N);
         cpuSim.next = new Int32Array(N);
         cpuSim.type = new Int8Array(p.type);
         // Per-bead charge (v2+).  Back-compat: v1 files have no charge → default 0.
@@ -9438,8 +9884,8 @@ async function loadSimState(json) {
             const pin = p.pin;
             const ok  = pin && pin.kpin && pin.kpin.length === N;
             cpuSim.kpin   = ok && pin.kpin   ? new Float32Array(pin.kpin)   : new Float32Array(N);
-            cpuSim.refX   = ok && pin.refX   ? new Float32Array(pin.refX)   : new Float32Array(cpuSim.x);
-            cpuSim.refY   = ok && pin.refY   ? new Float32Array(pin.refY)   : new Float32Array(cpuSim.y);
+            cpuSim.refX   = ok && pin.refX   ? new PARTICLE_FLOAT(pin.refX)   : new PARTICLE_FLOAT(cpuSim.x);
+            cpuSim.refY   = ok && pin.refY   ? new PARTICLE_FLOAT(pin.refY)   : new PARTICLE_FLOAT(cpuSim.y);
             cpuSim.frozen = ok && pin.frozen ? new Int8Array(pin.frozen)    : new Int8Array(N);
         }
 
@@ -9500,6 +9946,8 @@ async function loadSimState(json) {
     {
         const m = parseInt(json.ui?.['react-every-n']);
         cpuSim.reactEvery = (m >= 1) ? m : DEF('react-every-n');
+        const nv = json.ui?.['react-nve-cb'];
+        cpuSim.reactNVE = (nv === undefined) ? DEF('react-nve-cb') : !!nv;
     }
 
     // ── 5. Upload to GPU and render ────────────────────────────────────────
@@ -9603,19 +10051,19 @@ async function _addGhostParticles(cx, cy) {
     _ghostBaseIndex = base;
     _ghostCount     = n;
 
-    cpuSim.x    = _growArr(Float32Array, cpuSim.x,    newN);
-    cpuSim.y    = _growArr(Float32Array, cpuSim.y,    newN);
-    cpuSim.vx   = _growArr(Float32Array, cpuSim.vx,   newN);
-    cpuSim.vy   = _growArr(Float32Array, cpuSim.vy,   newN);
-    cpuSim.fx   = _growArr(Float32Array, cpuSim.fx,   newN);
-    cpuSim.fy   = _growArr(Float32Array, cpuSim.fy,   newN);
+    cpuSim.x    = _growArr(PARTICLE_FLOAT, cpuSim.x,    newN);
+    cpuSim.y    = _growArr(PARTICLE_FLOAT, cpuSim.y,    newN);
+    cpuSim.vx   = _growArr(PARTICLE_FLOAT, cpuSim.vx,   newN);
+    cpuSim.vy   = _growArr(PARTICLE_FLOAT, cpuSim.vy,   newN);
+    cpuSim.fx   = _growArr(PARTICLE_FLOAT, cpuSim.fx,   newN);
+    cpuSim.fy   = _growArr(PARTICLE_FLOAT, cpuSim.fy,   newN);
     cpuSim.next = _growArr(Int32Array,   cpuSim.next, newN);
     cpuSim.type = _growArr(Int8Array,    cpuSim.type, newN);
     cpuSim.charge = _growArr(Float32Array, cpuSim.charge, newN);
     cpuSim.react  = _growArr(Uint8Array,   cpuSim.react,  newN);
     cpuSim.kpin   = _growArr(Float32Array, cpuSim.kpin,   newN);
-    cpuSim.refX   = _growArr(Float32Array, cpuSim.refX,   newN);
-    cpuSim.refY   = _growArr(Float32Array, cpuSim.refY,   newN);
+    cpuSim.refX   = _growArr(PARTICLE_FLOAT, cpuSim.refX,   newN);
+    cpuSim.refY   = _growArr(PARTICLE_FLOAT, cpuSim.refY,   newN);
     cpuSim.frozen = _growArr(Int8Array,    cpuSim.frozen, newN);
     if (cpuSim.molIdPerParticle)
         cpuSim.molIdPerParticle = _growArr(Uint32Array, cpuSim.molIdPerParticle, newN);
@@ -9745,15 +10193,15 @@ function _compactByIndexSet(delSet) {
     for (let i = 0; i < c.N; i++) if (!delSet.has(i)) remap[i] = newIdx++;
     const newN = newIdx;
 
-    const nx  = new Float32Array(newN), ny  = new Float32Array(newN);
-    const nvx = new Float32Array(newN), nvy = new Float32Array(newN);
-    const nfx = new Float32Array(newN), nfy = new Float32Array(newN);
+    const nx  = new PARTICLE_FLOAT(newN), ny  = new PARTICLE_FLOAT(newN);
+    const nvx = new PARTICLE_FLOAT(newN), nvy = new PARTICLE_FLOAT(newN);
+    const nfx = new PARTICLE_FLOAT(newN), nfy = new PARTICLE_FLOAT(newN);
     const nt  = new Int8Array(newN);
     const nq  = new Float32Array(newN);   // charge follows type through reindex
     const nrt = new Uint8Array(newN);     // reactive tag follows type through reindex
     // pin state follows the reindex exactly like charge.
     const nkp = new Float32Array(newN);
-    const nrx = new Float32Array(newN), nry = new Float32Array(newN);
+    const nrx = new PARTICLE_FLOAT(newN), nry = new PARTICLE_FLOAT(newN);
     const nfr = new Int8Array(newN);
     const nm  = c.molIdPerParticle ? new Uint32Array(newN).fill(0xFFFFFFFF) : null;
     for (let i = 0; i < c.N; i++) {
@@ -10064,8 +10512,8 @@ function buildSelectionFrame(inds, anchorX, anchorY) {
     _pbcReimageComponents(unwrapped, inds, anchorX, anchorY);
     const { x: corX, y: corY } = pbcCentroid(unwrapped);
     const n    = inds.length;
-    const refX = new Float32Array(n);
-    const refY = new Float32Array(n);
+    const refX = new PARTICLE_FLOAT(n);
+    const refY = new PARTICLE_FLOAT(n);
     // Pin-anchor offsets from the COR, so a pinned bead's anchor (sim.refX/refY)
     // rides along with the same rotation+translation as the bead itself — the
     // spring's stretch vector is carried unchanged (rotated with the selection),
@@ -11138,7 +11586,7 @@ function capture({ withBaseline = true } = {}) {
             gravityOn: c.gravityOn, gravity: c.gravity,
             boosters: (c.boosters || []).map(b => ({ ...b })),
             reactions: (c.reactions || []).map(r => ({ ...r })),
-            reactEvery: c.reactEvery,
+            reactEvery: c.reactEvery, reactNVE: !!c.reactNVE,
             coulombK: c.coulombK, coulombAlpha: c.coulombAlpha,
             coulombMethod: c.coulombMethod, pmeTol: c.pmeTol, pmeSpacing: c.pmeSpacing,
             potentialType: c.potentialType,
@@ -11147,20 +11595,20 @@ function capture({ withBaseline = true } = {}) {
             integratorType: c.integratorType, tauT: c.tauT, tauBussi: c.tauBussi,
         },
         N:               c.N,
-        rxLedger:        [c.rxFormed || 0, c.rxBroken || 0, c.rxEnergy || 0],
+        rxLedger:        [c.rxFormed || 0, c.rxBroken || 0, c.rxEnergy || 0, c.rxRefused || 0],
         stepCount:       c.stepCount,
         simTime:         c.simTime,
         L:               c.L,
-        x:               new Float32Array(c.x),
-        y:               new Float32Array(c.y),
-        vx:              new Float32Array(c.vx),
-        vy:              new Float32Array(c.vy),
+        x:               new PARTICLE_FLOAT(c.x),
+        y:               new PARTICLE_FLOAT(c.y),
+        vx:              new PARTICLE_FLOAT(c.vx),
+        vy:              new PARTICLE_FLOAT(c.vy),
         type:            new Int8Array(c.type),
         charge:          c.charge ? new Float32Array(c.charge) : null,
         react:           c.react  ? new Uint8Array(c.react)    : null,
         kpin:            c.kpin   ? new Float32Array(c.kpin)   : null,
-        refX:            c.refX   ? new Float32Array(c.refX)   : null,
-        refY:            c.refY   ? new Float32Array(c.refY)   : null,
+        refX:            c.refX   ? new PARTICLE_FLOAT(c.refX)   : null,
+        refY:            c.refY   ? new PARTICLE_FLOAT(c.refY)   : null,
         frozen:          c.frozen ? new Int8Array(c.frozen)    : null,
         molIdPerParticle:c.molIdPerParticle ? new Uint32Array(c.molIdPerParticle) : null,
         nBonds:          c.nBonds,
@@ -11249,6 +11697,7 @@ async function restore(s, { adoptBaseline = true } = {}) {
         c.boosters = Array.isArray(pr.boosters) ? pr.boosters.map(b => ({ ...b })) : [];
         c.reactions  = Array.isArray(pr.reactions) ? pr.reactions.map(r => ({ ...r })) : [];
         c.reactEvery = pr.reactEvery ?? c.reactEvery;
+        c.reactNVE   = pr.reactNVE ?? c.reactNVE;
         c.coulombK = pr.coulombK; c.coulombAlpha = pr.coulombAlpha;
         c.coulombMethod = pr.coulombMethod ?? 'dsf';
         c.pmeTol     = pr.pmeTol     ?? DEF('pme-tol-n');
@@ -11262,7 +11711,7 @@ async function restore(s, { adoptBaseline = true } = {}) {
     }
     c.stepCount       = s.stepCount;
     c.simTime         = s.simTime ?? 0;
-    [c.rxFormed, c.rxBroken, c.rxEnergy] = s.rxLedger || [0, 0, 0];
+    [c.rxFormed, c.rxBroken, c.rxEnergy, c.rxRefused = 0] = s.rxLedger || [0, 0, 0, 0];
     c.L               = s.L; gpuSim.L = s.L;
     // Particle arrays (incl. the derived fx/fy/next, always freshly sized to N).
     // Single source of truth for the resize — see MD2D_CPU._adoptArrays.
@@ -12269,7 +12718,9 @@ async function _batchBondSetR0() {
     const idxs = _selBondIdxs(); if (!idxs.length) return;
     await _prepareForEdit(); _pushUndo();
     const r0 = Math.max(v, 1e-3);
-    for (const b of idxs) { const p = cpuSim.bondParamTable?.[cpuSim.bondParamId[b]]; if (p) p.r0 = r0; }
+    // Reactive bonds are set by their rule: only plain bonds change (v1.26.2).
+    for (const b of idxs) { if (_bondEff(cpuSim, b).rule >= 0) continue;
+                            const p = cpuSim.bondParamTable?.[cpuSim.bondParamId[b]]; if (p) p.r0 = r0; }
     _finalizeEdit(); _updateInspectBar(); if (!running) renderFrame();
 }
 async function _batchBondSetK() {
@@ -12277,7 +12728,8 @@ async function _batchBondSetK() {
     if (!isFinite(v) || v < 0) return;
     const idxs = _selBondIdxs(); if (!idxs.length) return;
     await _prepareForEdit(); _pushUndo();
-    for (const b of idxs) { const p = cpuSim.bondParamTable?.[cpuSim.bondParamId[b]]; if (p) p.k = v; }
+    for (const b of idxs) { if (_bondEff(cpuSim, b).rule >= 0) continue;
+                            const p = cpuSim.bondParamTable?.[cpuSim.bondParamId[b]]; if (p) p.k = v; }
     _finalizeEdit(); _updateInspectBar(); if (!running) renderFrame();
 }
 async function _batchBondSnapAll() {
@@ -12507,8 +12959,8 @@ async function _applyPinState(state) {
     _checkpoint();   // system edit (see KNOWN CONTRACTS) — also restores old pin anchors on undo
     const N = cpuSim.N;
     if (!cpuSim.kpin   || cpuSim.kpin.length   < N) cpuSim.kpin   = _growArr(Float32Array, cpuSim.kpin,   N);
-    if (!cpuSim.refX   || cpuSim.refX.length   < N) cpuSim.refX   = _growArr(Float32Array, cpuSim.refX,   N);
-    if (!cpuSim.refY   || cpuSim.refY.length   < N) cpuSim.refY   = _growArr(Float32Array, cpuSim.refY,   N);
+    if (!cpuSim.refX   || cpuSim.refX.length   < N) cpuSim.refX   = _growArr(PARTICLE_FLOAT, cpuSim.refX,   N);
+    if (!cpuSim.refY   || cpuSim.refY.length   < N) cpuSim.refY   = _growArr(PARTICLE_FLOAT, cpuSim.refY,   N);
     if (!cpuSim.frozen || cpuSim.frozen.length < N) cpuSim.frozen = _growArr(Int8Array,    cpuSim.frozen, N);
     const kField = parseFloat(document.getElementById('ip-kpin')?.value);
     const kUse   = (isFinite(kField) && kField > 0) ? kField : (_lastPinK || 100);
@@ -12585,6 +13037,7 @@ async function _applyReactTag(newT) {
     if (!cpuSim.react || cpuSim.react.length < cpuSim.N)
         cpuSim.react = _growArr(Uint8Array, cpuSim.react, cpuSim.N);
     for (const i of _selection) cpuSim.react[i] = newT;
+    cpuSim._computeForces();   // tags decide which bonds carry a rule's D (v1.26.1)
     _finalizeEdit();
     _updateInspectBar();
     if (!running) renderFrame();
@@ -12954,6 +13407,7 @@ function _exclHas(off, list, i, j) {
     return false;
 }
 function _rebuildExcl(s) {
+    s._ltJ = null; s._ltBrk = null;   // encounter records (v1.28.2) refer to the old topology
     const N = s.N, nB = s.nBonds || 0, nA = s.nAngles || 0;
     const bI = s.bondI, bJ = s.bondJ, aI = s.angleI, aK = s.angleKarr;
     // 1. Count both directions of every pair (duplicates allowed for now).
@@ -13006,6 +13460,35 @@ function _rebuildExcl(s) {
 // A made bond gets its own bondParamTable entry (so inspector edits stay per
 // bond); entries no bond references any more are reused, so churn doesn't grow
 // the table.  Returns { formed, broken, dE } or null when nothing can react.
+// Encounter records on the CPU engine (v1.28.2), mirroring the GPU: per bead the
+// closest qualifying partner within r form since the last check (_ltJ/_ltR2; a
+// frozen bead keeps none, as it has no GPU thread), per bond whether it went past
+// r break (_ltBrk).  Filled by _computeForces / _computeBondForces for the ACTIVE
+// rules, consumed and cleared by _reactCheck; dropped by _rebuildExcl (any edit).
+function _rxLatchTables(s) {
+    const act = _reactActiveRules(s);
+    if (!act || !s.react) return null;
+    let key = s.rcCut + '|';
+    for (const r of act) { const R = s.reactions[r]; key += r + ',' + R.a + ',' + R.b + ',' + R.rf + ',' + R.rd + ';'; }
+    if (s._ltT && s._ltTKey === key) return s._ltT;
+    const lut = new Int8Array(65536).fill(-1), rf2 = new Float64Array(s.reactions.length), rd2 = new Float64Array(s.reactions.length);
+    let maxRf2 = 0;
+    for (const r of act) {
+        const R = s.reactions[r];
+        lut[R.a * 256 + R.b] = r; lut[R.b * 256 + R.a] = r;
+        rf2[r] = R.rf * R.rf; rd2[r] = R.rd * R.rd; maxRf2 = Math.max(maxRf2, rf2[r]);
+    }
+    s._ltT = { lut, rf2, rd2, maxRf2 }; s._ltTKey = key;
+    return s._ltT;
+}
+function _rxLatchArrays(s) {
+    const N = s.N;
+    if (!s._ltJ || s._ltJ.length !== N) { s._ltJ = new Int32Array(N).fill(-1); s._ltR2 = new Float64Array(N); }
+    const nB = Math.max(1, s.nBonds || 0);
+    if (!s._ltBrk || s._ltBrk.length < nB) s._ltBrk = new Uint8Array(nB);
+}
+function _rxLatchClear(s) { if (s._ltJ) s._ltJ.fill(-1); if (s._ltBrk) s._ltBrk.fill(0); }
+
 function _reactActiveRules(s) {
     const rules = s.reactions;
     if (!Array.isArray(rules) || !rules.length) return null;
@@ -13030,6 +13513,9 @@ function _reactCheck(s) {
     }
     const fr = s.frozen, x = s.x, y = s.y;
     const nB = s.nBonds || 0, bI = s.bondI, bJ = s.bondJ;
+    // Encounter records since the last check (v1.28.2), filled by the force loops.
+    const ltOK = s._ltJ && s._ltJ.length === N;
+    const ltB = ltOK && s._ltBrk && s._ltBrk.length >= nB ? s._ltBrk : null;
 
     // 1. Break pass (+ valence occupancy and the bonded-pair set for step 2).
     const occ = new Set();          // rule * N + bead: bead's slot in that rule is taken
@@ -13043,8 +13529,10 @@ function _reactCheck(s) {
         const R = lut[ti * 256 + tj];
         if (R < 0) continue;
         const dx = s._pbc(x[i] - x[j]), dy = s._pbcY(y[i] - y[j]);
-        const rd = rules[R].rd;
-        if (dx * dx + dy * dy > rd * rd) { broken[d] = 1; nBroken++; }
+        const rd = rules[R].rd, rm = 0.5 * (rules[R].rf + rd), d2 = dx * dx + dy * dy;
+        // A recorded overstretch counts only if the bond is still past the midpoint
+        // (one that has relaxed back has undone itself) — the mirror of formation.
+        if (d2 > rd * rd || (ltB && ltB[d] && d2 > rm * rm)) { broken[d] = 1; nBroken++; }
         else { occ.add(R * N + i); occ.add(R * N + j); }
     }
 
@@ -13077,18 +13565,228 @@ function _reactCheck(s) {
             }
         }
     }
+    // 2b. Encounters since the last check (v1.28.2): each bead's closest qualifying
+    //     partner, if not in range now (the sweep has those) and still within
+    //     r break.  Mirrors rxDetect's kind 4.
+    if (ltOK) {
+        const ltJ = s._ltJ, ltR2 = s._ltR2, seen4 = new Set();
+        for (let i = 0; i < N; i++) {
+            const j = ltJ[i];
+            if (j < 0 || j >= N || j === i) continue;
+            const a = Math.min(i, j), b = Math.max(i, j), key = a * N + b;
+            if (seen4.has(key)) continue;
+            const R = lut[rt[a] * 256 + rt[b]];
+            if (R < 0 || (fr && fr[a] && fr[b])) continue;
+            if (bonded.has(key) || occ.has(R * N + a) || occ.has(R * N + b)) continue;
+            const dx = s._pbc(x[a] - x[b]), dy = s._pbcY(y[a] - y[b]), d2 = dx * dx + dy * dy;
+            // Still on the bonded side of the midpoint between r form and r break:
+            // an encounter whose pair has since moved most of the way apart has
+            // undone itself (applying it would start the bond at the edge of breaking).
+            const rf = rules[R].rf, rm = 0.5 * (rf + rules[R].rd);
+            if (d2 < rf * rf || d2 >= rm * rm) continue;
+            seen4.add(key);
+            cands.push(ltR2[i], a, b, R);
+        }
+    }
     const tD = P ? performance.now() : 0;
     if (P) { P.checks++; P.detect += tD - t0; }
     const PE0 = s.potentialEnergy;
-    const res = _reactApply(s, broken, nBroken, cands, occ);
+    const ec = s.reactNVE ? {
+        vel:  { get: i => [s.vx[i], s.vy[i]], set: (i, vx, vy) => { s.vx[i] = vx; s.vy[i] = vy; } },
+        geom: (i, j) => [s._pbc(x[i] - x[j]), s._pbcY(y[i] - y[j])],
+    } : null;
+    const res = _reactApply(s, broken, nBroken, cands, occ, ec);
+    _rxLatchClear(s);   // consumed: start recording afresh (before any force recompute, as on the GPU)
+    s.rxRefused = (s.rxRefused || 0) + (res.refused || 0);
     const tA = P ? performance.now() : 0;
     if (P) P.apply += tA - tD;
-    if (!res.broken && !res.formed) return { formed: 0, broken: 0, dE: 0 };
+    if (!res.broken && !res.formed) return { formed: 0, broken: 0, dE: 0, refused: res.refused || 0 };
     s._computeForces();
     if (P) { P.recompute += performance.now() - tA; P.evChecks++; P.formed += res.formed; P.broken += res.broken; }
     const dE = s.potentialEnergy - PE0;
     s.rxFormed += res.formed; s.rxBroken += res.broken; s.rxEnergy += dE;
-    return { formed: res.formed, broken: res.broken, dE };
+    // Energy-conserving mode: the KE paid equals Σ per-event ΔPE; any gap to the
+    // global ΔPE (f64 rounding, ~1e-10) is the size of the NVE violation.
+    if (ec) s._rxDeGap = dE - res.dPE;
+    return { formed: res.formed, broken: res.broken, dE, refused: res.refused || 0, dPE: res.dPE, displaced: res.displaced || 0 };
+}
+
+// ── Energy-conserving reactions (v1.25.0) ─────────────────────────────────────
+// A bond event changes PE by an amount that is exactly PAIR-LOCAL: the bond term
+// appears/disappears, and — unless something else (an angle) keeps the pair
+// excluded anyway — the pair's non-bonded + real-space electrostatics switch
+// off/on and, under PME, the pair's exclusion correction −K_e q_i q_j erf(αr)/r
+// switches on/off (the mesh itself doesn't change).  _rxPairDE mirrors exactly
+// what _computeForces / _pmeForces book for one pair (same formulas, same frozen
+// rules); test_react_nve checks Σ per-event ΔPE == the global recompute for every
+// potential and Coulomb method.  Force-field constants always come from cpuSim
+// (the parameter source of truth); geometry, types and charges from the engine.
+function _rxPairU(ff, s, i, j, r2, bothFrozen) {
+    // Included pair: non-bonded + real-space Coulomb (0 beyond r_c or frozen↔frozen).
+    const rc = ff.rcCut, rc2 = rc * rc;
+    if (bothFrozen || r2 >= rc2 || r2 < 1e-12) return 0;
+    const ti = s.type[i] & 3, tj = s.type[j] & 3;
+    const sig2 = ff.sigmaSqMix[ti][tj], eps = ff.epsMatrix[ti][tj];
+    let u;
+    if (ff.potentialType === 'wf') {
+        const alphaP = ff.wfAlphaMix[ti][tj];
+        if (alphaP === 0) u = 0;
+        else {
+            const s2 = ff.wfSigma * ff.wfSigma * sig2, mu = ff.wfMu, twoNu = 2 * ff.wfNu;
+            const a = Math.pow(s2 / r2, mu), b = Math.pow(rc2 / r2, mu), bm1 = b - 1;
+            u = eps * alphaP * (a - 1) * (Math.pow(bm1, twoNu - 1) * bm1);
+        }
+    } else if (ff.mieN === 4 && ff.mieM === 2) {
+        const x = sig2 / r2, xc = sig2 / rc2;
+        u = 4.0 * eps * (x * x - x) - 4.0 * eps * (xc * xc - xc);
+    } else {
+        const x = sig2 / r2, xc = sig2 / rc2, hN = 0.5 * ff.mieN, hM = 0.5 * ff.mieM, C = ff.mieC;
+        u = C * eps * (Math.pow(x, hN) - Math.pow(x, hM)) - C * eps * (Math.pow(xc, hN) - Math.pow(xc, hM));
+    }
+    const q = s.charge, Ke = ff.coulombK ?? 1.0;
+    if (Ke !== 0 && q && q[i] && q[j]) {
+        const coul = _coulombSetup(ff), alpha = coul.alpha, r = Math.sqrt(r2);
+        const erfcRc = _erfc(alpha * rc), expRc = Math.exp(-alpha * alpha * rc * rc);
+        const fShift = coul.pme ? 0 : erfcRc / (rc * rc) + TWO_OVER_SQRT_PI * alpha * expRc / rc;
+        u += Ke * q[i] * q[j] * (_erfc(alpha * r) / r - erfcRc / rc + fShift * (r - rc));
+    }
+    return u;
+}
+function _rxPairX(ff, s, i, j, r2) {
+    // Excluded pair under PME: the mesh's smooth part is removed (any distance).
+    const q = s.charge, Ke = ff.coulombK ?? 1.0;
+    if (!q || !q[i] || !q[j] || Ke === 0 || r2 < 1e-12) return 0;
+    const coul = _coulombSetup(ff);
+    if (!coul.pme) return 0;
+    const r = Math.sqrt(r2);
+    return -Ke * q[i] * q[j] * (1 - _erfc(coul.alpha * r)) / r;
+}
+// ΔPE of forming (form=true) or breaking a bond (k, r0) between i and j at r².
+// keptExcl: the pair stays excluded regardless (an angle covers it), so only
+// the bond term changes.
+function _rxPairDE(s, i, j, r2, form, k, r0, keptExcl, d = 0) {
+    const ff = cpuSim, fr = s.frozen, both = !!(fr && fr[i] && fr[j]);
+    const r = Math.sqrt(r2);
+    // Bond energy incl. its well depth d (v1.26.0); frozen↔frozen bonds aren't booked.
+    const eb = both ? 0 : 0.5 * k * (r - r0) * (r - r0) - (d || 0);
+    if (keptExcl) return form ? eb : -eb;
+    const swap = _rxPairX(ff, s, i, j, r2) - _rxPairU(ff, s, i, j, r2, both);   // included → excluded
+    return form ? eb + swap : -eb - swap;
+}
+// Pay ΔPE out of (ΔPE > 0) or into (ΔPE < 0) the pair's kinetic energy, keeping
+// the pair's momentum: only the relative velocity changes, scaled by
+// λ = √(1 − ΔPE/K_rel), K_rel = ½μ|v_i − v_j|².  With one frozen bead the mobile
+// bead's own KE is used (the frozen one, like a wall, takes the momentum).  When
+// there is no velocity to scale, released energy goes along the bond axis (apart).
+// Returns false — and changes nothing — if the KE can't cover a positive ΔPE.
+// ec.vel: { get(i) → [vx, vy], set(i, vx, vy) }; (dx, dy) = r_i − r_j (min. image).
+function _rxCompensate(s, ec, i, j, dPE, dx, dy) {
+    if (dPE === 0) return true;
+    const fr = s.frozen, mi = !(fr && fr[i]), mj = !(fr && fr[j]);
+    if (!mi && !mj) return false;                    // nobody can take or give KE
+    const mpt = s.massPerType || cpuSim.massPerType;
+    const r = Math.hypot(dx, dy) || 1, ux = dx / r, uy = dy / r;   // unit vector j → i
+    const [vix, viy] = ec.vel.get(i), [vjx, vjy] = ec.vel.get(j);
+    if (mi && mj) {
+        const m1 = mpt[s.type[i] & 3], m2 = mpt[s.type[j] & 3], M = m1 + m2, mu = m1 * m2 / M;
+        const cx = (m1 * vix + m2 * vjx) / M, cy = (m1 * viy + m2 * vjy) / M;
+        let rx = vix - vjx, ry = viy - vjy;
+        const K = 0.5 * mu * (rx * rx + ry * ry), K2 = K - dPE;
+        if (K2 < 0) return false;
+        if (K > 1e-14) { const l = Math.sqrt(K2 / K); rx *= l; ry *= l; }
+        else { const v = Math.sqrt(2 * K2 / mu); rx = v * ux; ry = v * uy; }
+        ec.vel.set(i, cx + (m2 / M) * rx, cy + (m2 / M) * ry);
+        ec.vel.set(j, cx - (m1 / M) * rx, cy - (m1 / M) * ry);
+        return true;
+    }
+    const b = mi ? i : j, sgn = mi ? 1 : -1;          // the mobile bead; away from the frozen one
+    const m = mpt[s.type[b] & 3];
+    let [vx, vy] = mi ? [vix, viy] : [vjx, vjy];
+    const K = 0.5 * m * (vx * vx + vy * vy), K2 = K - dPE;
+    if (K2 < 0) return false;
+    if (K > 1e-14) { const l = Math.sqrt(K2 / K); vx *= l; vy *= l; }
+    else { const v = Math.sqrt(2 * K2 / m); vx = sgn * v * ux; vy = sgn * v * uy; }
+    ec.vel.set(b, vx, vy);
+    return true;
+}
+
+// Displacement target of rule R (v1.27.0): rule.x is the 1-based number of the
+// rule whose bond a formation by R replaces (0 = none).  → 0-based index or −1.
+function _rxDispTarget(rules, R) {
+    const x = rules[R] ? (rules[R].x | 0) : 0, R1 = x - 1;
+    return (R1 >= 0 && R1 < rules.length && R1 !== R) ? R1 : -1;
+}
+// _rxCompensate for a concerted event with more than two beads (displacement):
+// every involved mobile bead's velocity relative to their common centre of mass
+// is scaled by one λ = √(1 − ΔPE/K_int), so their momentum is kept.  If any of
+// them is frozen, the mobile beads' own KE is used (the frozen one takes the
+// momentum, as in the pair case).  Two beads: identical to _rxCompensate.  With
+// no internal motion at all, falls back to the forming pair (i, j; dx, dy).
+function _rxCompensateSet(s, ec, beads, dPE, i, j, dx, dy) {
+    if (dPE === 0) return true;
+    const fr = s.frozen, mpt = s.massPerType || cpuSim.massPerType;
+    const mob = beads.filter(b => !(fr && fr[b]));
+    if (!mob.length) return false;
+    const com = mob.length === beads.length;
+    const v = mob.map(b => ec.vel.get(b)), m = mob.map(b => mpt[s.type[b] & 3]);
+    let cx = 0, cy = 0;
+    if (com) {
+        let M = 0;
+        for (let k = 0; k < mob.length; k++) { M += m[k]; cx += m[k] * v[k][0]; cy += m[k] * v[k][1]; }
+        cx /= M; cy /= M;
+    }
+    let K = 0;
+    for (let k = 0; k < mob.length; k++) { const ux = v[k][0] - cx, uy = v[k][1] - cy; K += 0.5 * m[k] * (ux * ux + uy * uy); }
+    const K2 = K - dPE;
+    if (K2 < 0) return false;
+    if (!(K > 1e-14)) return _rxCompensate(s, ec, i, j, dPE, dx, dy);
+    const l = Math.sqrt(K2 / K);
+    for (let k = 0; k < mob.length; k++) ec.vel.set(mob[k], cx + l * (v[k][0] - cx), cy + l * (v[k][1] - cy));
+    return true;
+}
+
+// ── Reactive bonds are defined by their RULE (v1.26.2) ─────────────────────────
+// A bond whose two end tags match a reaction rule — pre-built, drawn or made by a
+// reaction, rule on or off — IS that rule's bond: it uses the rule's k, r₀ and
+// bond energy D (U = ½k(r−r₀)² − D).  Its own bondParamTable entry is only the
+// fallback for when no rule matches (rule deleted, tags changed).  Nothing is
+// copied into bonds: the engines look the rule up whenever they compute, so an
+// edit of k, r₀ or D in the table, or of a tag, takes effect immediately.
+// D > 0: stable bond (breaking costs D); D < 0: high-energy bond (breaking
+// releases |D| — fuel).  _rxBondLookup(s) → { idx, k, r0, d } — idx: Int8Array
+// tag_a*256+tag_b → rule index (−1 none); cached on the engine, rebuilt when a
+// rule's tags / k / r₀ / D change; null without rules (the usual fast path).
+function _rxBondKey(rules) {
+    let key = '';
+    for (const r of rules) key += r.a + ',' + r.b + ',' + r.k + ',' + r.r0 + ',' + (r.d || 0) + ';';
+    return key;
+}
+function _rxBondLookup(s) {
+    const rules = s.reactions;
+    if (!Array.isArray(rules) || !rules.length) return null;
+    const key = _rxBondKey(rules);
+    if (s._rxBL && s._rxBLKey === key) return s._rxBL;
+    const idx = (s._rxBL && s._rxBL.idx) || new Int8Array(65536);
+    idx.fill(-1);
+    const n = rules.length, k = new Float64Array(n), r0 = new Float64Array(n), d = new Float64Array(n);
+    for (let R = 0; R < n; R++) {
+        const r = rules[R];
+        idx[r.a * 256 + r.b] = R; idx[r.b * 256 + r.a] = R;
+        k[R] = r.k; r0[R] = r.r0; d[R] = r.d || 0;
+    }
+    s._rxBL = { idx, k, r0, d }; s._rxBLKey = key;
+    return s._rxBL;
+}
+// Effective {k, r0, d, rule} of bond b: the matching rule's, else its own entry.
+function _bondEff(s, b) {
+    const i = s.bondI[b], j = s.bondJ[b];
+    const L = _rxBondLookup(s), t = s.react;
+    if (L && t) {
+        const R = L.idx[t[i] * 256 + t[j]];
+        if (R >= 0) return { k: L.k[R], r0: L.r0[R], d: L.d[R], rule: R };
+    }
+    const p = s.bondParamTable?.[s.bondParamId ? s.bondParamId[b] : 0] || { k: 100, r0: 1 };
+    return { k: p.k, r0: p.r0 ?? 1, d: 0, rule: -1 };
 }
 
 // Shared by the CPU check and the GPU path (whose candidates come from the
@@ -13098,22 +13796,109 @@ function _reactCheck(s) {
 // Uint8Array flag per bond (nBroken set), `cands` a flat [r2, i, j, R, …] list,
 // `occ` the set of rule*N+bead slots already taken by bonds that stay.  Does NOT
 // recompute forces — each engine does that its own way.
-function _reactApply(s, broken, nBroken, cands, occ) {
+// ec (optional, energy-conserving mode): { vel, geom(i, j) → [dx, dy] }.  Then
+// every event's own ΔPE is paid from / into the pair's KE (_rxCompensate); an
+// event the KE can't pay for is refused: a refused break keeps its bond (and the
+// valence slots it holds), a refused formation leaves both beads free for other
+// candidates.  Returns { formed, broken, refused, dPE } (dPE = Σ accepted ΔPE).
+function _reactApply(s, broken, nBroken, cands, occ, ec = null) {
     const N = s.N, rules = s.reactions;
     const nB = s.nBonds || 0, bI = s.bondI, bJ = s.bondJ;
+    let refused = 0, dPEsum = 0, nDisp = 0;
+    let angKeys = null;   // pairs an angle keeps excluded after their bond goes (built once)
+    if (ec && (s.nAngles || 0) > 0) {
+        angKeys = new Set();
+        for (let a = 0; a < s.nAngles; a++) {
+            const p = s.angleI[a], q = s.angleKarr[a];
+            angKeys.add(Math.min(p, q) * N + Math.max(p, q));
+        }
+    }
+    if (ec && nBroken) {
+        // Breaks first (they free valence for this check's formations).
+        const rt = s.react;
+        for (let d = 0; d < nB; d++) {
+            if (!broken[d]) continue;
+            const i = bI[d], j = bJ[d];
+            const [dx, dy] = ec.geom(i, j);
+            const pp = _bondEff(s, d);   // a breaking bond matches a rule: the rule's k, r0, D
+            const kept = !!(angKeys && angKeys.has(Math.min(i, j) * N + Math.max(i, j)));
+            const dPE = _rxPairDE(s, i, j, dx * dx + dy * dy, false, pp.k, pp.r0, kept, pp.d);
+            if (_rxCompensate(s, ec, i, j, dPE, dx, dy)) { dPEsum += dPE; continue; }
+            broken[d] = 0; nBroken--; refused++;
+            // The bond stays: it keeps holding both beads' slot in its rule.
+            for (let R = 0; R < rules.length; R++) {
+                const rr = rules[R];
+                if ((rr.a === rt[i] && rr.b === rt[j]) || (rr.a === rt[j] && rr.b === rt[i])) {
+                    occ.add(R * N + i); occ.add(R * N + j); break;
+                }
+            }
+        }
+    }
     // Closest first (stable on index for ties, so the result is deterministic).
     const nc = cands.length / 4, order = new Array(nc);
     for (let c = 0; c < nc; c++) order[c] = c;
     order.sort((p, q) => (cands[4 * p] - cands[4 * q]) || (p - q));
     const fresh = new Set(), made = [];
+    const exO = s.exclOffsets, exL = s.exclList, exOk = exO && exL && exO.length === N + 1;
+    // Displacement (v1.27.0): a rule with "displaces rule x" removes the x-bond of
+    // either bead in the same event.  dispMap: x*N + bead → that bead's x-bond
+    // (still standing after the break pass).  Valence 1 per rule makes it unique;
+    // a hand-built bead with several takes the first.
+    let dispMap = null;
+    for (let c = 0; c < nc && !dispMap; c++) if (_rxDispTarget(rules, cands[4 * c + 3]) >= 0) dispMap = new Map();
+    if (dispMap) {
+        const L = _rxBondLookup(s), t = s.react;
+        for (let d = 0; d < nB; d++) {
+            if (broken[d]) continue;
+            const i = bI[d], j = bJ[d], R1 = L.idx[t[i] * 256 + t[j]];
+            if (R1 < 0) continue;
+            if (!dispMap.has(R1 * N + i)) dispMap.set(R1 * N + i, d);
+            if (!dispMap.has(R1 * N + j)) dispMap.set(R1 * N + j, d);
+        }
+    }
     for (const c of order) {
         const i = cands[4 * c + 1], j = cands[4 * c + 2], R = cands[4 * c + 3];
         if (fresh.has(i) || fresh.has(j) || occ.has(R * N + i) || occ.has(R * N + j)) continue;
+        const R1 = dispMap ? _rxDispTarget(rules, R) : -1;
+        let disp = null;
+        if (R1 >= 0) for (const b of [i, j]) {
+            const d = dispMap.get(R1 * N + b);
+            if (d !== undefined && !broken[d]) (disp || (disp = [])).push(d);
+        }
+        if (ec) {
+            const [dx, dy] = ec.geom(i, j), rule = rules[R];
+            const kept = exOk && _exclHas(exO, exL, i, j);   // already excluded (an angle): no pair switch
+            let dPE = _rxPairDE(s, i, j, dx * dx + dy * dy, true, rule.k, rule.r0, kept, rule.d || 0);
+            if (disp) {
+                // One concerted event: the new bond's ΔPE plus each displaced bond's
+                // (pair-local terms, so they add), paid by all beads involved.
+                const beads = [i, j];
+                let unknown = false;
+                for (const d of disp) {
+                    const p = bI[d], q = bJ[d];
+                    if (ec.known && !ec.known(p, q)) { unknown = true; break; }   // GPU list overflowed: next check
+                    const [ex, ey] = ec.geom(p, q), pp = _bondEff(s, d);
+                    const kp = !!(angKeys && angKeys.has(Math.min(p, q) * N + Math.max(p, q)));
+                    dPE += _rxPairDE(s, p, q, ex * ex + ey * ey, false, pp.k, pp.r0, kp, pp.d);
+                    if (!beads.includes(p)) beads.push(p);
+                    if (!beads.includes(q)) beads.push(q);
+                }
+                if (unknown) continue;
+                if (!_rxCompensateSet(s, ec, beads, dPE, i, j, dx, dy)) { refused++; continue; }
+            } else if (!_rxCompensate(s, ec, i, j, dPE, dx, dy)) { refused++; continue; }
+            dPEsum += dPE;
+        }
         fresh.add(i); fresh.add(j); occ.add(R * N + i); occ.add(R * N + j);
         made.push(i, j, R);
+        if (disp) for (const d of disp) {
+            const p = bI[d], q = bJ[d];
+            broken[d] = 1; nBroken++; nDisp++;
+            occ.delete(R1 * N + p); occ.delete(R1 * N + q);
+            fresh.add(p); fresh.add(q);   // the leaving bead sits this check out
+        }
     }
     const nMade = made.length / 3;
-    if (!nBroken && !nMade) return { formed: 0, broken: 0 };
+    if (!nBroken && !nMade) return { formed: 0, broken: 0, refused, dPE: dPEsum, displaced: 0 };
 
     // Kept bonds + new bonds, reusing unreferenced param entries.
     const nNew = nB - nBroken + nMade;
@@ -13133,15 +13918,152 @@ function _reactApply(s, broken, nBroken, cands, occ) {
         const R = made[3 * m + 2], rule = rules[R];
         while (free < used.length && used[free]) free++;
         let pid;
-        if (free < used.length) { pid = free++; table[pid] = { k: rule.k, r0: rule.r0 }; }
-        else { pid = table.length; table.push({ k: rule.k, r0: rule.r0 }); }
+        const pe = { k: rule.k, r0: rule.r0 };
+        if (free < used.length) { pid = free++; table[pid] = pe; }
+        else { pid = table.length; table.push(pe); }
         nI[w] = made[3 * m]; nJ[w] = made[3 * m + 1]; nP[w] = pid;
         w++;
     }
     s.bondI = nI; s.bondJ = nJ; s.bondParamId = nP; s.nBonds = nNew;
     _rebuildExcl(s);
     if (typeof _invalidateDragAdj === 'function') _invalidateDragAdj();
-    return { formed: nMade, broken: nBroken };
+    return { formed: nMade, broken: nBroken, refused, dPE: dPEsum, displaced: nDisp };
+}
+
+// ── mtDiag (v1.27.3): GPU precision diagnostics, run from the console ─────────
+// `await mtDiag()` on a loaded state (GPU engine): compares the GPU's forces and
+// energies, TERM BY TERM, with the CPU engine in double precision at the GPU's
+// own positions, and checks the energy readout.  `await mtDiag({ drift: 3000 })`
+// also runs NVE (no thermostat) for that many steps at the current dt — or at
+// each of `dts: [0.02, 0.002]` — from the same start, and reports drift/wobble.
+// The simulation is put back exactly as it was (particle buffer, step count,
+// rules).  Prints ONE line starting with MTDIAG (copy it) and returns the object.
+// Diagnostic only: nothing here changes the physics.
+async function mtDiag(opts = {}) {
+    const g = gpuSim;
+    if (currentEngine !== 'gpu' || !g.ready || sim !== g || !g.N) {
+        const m = 'mtDiag: needs the GPU engine with a loaded system'; console.log(m); return m; }
+    const wasRunning = running;
+    if (running) await stopLoop();
+    const T0 = performance.now();
+    const dev = g.device, N = g.N, bytes = N * 32, wgN = Math.ceil(N / 64);
+    const rd = dev.createBuffer({ size: bytes, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+    const readP = async () => {
+        const e = dev.createCommandEncoder(); e.copyBufferToBuffer(g.particleBuffer, 0, rd, 0, bytes);
+        dev.queue.submit([e.finish()]); await rd.mapAsync(GPUMapMode.READ);
+        const a = new Float32Array(rd.getMappedRange().slice(0)); rd.unmap(); return a; };
+    const pass = (e, pipe) => { const p = e.beginComputePass(); p.setPipeline(pipe); p.setBindGroup(0, g.bindGroup); p.dispatchWorkgroups(wgN); p.end(); };
+    const zeroF = src => { const z = src.slice(); for (let i = 0; i < N; i++) { z[i * 8 + 4] = 0; z[i * 8 + 5] = 0; z[i * 8 + 6] = 0; } return z; };
+    const res = { version: MOCKTINI_VERSION, adapter: (() => { const i = dev.adapterInfo || {}; return `${i.vendor || '?'}/${i.architecture || '?'}/${i.device || i.description || ''}`; })(),
+                  N, L: g.L, dt: g.dt, pot: cpuSim.potentialType, coulomb: { K: cpuSim.coulombK, method: cpuSim.coulombMethod },
+                  nBonds: g.nBonds || 0, nAngles: g.nAngles || 0, pins: !!g._hasPins, gravity: !!g.gravityOn,
+                  boosters: (cpuSim.boosters || []).filter(b => b.on).length };
+    const P0 = await readP();
+    // Stats shown before (after a load the buffer's per-bead pe is still empty and the
+    // display holds the CPU value), so they are restored as values, not re-read.
+    const save = { stepCount: g.stepCount, simTime: g.simTime, reactions: g.reactions, dt: g.dt,
+                   pe: g.potentialEnergy, ke: g._KE, vir: g._virial };
+    g.reactions = [];                              // no topology changes during the diagnostics
+    try {
+        // One NVE step: the cell grid then matches the positions the forces are read at.
+        await g.step(1, null);
+        const P1 = await readP();
+        // ── GPU: each force term on its own ──
+        const terms = {};
+        { const e = dev.createCommandEncoder(); pass(e, g.pipelineForces); if (g._pmeOn) g._encodePME(e, wgN, ''); dev.queue.submit([e.finish()]);
+          terms.nonbonded = await readP(); }
+        for (const [t, pipe, on] of [['bonds', g.pipelineBondForces, (g.nBonds || 0) > 0],
+                                     ['angles', g.pipelineAngleForces, (g.nAngles || 0) > 0],
+                                     ['pins', g.pipelinePinForces, !!g._hasPins]]) {
+            if (!on) continue;
+            dev.queue.writeBuffer(g.particleBuffer, 0, zeroF(P1));
+            const e = dev.createCommandEncoder(); pass(e, pipe); dev.queue.submit([e.finish()]);
+            terms[t] = await readP();
+        }
+        // ── CPU reference: f64 arithmetic at exactly the GPU positions ──
+        await g._fullReadback(); syncCPUfromGPU();   // cpuSim ← GPU state (same N, topology)
+        const c = cpuSim, keep = { x: c.x, y: c.y, fx: c.fx, fy: c.fy, pe: c.potentialEnergy };
+        c.x = new Float64Array(N); c.y = new Float64Array(N); c.fx = new Float64Array(N); c.fy = new Float64Array(N);
+        const P1u = new Uint32Array(P1.buffer, P1.byteOffset, P1.length);
+        for (let i = 0; i < N; i++) { c.x[i] = _fromFx(P1u[i * 8], g.L); c.y[i] = _fromFx(P1u[i * 8 + 1], g.L); }
+        c._computeForces();
+        const totF = [Float64Array.from(c.fx), Float64Array.from(c.fy)], totU = c.potentialEnergy, ref = {};
+        const nb = [Float64Array.from(totF[0]), Float64Array.from(totF[1])]; let nbU = totU;
+        for (const [t, fn] of [['bonds', '_computeBondForces'], ['angles', '_computeAngleForces'], ['pins', '_computePinForces']]) {
+            c.fx.fill(0); c.fy.fill(0); c.potentialEnergy = 0; c[fn]();
+            ref[t] = { fx: Float64Array.from(c.fx), fy: Float64Array.from(c.fy), U: c.potentialEnergy };
+            nbU -= c.potentialEnergy; for (let i = 0; i < N; i++) { nb[0][i] -= c.fx[i]; nb[1][i] -= c.fy[i]; }
+        }
+        ref.nonbonded = { fx: nb[0], fy: nb[1], U: nbU };
+        c.x = keep.x; c.y = keep.y; c.fx = keep.fx; c.fy = keep.fy; c.potentialEnergy = keep.pe;
+        // ── compare ──
+        const fr = c.frozen, rnd = v => +(+v).toPrecision(3);
+        res.forces = {};
+        for (const t of Object.keys(terms)) {
+            const G = terms[t], R = ref[t]; let se = 0, sf = 0, n = 0, mx = 0, worst = [], uG = 0;
+            for (let i = 0; i < N; i++) {
+                uG += G[i * 8 + 6];
+                if (fr && fr[i]) continue;
+                const rx = R.fx[i], ry = R.fy[i], ex = G[i * 8 + 4] - rx, ey = G[i * 8 + 5] - ry;
+                const e2 = ex * ex + ey * ey, f2 = rx * rx + ry * ry;
+                if (f2 === 0 && e2 === 0) continue;
+                se += e2; sf += f2; n++;
+                if (e2 > mx * mx) { mx = Math.sqrt(e2); }
+                worst.push([Math.sqrt(e2), i]);
+            }
+            worst.sort((a, b) => b[0] - a[0]);
+            res.forces[t] = { beads: n, rmsErr: rnd(Math.sqrt(se / Math.max(1, n))), rmsF: rnd(Math.sqrt(sf / Math.max(1, n))),
+                              relErr: rnd(Math.sqrt(se / Math.max(1e-300, sf))), maxErr: rnd(mx),
+                              U_gpu: rnd(uG), U_ref: rnd(R.U), dU_perBead: rnd((uG - R.U) / N),
+                              worst: worst.slice(0, 3).map(([e, i]) => ({ i, type: c.type[i], err: rnd(e), F: rnd(Math.hypot(R.fx[i], R.fy[i])),
+                                  bonds: (() => { let k = 0; for (let d = 0; d < (c.nBonds || 0); d++) if (c.bondI[d] === i || c.bondJ[d] === i) k++; return k; })() })) };
+        }
+        // ── energy readout ──
+        dev.queue.writeBuffer(g.particleBuffer, 0, P1);     // the step's own forces/pe back
+        await g._submitAndReadStats(dev.createCommandEncoder(), wgN); const pe1 = g.potentialEnergy, ke1 = g._KE;
+        await g._submitAndReadStats(dev.createCommandEncoder(), wgN); const pe2 = g.potentialEnergy;
+        let pe64 = 0, ke64 = 0; const mpt = g.massPerType || cpuSim.massPerType;
+        for (let i = 0; i < N; i++) { pe64 += P1[i * 8 + 6];
+            if (!(fr && fr[i])) { const vx = P1[i * 8 + 2], vy = P1[i * 8 + 3]; ke64 += 0.5 * mpt[P1[i * 8 + 7] & 3] * (vx * vx + vy * vy); } }
+        res.readout = { PE_stats: rnd(pe1), PE_beadsF64: rnd(pe64), PE_cpuF64: rnd(totU), repeat: pe1 === pe2,
+                        dPE_readout_perBead: rnd((pe1 - pe64) / N), dPE_gpuVsCpu_perBead: rnd((pe64 - totU) / N),
+                        KE_stats: rnd(ke1), KE_f64: rnd(ke64), dKE_perBead: rnd((ke1 - ke64) / N) };
+        let vs = 0; for (let i = 0; i < N; i++) vs += Math.hypot(P1[i * 8 + 2], P1[i * 8 + 3]);
+        const resl = g.L / FX_ONE;   // fixed-point positions (v1.28.0): uniform resolution
+        res.precision = { positions: 'fixed-point u32', resolution: rnd(resl), meanStep: rnd(vs / N * g.dt), resolutionOverStep: rnd(resl / (vs / N * g.dt)) };
+        // ── optional NVE drift runs, each from the same start ──
+        if (opts.drift > 0) {
+            res.drift = [];
+            for (const dt of (opts.dts && opts.dts.length ? opts.dts : [save.dt])) {
+                dev.queue.writeBuffer(g.particleBuffer, 0, P0); g.stepCount = save.stepCount;
+                g.dt = dt; g.updateParamsLive();
+                await g.step(1, null);
+                const E = () => g._KE + g.potentialEnergy, e0 = E(), Es = [], t0 = performance.now();
+                for (let n = 10; n <= opts.drift; n += 10) { await g.step(10, null); Es.push(E() - e0); }
+                const ms = (performance.now() - t0) / opts.drift, m = Es.length, tt = Es.map((_, k) => (k + 1) * 10 * dt);
+                const tb = tt.reduce((a, b) => a + b) / m, eb = Es.reduce((a, b) => a + b) / m;
+                let sxy = 0, sxx = 0; for (let k = 0; k < m; k++) { sxy += (tt[k] - tb) * (Es[k] - eb); sxx += (tt[k] - tb) ** 2; }
+                const slope = sxy / sxx; let w = 0; for (let k = 0; k < m; k++) w += (Es[k] - eb - slope * (tt[k] - tb)) ** 2;
+                res.drift.push({ dt, steps: opts.drift, tau: rnd(opts.drift * dt), msPerStep: rnd(ms),
+                    slopePerTau: rnd(slope / N), slopePerStep: rnd(slope * dt / N), wobble: rnd(Math.sqrt(w / m) / N),
+                    quarters: [1, 2, 3, 4].map(q => rnd(Es[Math.min(m - 1, Math.floor(q * m / 4) - 1)] / N)) });
+            }
+        }
+    } finally {
+        // ── put everything back ──
+        dev.queue.writeBuffer(g.particleBuffer, 0, P0);
+        g.stepCount = save.stepCount; g.simTime = save.simTime; g.reactions = save.reactions;
+        if (g.dt !== save.dt) { g.dt = save.dt; g.updateParamsLive(); }
+        await g._fullReadback(); syncCPUfromGPU();
+        g.potentialEnergy = save.pe; g._KE = save.ke; g._virial = save.vir;
+        { const e = dev.createCommandEncoder(); g._rxClearRecords(e); dev.queue.submit([e.finish()]); }   // no diagnostic encounters
+        rd.destroy();
+        if (typeof updateStats === 'function') updateStats(sim);
+    }
+    res.seconds = +((performance.now() - T0) / 1000).toFixed(1);
+    console.log('MTDIAG ' + JSON.stringify(res));
+    if (wasRunning) startLoop();
+    return res;
 }
 
 // ── GPU → CPU state copy ──────────────────────────────────────────────────────
@@ -13198,7 +14120,7 @@ function syncCPUfromGPU() {
     c.angleParamTable  = g.angleParamTable || [];
     // Reaction ledger (the GPU run may have reacted).
     c.rxFormed = g.rxFormed ?? c.rxFormed; c.rxBroken = g.rxBroken ?? c.rxBroken;
-    c.rxEnergy = g.rxEnergy ?? c.rxEnergy;
+    c.rxEnergy = g.rxEnergy ?? c.rxEnergy; c.rxRefused = g.rxRefused ?? c.rxRefused;
 }
 
 // ── Prepare / finalise edit (handles CPU↔GPU sync) ────────────────────────────
@@ -13261,19 +14183,19 @@ async function _pasteClipboard() {
     const cb   = _clipboard, n = cb.xs.length, base = cpuSim.N, newN = base + n;
     const L    = cpuSim.L, pcx = camera.x, pcy = camera.y;
 
-    cpuSim.x    = _growArr(Float32Array, cpuSim.x,    newN);
-    cpuSim.y    = _growArr(Float32Array, cpuSim.y,    newN);
-    cpuSim.vx   = _growArr(Float32Array, cpuSim.vx,   newN);
-    cpuSim.vy   = _growArr(Float32Array, cpuSim.vy,   newN);
-    cpuSim.fx   = _growArr(Float32Array, cpuSim.fx,   newN);
-    cpuSim.fy   = _growArr(Float32Array, cpuSim.fy,   newN);
+    cpuSim.x    = _growArr(PARTICLE_FLOAT, cpuSim.x,    newN);
+    cpuSim.y    = _growArr(PARTICLE_FLOAT, cpuSim.y,    newN);
+    cpuSim.vx   = _growArr(PARTICLE_FLOAT, cpuSim.vx,   newN);
+    cpuSim.vy   = _growArr(PARTICLE_FLOAT, cpuSim.vy,   newN);
+    cpuSim.fx   = _growArr(PARTICLE_FLOAT, cpuSim.fx,   newN);
+    cpuSim.fy   = _growArr(PARTICLE_FLOAT, cpuSim.fy,   newN);
     cpuSim.next = _growArr(Int32Array,   cpuSim.next, newN);
     cpuSim.type = _growArr(Int8Array,    cpuSim.type, newN);
     cpuSim.charge = _growArr(Float32Array, cpuSim.charge, newN);
     cpuSim.react  = _growArr(Uint8Array,   cpuSim.react,  newN);
     cpuSim.kpin   = _growArr(Float32Array, cpuSim.kpin,   newN);
-    cpuSim.refX   = _growArr(Float32Array, cpuSim.refX,   newN);
-    cpuSim.refY   = _growArr(Float32Array, cpuSim.refY,   newN);
+    cpuSim.refX   = _growArr(PARTICLE_FLOAT, cpuSim.refX,   newN);
+    cpuSim.refY   = _growArr(PARTICLE_FLOAT, cpuSim.refY,   newN);
     cpuSim.frozen = _growArr(Int8Array,    cpuSim.frozen, newN);
     if (cpuSim.molIdPerParticle)
         cpuSim.molIdPerParticle = _growArr(Uint32Array, cpuSim.molIdPerParticle, newN);
@@ -13446,11 +14368,15 @@ function _updateInspectBar() {
         const i = cpuSim.bondI[_beBondIdx], j = cpuSim.bondJ[_beBondIdx];
         document.getElementById('ib-label').textContent  = `${i}→${j}`;
         document.getElementById('ib-r-live').textContent = _simDist(i,j).toFixed(4);
-        const pid = cpuSim.bondParamId?cpuSim.bondParamId[_beBondIdx]:0;
-        const p   = cpuSim.bondParamTable?.[pid];
-        if (p) {
-            document.getElementById('ib-r0').value = (p.r0||1).toFixed(4);
-            document.getElementById('ib-k').value  = (p.k||100);
+        // A reactive bond (tags match a rule) shows — read-only — its rule's k and
+        // r0: those are what the engine uses (v1.26.2); edit them in the rule.
+        const p = _bondEff(cpuSim, _beBondIdx), byRule = p.rule >= 0;
+        const r0El = document.getElementById('ib-r0'), kEl = document.getElementById('ib-k');
+        r0El.value = (p.r0 || 1).toFixed(4); kEl.value = (p.k ?? 100);
+        for (const el of [r0El, kEl, document.getElementById('ib-measure')]) {
+            if (!el) continue;
+            el.disabled = byRule;
+            el.title = byRule ? tip('bond.byRule', { n: p.rule + 1 }) : tip(el.dataset.tip || 'bond.r0');
         }
     }
     if (hasAngle) {
@@ -13558,9 +14484,13 @@ function _updateInspectBar() {
         if (lbl) lbl.textContent = `${selN} bead${selN===1?'':'s'} · ${m} bond${m===1?'':'s'}`;
         $('ibb-cur').style.display = m > 0 ? 'contents' : 'none';
         if (m > 0) {
-            const ps = idxs.map(b => cpuSim.bondParamTable?.[cpuSim.bondParamId[b]] || {});
+            // Effective values; reactive bonds are set by their rule (read-only here).
+            const ps = idxs.map(b => _bondEff(cpuSim, b));
             _showUniform($('ibb-r0'), _uniformOf(ps.map(p => p.r0 ?? 1)), v => +v.toFixed(4));
             _showUniform($('ibb-k'),  _uniformOf(ps.map(p => p.k  ?? 100)), v => +v.toFixed(3));
+            const allRule = ps.every(p => p.rule >= 0);
+            for (const id of ['ibb-r0', 'ibb-k']) { const el = $(id); if (el) { el.disabled = allRule;
+                el.title = allRule ? tip('bond.byRuleBatch') : tip(el.dataset.tip || 'bond.r0'); } }
         }
         _showUniform($('ibb-newk'), _lastBondK, v => +v.toFixed(3));
         _showUniform($('ibb-cut'),  _autobondCutoff, v => +v.toFixed(3));
@@ -14383,13 +15313,25 @@ function _screenToSim(mx, my) {
     return { x: camera.x + (mx*rx - W/2) / scale, y: camera.y + (my*ry - H/2) / scale };
 }
 
-// GPU helpers: particle buffer stride = 8 × f32 = 32 bytes  [x,y,vx,vy,fx,fy,pad,type]
+// Fixed-point GPU positions (v1.28.0): x ∈ [0, L) ↔ u32 x/L·2³².  _toFx wraps
+// periodic input into the box; x = L exactly (a bead on the gravity floor) maps
+// to the top of the range rather than wrapping to 0.
+const FX_ONE = 4294967296;
+function _toFx(x, L) {
+    if (x === L) return 0xFFFFFFFF;
+    let f = x / L; f -= Math.floor(f);
+    let u = Math.round(f * FX_ONE); if (u >= FX_ONE) u -= FX_ONE;
+    return u >>> 0;
+}
+function _fromFx(u, L) { return u * (L / FX_ONE); }
+
+// GPU helpers: particle buffer stride 32 bytes  [x,y (u32 fixed point), vx,vy,fx,fy,pe,type (f32)]
 function _gpuWriteXY(indices) {
     gpuSim.invalidateFrozenVirial?.();   // a moved frozen bead changes the PME virial correction
     if (!gpuSim.ready || !gpuSim.particleBuffer) return;
-    const buf = new Float32Array(2);
+    const buf = new Uint32Array(2);
     for (const i of indices) {
-        buf[0] = sim.x[i]; buf[1] = sim.y[i];
+        buf[0] = _toFx(sim.x[i], gpuSim.L); buf[1] = _toFx(sim.y[i], gpuSim.L);
         gpuSim.device.queue.writeBuffer(gpuSim.particleBuffer, i * 32, buf, 0, 2);
     }
 }
@@ -14397,9 +15339,9 @@ function _gpuWriteXY(indices) {
 function _gpuWriteXYV(indices) {
     gpuSim.invalidateFrozenVirial?.();
     if (!gpuSim.ready || !gpuSim.particleBuffer) return;
-    const buf = new Float32Array(4);
+    const buf = new Float32Array(4), bufU = new Uint32Array(buf.buffer);
     for (const i of indices) {
-        buf[0] = sim.x[i]; buf[1] = sim.y[i]; buf[2] = 0; buf[3] = 0;
+        bufU[0] = _toFx(sim.x[i], gpuSim.L); bufU[1] = _toFx(sim.y[i], gpuSim.L); buf[2] = 0; buf[3] = 0;
         gpuSim.device.queue.writeBuffer(gpuSim.particleBuffer, i * 32, buf, 0, 4);
     }
 }
@@ -15124,19 +16066,19 @@ function _placeDrawBeads(points, pencil) {
     const n  = points.length;
     const g0 = c.N;
     const nN = c.N + n;
-    c.x    = _growArr(Float32Array, c.x,    nN);
-    c.y    = _growArr(Float32Array, c.y,    nN);
-    c.vx   = _growArr(Float32Array, c.vx,   nN);
-    c.vy   = _growArr(Float32Array, c.vy,   nN);
-    c.fx   = _growArr(Float32Array, c.fx,   nN);
-    c.fy   = _growArr(Float32Array, c.fy,   nN);
+    c.x    = _growArr(PARTICLE_FLOAT, c.x,    nN);
+    c.y    = _growArr(PARTICLE_FLOAT, c.y,    nN);
+    c.vx   = _growArr(PARTICLE_FLOAT, c.vx,   nN);
+    c.vy   = _growArr(PARTICLE_FLOAT, c.vy,   nN);
+    c.fx   = _growArr(PARTICLE_FLOAT, c.fx,   nN);
+    c.fy   = _growArr(PARTICLE_FLOAT, c.fy,   nN);
     c.next = _growArr(Int32Array,   c.next, nN);
     c.type = _growArr(Int8Array,    c.type, nN);
     c.charge = _growArr(Float32Array, c.charge, nN);
     c.react  = _growArr(Uint8Array,   c.react,  nN);
     c.kpin   = _growArr(Float32Array, c.kpin,   nN);
-    c.refX   = _growArr(Float32Array, c.refX,   nN);
-    c.refY   = _growArr(Float32Array, c.refY,   nN);
+    c.refX   = _growArr(PARTICLE_FLOAT, c.refX,   nN);
+    c.refY   = _growArr(PARTICLE_FLOAT, c.refY,   nN);
     c.frozen = _growArr(Int8Array,    c.frozen, nN);
     c.molIdPerParticle = _growArr(Uint32Array, c.molIdPerParticle, nN);
 
@@ -15844,7 +16786,7 @@ const STATS_LOG_COLS = [
     { key: 'PE_N'     }, { key: 'E_N'  }, { key: 'P' },
     { key: 'N',        int: true }, { key: 'N_frozen', int: true },
     { key: 'Q'        },
-    { key: 'rx_formed', int: true }, { key: 'rx_broken', int: true }, { key: 'E_rx_N' },
+    { key: 'rx_formed', int: true }, { key: 'rx_broken', int: true }, { key: 'rx_refused', int: true },
 ];
 const STATS_LOG_SOFT_MAX = 1e6;   // rows; past this the count turns orange (big files)
 
@@ -16031,21 +16973,21 @@ function updateStats(engine) {
         qEl.textContent = (Math.abs(sumQ) < 1e-9 ? 0 : sumQ).toFixed(3);
         qEl.style.color = (Math.abs(sumQ) < 1e-6) ? '#2a9d4a' : '#d94040';
     }
-    // Reaction ledger (v1.24.0): shown once rules exist (or something reacted).
+    // Reaction counters (v1.25.1: three separate entries; the E rx energy-jump
+    // ledger left the bar — it summed switching jumps, not reaction heat).  Shown
+    // once rules exist (or something reacted); Refused only when it can happen
+    // (energy-conserving mode) or has happened.
     {
         const src = (engine.rxFormed !== undefined) ? engine : cpuSim;
-        const f = src.rxFormed || 0, b = src.rxBroken || 0, e = src.rxEnergy || 0;
+        const f = src.rxFormed || 0, b = src.rxBroken || 0, rf = src.rxRefused || 0;
         const show = (cpuSim.reactions && cpuSim.reactions.length > 0) || f > 0 || b > 0;
-        const it1 = document.getElementById('s-rx-item'), it2 = document.getElementById('s-erx-item');
-        if (it1) it1.style.display = show ? '' : 'none';
-        if (it2) it2.style.display = show ? '' : 'none';
-        const eN = N > 0 ? e / N : 0;
-        if (show) {
-            const v1 = document.getElementById('s-rx'), v2 = document.getElementById('s-erx');
-            if (v1) v1.textContent = `${f} / ${b}`;
-            if (v2) v2.textContent = (Math.abs(eN) < 5e-5 ? 0 : eN).toFixed(4);
-        }
-        st.rx_formed = f; st.rx_broken = b; st.E_rx_N = eN;
+        const showR = show && (!!cpuSim.reactNVE || rf > 0);
+        const put = (id, on, v) => {
+            const it = document.getElementById(id + '-item'); if (it) it.style.display = on ? '' : 'none';
+            const el = document.getElementById(id); if (on && el) el.textContent = String(v);
+        };
+        put('s-rxf', show, f); put('s-rxb', show, b); put('s-rxr', showR, rf);
+        st.rx_formed = f; st.rx_broken = b; st.rx_refused = rf;
         // GPU event list overflowed on the last check (rest deferred to the next).
         const ow = document.getElementById('react-overflow-warn');
         if (ow) ow.style.display = (currentEngine === 'gpu' && gpuSim._rxOverflow) ? '' : 'none';
@@ -16079,6 +17021,7 @@ function readUI(targetSim) {
     targetSim.gravityOn = document.getElementById('gravity-cb').checked;
     targetSim.gravity   = parseFloat(document.getElementById('gravity-n').value) || DEF('gravity-n');
     targetSim.reactEvery = parseInt(document.getElementById('react-every-n')?.value) || DEF('react-every-n');
+    targetSim.reactNVE   = !!document.getElementById('react-nve-cb')?.checked;
     targetSim.coulombK     = parseFloat(document.getElementById('coulombK-n').value);
     if (!isFinite(targetSim.coulombK)) targetSim.coulombK = 5.0;
     targetSim.coulombAlpha = parseFloat(document.getElementById('coulombAlpha-n').value);
@@ -16450,13 +17393,16 @@ function _sanitizeReactionRules(arr) {
     for (const r of arr) {
         if (!r || out.length >= REACT_RULE_MAX) continue;
         const a = _clampReactTag(r.a), b = _clampReactTag(r.b);
-        const rf = +r.rf, rd = +r.rd, r0 = +r.r0, k = +r.k;
-        if (!(a > 0 && b > 0 && rf > 0 && rd > rf && r0 > 0 && k >= 0)) continue;
+        const rf = +r.rf, rd = +r.rd, r0 = +r.r0, k = +r.k, d = (r.d === undefined) ? 0 : +r.d;
+        if (!(a > 0 && b > 0 && rf > 0 && rd > rf && r0 > 0 && k >= 0 && Number.isFinite(d))) continue;
         const key = _reactRuleKey(a, b);
         if (seen.has(key)) continue;
         seen.add(key);
-        out.push({ a, b, rf, rd, r0, k, on: r.on !== false });
+        const x = Number.isInteger(+r.x) && +r.x > 0 && +r.x <= REACT_RULE_MAX ? +r.x : 0;
+        out.push({ a, b, rf, rd, r0, k, d, x, on: r.on !== false });
     }
+    // A displacement pointing at itself or past the end means none.
+    out.forEach((r, i) => { if (r.x === i + 1 || r.x > out.length) r.x = 0; });
     return out;
 }
 // First unused tag pair for a new rule: (1,2), (1,3), …, (2,3), …
@@ -16470,8 +17416,23 @@ function _nextFreeReactPair() {
 function _pushReactions() {
     gpuSim.reactions  = (cpuSim.reactions || []).map(r => ({ ...r }));
     gpuSim.reactEvery = cpuSim.reactEvery;
+    gpuSim.reactNVE   = cpuSim.reactNVE;
+    // Reactive bonds take k, r0 and D from their rule (v1.26.2): if any of those
+    // or a rule's tags changed, forces and PE change at once — refresh the GPU's
+    // rule entries / bond mapping and, while paused, the forces and stats.
+    const key = _rxBondKey(cpuSim.reactions || []);
+    if (key !== _pushReactions._dKey) {
+        _pushReactions._dKey = key;
+        if (gpuSim.ready) gpuSim.uploadReactBondsLive();
+        if (!running && cpuSim.N > 0) {
+            cpuSim._computeForces();
+            if (currentEngine === 'gpu' && gpuSim.ready) gpuSim.potentialEnergy = cpuSim.potentialEnergy;
+            updateStats(sim);
+        }
+    }
     saveToURL();
 }
+_pushReactions._dKey = '';   // no D anywhere at startup
 function _flashReactHint(msg) {
     const add = document.getElementById('react-add');
     if (!add) return;
@@ -16522,6 +17483,17 @@ function _renderReactionList() {
             <input type="number" class="param-input rx-f" data-i="${idx}" data-f="r0" data-def="reactR0" value="${r.r0}" step="0.05" style="width:56px">
             <input type="number" class="param-input rx-f" data-i="${idx}" data-f="k" data-def="reactK" value="${r.k}" step="1" style="width:56px">
           </div>
+          <div class="control-row" style="margin-bottom:2px" title="${tipAttr('react.energy')}">
+            <label>Bond energy D</label>
+            <input type="number" class="param-input rx-f" data-i="${idx}" data-f="d" data-def="reactD" value="${r.d || 0}" step="0.5" style="width:56px">
+            <span class="stat-val rx-smooth" style="font-size:0.8em; opacity:0.75">${(r.d > 0 && r.k > 0) ? `no jump on breaking at r ${(r.r0 + Math.sqrt(2 * r.d / r.k)).toFixed(2)}` : (r.d < 0 ? 'high-energy bond' : '')}</span>
+          </div>
+          <div class="control-row" style="margin-bottom:2px" title="${tipAttr('react.displace')}">
+            <label>Displaces reaction</label>
+            <input type="number" class="param-input rx-f" data-i="${idx}" data-f="x" data-def="reactX" value="${r.x || 0}" step="1" style="width:46px">
+            <span class="stat-val" style="font-size:0.8em; opacity:0.75">${(() => { const X = _rxDispTarget(rules, idx);
+                return X >= 0 ? `replaces a ${rules[X].a} + ${rules[X].b} bond` : ''; })()}</span>
+          </div>
           ${inactive ? `<div class="control-row"><span class="stat-val" style="font-size:0.8em; color:var(--red,#d33)" title="${tipAttr('react.inactive')}">inactive: r form &gt; r_cut (${(+cpuSim.rcCut).toFixed(2)})</span></div>` : ''}`;
         list.appendChild(wrap);
     });
@@ -16531,7 +17503,9 @@ function _renderReactionList() {
         _renderReactionList(); _pushReactions();
     }));
     list.querySelectorAll('.rx-del').forEach(el => el.addEventListener('click', e => {
-        cpuSim.reactions.splice(+e.target.dataset.i, 1);
+        const del = +e.target.dataset.i + 1;   // 1-based, as shown and as stored in x
+        cpuSim.reactions.splice(del - 1, 1);
+        for (const r of cpuSim.reactions) { if (r.x === del) r.x = 0; else if (r.x > del) r.x--; }
         _renderReactionList(); _pushReactions();
     }));
     // Tag badges follow the typed value (live colour feedback, like the inspector).
@@ -16553,6 +17527,8 @@ function _renderReactionList() {
         if ((f === 'a' || f === 'b') && cpuSim.reactions.some((o, j) =>
                     j !== i && _reactRuleKey(o.a, o.b) === _reactRuleKey(trial.a, trial.b)))
             why = `tags ${trial.a} + ${trial.b} already have a rule`;
+        if (f === 'x' && v !== 0 && (v === i + 1 || v > cpuSim.reactions.length))
+            why = v === i + 1 ? 'a reaction can’t displace itself' : `no reaction ${v}`;
         if (why) {
             e.target.value = r[f];
             e.target.dispatchEvent(new Event('input', { bubbles: true }));
@@ -16568,6 +17544,8 @@ function _syncReactionUI() {
     if (!Array.isArray(cpuSim.reactions)) cpuSim.reactions = [];
     const n = document.getElementById('react-every-n'), sl = document.getElementById('react-every-s');
     if (n && cpuSim.reactEvery >= 1) { n.value = cpuSim.reactEvery; if (sl) sl.value = cpuSim.reactEvery; _syncSlider(n); }
+    const nve = document.getElementById('react-nve-cb');
+    if (nve) nve.checked = !!cpuSim.reactNVE;
     _renderReactionList();
     _pushReactions();
 }
@@ -16577,7 +17555,7 @@ document.getElementById('react-add')?.addEventListener('click', () => {
     const [a, b] = _nextFreeReactPair();
     const rf = Math.min(DEF('reactRf'), cpuSim.rcCut);
     const rd = Math.max(DEF('reactRd'), rf * 1.3);
-    cpuSim.reactions.push({ a, b, rf, rd, r0: DEF('reactR0'), k: DEF('reactK'), on: true });
+    cpuSim.reactions.push({ a, b, rf, rd, r0: DEF('reactR0'), k: DEF('reactK'), d: DEF('reactD'), x: DEF('reactX'), on: true });
     _renderReactionList(); _pushReactions();
 });
 wire('react-every-s', 'react-every-n', v => {
@@ -16587,6 +17565,10 @@ wire('react-every-s', 'react-every-n', v => {
     _pushReactions();
 });
 cpuSim.reactEvery = parseInt(document.getElementById('react-every-n')?.value) || DEF('react-every-n');
+document.getElementById('react-nve-cb')?.addEventListener('change', e => {
+    cpuSim.reactNVE = !!e.target.checked; _pushReactions();
+});
+cpuSim.reactNVE = !!document.getElementById('react-nve-cb')?.checked;
 _renderReactionList();
 
 wire('coulombK-s', 'coulombK-n', v => {
@@ -17245,8 +18227,8 @@ async function performFill() {
 
     // Snapshot existing particles BEFORE readUI changes cpuSim.N.
     const exN  = cpuSim.N;
-    const snapX = exN > 0 ? new Float32Array(cpuSim.x).slice(0, exN) : new Float32Array(0);
-    const snapY = exN > 0 ? new Float32Array(cpuSim.y).slice(0, exN) : new Float32Array(0);
+    const snapX = exN > 0 ? new PARTICLE_FLOAT(cpuSim.x).slice(0, exN) : new PARTICLE_FLOAT(0);
+    const snapY = exN > 0 ? new PARTICLE_FLOAT(cpuSim.y).slice(0, exN) : new PARTICLE_FLOAT(0);
 
     readUI(cpuSim);
     dtTarget = cpuSim.dt;
@@ -17589,12 +18571,12 @@ async function performFill() {
         const newN   = newXY.length;
         const totalN = baseN + newN;
 
-        cpuSim.x    = _growArr(Float32Array, cpuSim.x,    totalN);
-        cpuSim.y    = _growArr(Float32Array, cpuSim.y,    totalN);
-        cpuSim.vx   = _growArr(Float32Array, cpuSim.vx,   totalN);
-        cpuSim.vy   = _growArr(Float32Array, cpuSim.vy,   totalN);
-        cpuSim.fx   = _growArr(Float32Array, cpuSim.fx,   totalN);
-        cpuSim.fy   = _growArr(Float32Array, cpuSim.fy,   totalN);
+        cpuSim.x    = _growArr(PARTICLE_FLOAT, cpuSim.x,    totalN);
+        cpuSim.y    = _growArr(PARTICLE_FLOAT, cpuSim.y,    totalN);
+        cpuSim.vx   = _growArr(PARTICLE_FLOAT, cpuSim.vx,   totalN);
+        cpuSim.vy   = _growArr(PARTICLE_FLOAT, cpuSim.vy,   totalN);
+        cpuSim.fx   = _growArr(PARTICLE_FLOAT, cpuSim.fx,   totalN);
+        cpuSim.fy   = _growArr(PARTICLE_FLOAT, cpuSim.fy,   totalN);
         cpuSim.next = _growArr(Int32Array,   cpuSim.next, totalN);
         cpuSim.type = _growArr(Int8Array,    cpuSim.type, totalN);
         cpuSim.charge = _growArr(Float32Array, cpuSim.charge, totalN);  // new beads default 0
@@ -17603,8 +18585,8 @@ async function performFill() {
         // default to unpinned (kpin 0) and mobile (frozen 0); their anchor is set
         // to their own spawn position below so a later pin starts tethered in place.
         cpuSim.kpin   = _growArr(Float32Array, cpuSim.kpin,   totalN);
-        cpuSim.refX   = _growArr(Float32Array, cpuSim.refX,   totalN);
-        cpuSim.refY   = _growArr(Float32Array, cpuSim.refY,   totalN);
+        cpuSim.refX   = _growArr(PARTICLE_FLOAT, cpuSim.refX,   totalN);
+        cpuSim.refY   = _growArr(PARTICLE_FLOAT, cpuSim.refY,   totalN);
         cpuSim.frozen = _growArr(Int8Array,    cpuSim.frozen, totalN);
         const newMol = _growArr(Uint32Array, cpuSim.molIdPerParticle, totalN);
         for (let i = baseN; i < totalN; i++) newMol[i] = 0xFFFFFFFF;
@@ -17820,8 +18802,8 @@ engineSelect.addEventListener('change', async (e) => {
 
         cpuSim.stepCount = sim.stepCount;
         cpuSim.simTime   = sim.simTime ?? 0;
-        cpuSim.x = Float32Array.from(sim.x); cpuSim.y = Float32Array.from(sim.y);
-        cpuSim.vx = Float32Array.from(sim.vx); cpuSim.vy = Float32Array.from(sim.vy);
+        cpuSim.x = PARTICLE_FLOAT.from(sim.x); cpuSim.y = PARTICLE_FLOAT.from(sim.y);
+        cpuSim.vx = PARTICLE_FLOAT.from(sim.vx); cpuSim.vy = PARTICLE_FLOAT.from(sim.vy);
         sim = cpuSim;
 
         gpuCanvas.style.display = 'none';
@@ -17870,6 +18852,9 @@ engineSelect.addEventListener('change', async (e) => {
             sim = gpuSim;
 
             readUI(gpuSim);
+            // readUI copies the N FIELD (the requested count); the fill may have
+            // placed fewer.  The engine must run what was uploaded (v1.27.2).
+            gpuSim.N = cpuSim.N;
             gpuSim.updateParamsLive();
             gpuSim.updateBondedParams();
             gpuSim.updateBondParams();
